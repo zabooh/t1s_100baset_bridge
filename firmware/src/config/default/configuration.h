@@ -128,14 +128,14 @@ extern "C" {
 #define DRV_LAN865X_INSTANCES_NUMBER         1
 
 #define DRV_LAN865X_SPI_DRIVER_INSTANCE_IDX0 0
-#define DRV_LAN865X_CLIENT_INSTANCES_IDX0    1
+#define DRV_LAN865X_CLIENT_INSTANCES_IDX0    2
 #define DRV_LAN865X_SPI_FREQ_IDX0            15000000
 #define DRV_LAN865X_MAC_RX_DESCRIPTORS_IDX0  2
 #define DRV_LAN865X_MAX_RX_BUFFER_IDX0       1536
 #define DRV_LAN865X_SPI_CS_IDX0              SYS_PORT_PIN_PC15
 #define DRV_LAN865X_INTERRUPT_PIN_IDX0       SYS_PORT_PIN_PC14
 #define DRV_LAN865X_RESET_PIN_IDX0           SYS_PORT_PIN_PC18
-#define DRV_LAN865X_PROMISCUOUS_IDX0         false
+#define DRV_LAN865X_PROMISCUOUS_IDX0         true
 #define DRV_LAN865X_TX_CUT_THROUGH_IDX0      true
 #define DRV_LAN865X_RX_CUT_THROUGH_IDX0      false
 #define DRV_LAN865X_CHUNK_SIZE_IDX0          64
@@ -188,12 +188,12 @@ extern "C" {
 #define TCPIP_NETWORK_DEFAULT_INTERFACE_NAME_IDX0 "LAN865x"
 
 #define TCPIP_NETWORK_DEFAULT_HOST_NAME_IDX0              "MCHP_LAN865x"
-#define TCPIP_NETWORK_DEFAULT_MAC_ADDR_IDX0               "00:04:25:1C:A0:02"
+#define TCPIP_NETWORK_DEFAULT_MAC_ADDR_IDX0               0
 
-#define TCPIP_NETWORK_DEFAULT_IP_ADDRESS_IDX0         "192.168.100.11"
-#define TCPIP_NETWORK_DEFAULT_IP_MASK_IDX0            "255.255.255.0"
-#define TCPIP_NETWORK_DEFAULT_GATEWAY_IDX0            "192.168.100.1"
-#define TCPIP_NETWORK_DEFAULT_DNS_IDX0                "192.168.100.1"
+#define TCPIP_NETWORK_DEFAULT_IP_ADDRESS_IDX0         ""
+#define TCPIP_NETWORK_DEFAULT_IP_MASK_IDX0            ""
+#define TCPIP_NETWORK_DEFAULT_GATEWAY_IDX0            ""
+#define TCPIP_NETWORK_DEFAULT_DNS_IDX0                ""
 #define TCPIP_NETWORK_DEFAULT_SECOND_DNS_IDX0         ""
 #define TCPIP_NETWORK_DEFAULT_POWER_MODE_IDX0         "full"
 #define TCPIP_NETWORK_DEFAULT_INTERFACE_FLAGS_IDX0            \
@@ -208,12 +208,12 @@ extern "C" {
 #define TCPIP_IF_GMAC  
 
 #define TCPIP_NETWORK_DEFAULT_HOST_NAME_IDX1              "MCHPBOARD_C"
-#define TCPIP_NETWORK_DEFAULT_MAC_ADDR_IDX1               "00:04:25:1C:A0:02"
+#define TCPIP_NETWORK_DEFAULT_MAC_ADDR_IDX1               0
 
-#define TCPIP_NETWORK_DEFAULT_IP_ADDRESS_IDX1         "192.168.100.12"
-#define TCPIP_NETWORK_DEFAULT_IP_MASK_IDX1            "255.255.255.0"
-#define TCPIP_NETWORK_DEFAULT_GATEWAY_IDX1            "192.168.100.1"
-#define TCPIP_NETWORK_DEFAULT_DNS_IDX1                "192.168.100.1"
+#define TCPIP_NETWORK_DEFAULT_IP_ADDRESS_IDX1         ""
+#define TCPIP_NETWORK_DEFAULT_IP_MASK_IDX1            ""
+#define TCPIP_NETWORK_DEFAULT_GATEWAY_IDX1            ""
+#define TCPIP_NETWORK_DEFAULT_DNS_IDX1                ""
 #define TCPIP_NETWORK_DEFAULT_SECOND_DNS_IDX1         ""
 #define TCPIP_NETWORK_DEFAULT_POWER_MODE_IDX1         "full"
 #define TCPIP_NETWORK_DEFAULT_INTERFACE_FLAGS_IDX1            \
@@ -299,6 +299,7 @@ extern "C" {
                                                         TCPIP_MAC_RX_FILTER_TYPE_MCAST_ACCEPT |\
                                                         TCPIP_MAC_RX_FILTER_TYPE_UCAST_ACCEPT |\
                                                         TCPIP_MAC_RX_FILTER_TYPE_CRC_ERROR_REJECT |\
+                                                        TCPIP_MAC_RX_FILTER_TYPE_ALL_ACCEPT |\
                                                           0
        
 #define TCPIP_GMAC_SCREEN1_COUNT_QUE        0 
@@ -345,7 +346,7 @@ extern "C" {
 
 /*** Bridge Configuration ***/
 #define TCPIP_STACK_USE_MAC_BRIDGE
-#define TCPIP_STACK_MAC_BRIDGE_COMMANDS false
+#define TCPIP_STACK_MAC_BRIDGE_COMMANDS true
 #define TCPIP_MAC_BRIDGE_FDB_TABLE_ENTRIES          17
 #define TCPIP_MAC_BRIDGE_MAX_PORTS_NO               2
 #define TCPIP_MAC_BRIDGE_PACKET_POOL_SIZE           8

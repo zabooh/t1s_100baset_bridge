@@ -3183,7 +3183,7 @@
          <key class="com.microchip.mcc.core.tokenManager.CustomKey" moduleName="core" name="!@#harmonyUserData"/>
          <value>&lt;?xml version=&quot;1.0&quot; encoding=&quot;UTF-8&quot;?&gt;&lt;UserData&gt;
   &lt;UserData dnOrder=&quot;0&quot;&gt;
-    &lt;GraphSettings canvasHeight=&quot;1000&quot; canvasWidth=&quot;800&quot; dnOrder=&quot;0&quot;/&gt;
+    &lt;GraphSettings canvasHeight=&quot;475&quot; canvasWidth=&quot;601&quot; dnOrder=&quot;0&quot;/&gt;
     &lt;ComponentGraph dnOrder=&quot;1&quot; id=&quot;APPLICATION LAYER&quot;/&gt;
     &lt;ComponentGraph dnOrder=&quot;2&quot; id=&quot;BASIC CONFIGURATION&quot;&gt;
       &lt;ElementPositions dnOrder=&quot;0&quot;&gt;
@@ -3193,13 +3193,13 @@
     &lt;/ComponentGraph&gt;
     &lt;ComponentGraph dnOrder=&quot;3&quot; id=&quot;DATA LINK LAYER&quot;&gt;
       &lt;ElementPositions dnOrder=&quot;0&quot;&gt;
-        &lt;ElementPosition dnOrder=&quot;0&quot; id=&quot;drvExtMacLan865x&quot; x=&quot;252&quot; y=&quot;185&quot;/&gt;
-        &lt;ElementPosition dnOrder=&quot;1&quot; id=&quot;drvExtPhyLan8740&quot; x=&quot;30&quot; y=&quot;339&quot;/&gt;
-        &lt;ElementPosition dnOrder=&quot;2&quot; id=&quot;drvGmac&quot; x=&quot;283&quot; y=&quot;339&quot;/&gt;
-        &lt;ElementPosition dnOrder=&quot;3&quot; id=&quot;drvMiim&quot; x=&quot;482&quot; y=&quot;293&quot;/&gt;
+        &lt;ElementPosition dnOrder=&quot;0&quot; id=&quot;drvExtMacLan865x&quot; x=&quot;294&quot; y=&quot;58&quot;/&gt;
+        &lt;ElementPosition dnOrder=&quot;1&quot; id=&quot;drvExtPhyLan8740&quot; x=&quot;196&quot; y=&quot;189&quot;/&gt;
+        &lt;ElementPosition dnOrder=&quot;2&quot; id=&quot;drvGmac&quot; x=&quot;341&quot; y=&quot;211&quot;/&gt;
+        &lt;ElementPosition dnOrder=&quot;3&quot; id=&quot;drvMiim&quot; x=&quot;688&quot; y=&quot;44&quot;/&gt;
         &lt;ElementPosition dnOrder=&quot;4&quot; id=&quot;drv_spi&quot; x=&quot;143&quot; y=&quot;17&quot;/&gt;
         &lt;ElementPosition dnOrder=&quot;5&quot; id=&quot;sercom0&quot; x=&quot;0&quot; y=&quot;82&quot;/&gt;
-        &lt;ElementPosition dnOrder=&quot;6&quot; id=&quot;tcpipNetConfig&quot; x=&quot;452&quot; y=&quot;56&quot;/&gt;
+        &lt;ElementPosition dnOrder=&quot;6&quot; id=&quot;tcpipNetConfig&quot; x=&quot;465&quot; y=&quot;54&quot;/&gt;
       &lt;/ElementPositions&gt;
     &lt;/ComponentGraph&gt;
     &lt;ComponentGraph dnOrder=&quot;4&quot; id=&quot;NETWORK LAYER&quot;/&gt;
@@ -6678,7 +6678,9 @@
          <key class="com.microchip.mcc.core.tokenManager.CustomKey" moduleName="drvExtMacLan865x_0" name="DRV_LAN865X_CLIENT_INSTANCES_IDX0"/>
          <value>&lt;?xml version=&quot;1.0&quot; encoding=&quot;UTF-8&quot;?&gt;&lt;drvExtMacLan865x_0&gt;
   &lt;drvExtMacLan865x_0 dnOrder=&quot;0&quot; id=&quot;DRV_LAN865X_CLIENT_INSTANCES_IDX0&quot;&gt;
-    &lt;Values dnOrder=&quot;0&quot;/&gt;
+    &lt;Values dnOrder=&quot;0&quot;&gt;
+      &lt;User dnOrder=&quot;0&quot; value=&quot;2&quot;/&gt;
+    &lt;/Values&gt;
   &lt;/drvExtMacLan865x_0&gt;
 &lt;/drvExtMacLan865x_0&gt;
 </value>
@@ -6755,7 +6757,9 @@
          <key class="com.microchip.mcc.core.tokenManager.CustomKey" moduleName="drvExtMacLan865x_0" name="DRV_LAN865X_PROMISCUOUS_IDX0"/>
          <value>&lt;?xml version=&quot;1.0&quot; encoding=&quot;UTF-8&quot;?&gt;&lt;drvExtMacLan865x_0&gt;
   &lt;drvExtMacLan865x_0 dnOrder=&quot;0&quot; id=&quot;DRV_LAN865X_PROMISCUOUS_IDX0&quot;&gt;
-    &lt;Values dnOrder=&quot;0&quot;/&gt;
+    &lt;Values dnOrder=&quot;0&quot;&gt;
+      &lt;User dnOrder=&quot;0&quot; value=&quot;true&quot;/&gt;
+    &lt;/Values&gt;
   &lt;/drvExtMacLan865x_0&gt;
 &lt;/drvExtMacLan865x_0&gt;
 </value>
@@ -7098,7 +7102,9 @@
          <key class="com.microchip.mcc.core.tokenManager.CustomKey" moduleName="drvGmac" name="TCPIP_GMAC_ETH_FILTER_ALL_ACCEPT"/>
          <value>&lt;?xml version=&quot;1.0&quot; encoding=&quot;UTF-8&quot;?&gt;&lt;drvGmac&gt;
   &lt;drvGmac dnOrder=&quot;0&quot; id=&quot;TCPIP_GMAC_ETH_FILTER_ALL_ACCEPT&quot;&gt;
-    &lt;Values dnOrder=&quot;0&quot;/&gt;
+    &lt;Values dnOrder=&quot;0&quot;&gt;
+      &lt;User dnOrder=&quot;0&quot; value=&quot;true&quot;/&gt;
+    &lt;/Values&gt;
   &lt;/drvGmac&gt;
 &lt;/drvGmac&gt;
 </value>
@@ -11670,7 +11676,12 @@
          <key class="com.microchip.mcc.core.tokenManager.CustomKey" moduleName="tcpipNetConfig" name="TCPIP_MAC_BRIDGE_STATISTICS"/>
          <value>&lt;?xml version=&quot;1.0&quot; encoding=&quot;UTF-8&quot;?&gt;&lt;tcpipNetConfig&gt;
   &lt;tcpipNetConfig dnOrder=&quot;0&quot; id=&quot;TCPIP_MAC_BRIDGE_STATISTICS&quot;&gt;
-    &lt;Values dnOrder=&quot;0&quot;/&gt;
+    &lt;Attributes dnOrder=&quot;0&quot;&gt;
+      &lt;Boolean dnOrder=&quot;0&quot; id=&quot;visible&quot;&gt;
+        &lt;Value dnOrder=&quot;0&quot;&gt;true&lt;/Value&gt;
+      &lt;/Boolean&gt;
+    &lt;/Attributes&gt;
+    &lt;Values dnOrder=&quot;1&quot;/&gt;
   &lt;/tcpipNetConfig&gt;
 &lt;/tcpipNetConfig&gt;
 </value>
@@ -11688,7 +11699,14 @@
          <key class="com.microchip.mcc.core.tokenManager.CustomKey" moduleName="tcpipNetConfig" name="TCPIP_STACK_MAC_BRIDGE_COMMANDS"/>
          <value>&lt;?xml version=&quot;1.0&quot; encoding=&quot;UTF-8&quot;?&gt;&lt;tcpipNetConfig&gt;
   &lt;tcpipNetConfig dnOrder=&quot;0&quot; id=&quot;TCPIP_STACK_MAC_BRIDGE_COMMANDS&quot;&gt;
-    &lt;Values dnOrder=&quot;0&quot;/&gt;
+    &lt;Attributes dnOrder=&quot;0&quot;&gt;
+      &lt;Boolean dnOrder=&quot;0&quot; id=&quot;visible&quot;&gt;
+        &lt;Value dnOrder=&quot;0&quot;&gt;true&lt;/Value&gt;
+      &lt;/Boolean&gt;
+    &lt;/Attributes&gt;
+    &lt;Values dnOrder=&quot;1&quot;&gt;
+      &lt;User dnOrder=&quot;0&quot; value=&quot;true&quot;/&gt;
+    &lt;/Values&gt;
   &lt;/tcpipNetConfig&gt;
 &lt;/tcpipNetConfig&gt;
 </value>
@@ -11792,6 +11810,7 @@
   &lt;tcpipNetConfig_0 dnOrder=&quot;0&quot; id=&quot;TCPIP_NETWORK_DEFAULT_DNS_IDX0&quot;&gt;
     &lt;Values dnOrder=&quot;0&quot;&gt;
       &lt;Dynamic dnOrder=&quot;0&quot; id=&quot;tcpipNetConfig_0&quot; value=&quot;192.168.100.1&quot;/&gt;
+      &lt;User dnOrder=&quot;1&quot; value=&quot;&quot;/&gt;
     &lt;/Values&gt;
   &lt;/tcpipNetConfig_0&gt;
 &lt;/tcpipNetConfig_0&gt;
@@ -11803,6 +11822,7 @@
   &lt;tcpipNetConfig_0 dnOrder=&quot;0&quot; id=&quot;TCPIP_NETWORK_DEFAULT_GATEWAY_IDX0&quot;&gt;
     &lt;Values dnOrder=&quot;0&quot;&gt;
       &lt;Dynamic dnOrder=&quot;0&quot; id=&quot;tcpipNetConfig_0&quot; value=&quot;192.168.100.1&quot;/&gt;
+      &lt;User dnOrder=&quot;1&quot; value=&quot;&quot;/&gt;
     &lt;/Values&gt;
   &lt;/tcpipNetConfig_0&gt;
 &lt;/tcpipNetConfig_0&gt;
@@ -11863,6 +11883,7 @@
   &lt;tcpipNetConfig_0 dnOrder=&quot;0&quot; id=&quot;TCPIP_NETWORK_DEFAULT_IP_ADDRESS_IDX0&quot;&gt;
     &lt;Values dnOrder=&quot;0&quot;&gt;
       &lt;Dynamic dnOrder=&quot;0&quot; id=&quot;tcpipNetConfig_0&quot; value=&quot;192.168.100.11&quot;/&gt;
+      &lt;User dnOrder=&quot;1&quot; value=&quot;&quot;/&gt;
     &lt;/Values&gt;
   &lt;/tcpipNetConfig_0&gt;
 &lt;/tcpipNetConfig_0&gt;
@@ -11872,7 +11893,9 @@
          <key class="com.microchip.mcc.core.tokenManager.CustomKey" moduleName="tcpipNetConfig_0" name="TCPIP_NETWORK_DEFAULT_IP_MASK_IDX0"/>
          <value>&lt;?xml version=&quot;1.0&quot; encoding=&quot;UTF-8&quot;?&gt;&lt;tcpipNetConfig_0&gt;
   &lt;tcpipNetConfig_0 dnOrder=&quot;0&quot; id=&quot;TCPIP_NETWORK_DEFAULT_IP_MASK_IDX0&quot;&gt;
-    &lt;Values dnOrder=&quot;0&quot;/&gt;
+    &lt;Values dnOrder=&quot;0&quot;&gt;
+      &lt;User dnOrder=&quot;0&quot; value=&quot;&quot;/&gt;
+    &lt;/Values&gt;
   &lt;/tcpipNetConfig_0&gt;
 &lt;/tcpipNetConfig_0&gt;
 </value>
@@ -11883,6 +11906,7 @@
   &lt;tcpipNetConfig_0 dnOrder=&quot;0&quot; id=&quot;TCPIP_NETWORK_DEFAULT_MAC_ADDR_IDX0&quot;&gt;
     &lt;Values dnOrder=&quot;0&quot;&gt;
       &lt;Dynamic dnOrder=&quot;0&quot; id=&quot;tcpipNetConfig_0&quot; value=&quot;00:04:25:1C:A0:02&quot;/&gt;
+      &lt;User dnOrder=&quot;1&quot; value=&quot;&quot;/&gt;
     &lt;/Values&gt;
   &lt;/tcpipNetConfig_0&gt;
 &lt;/tcpipNetConfig_0&gt;
@@ -12040,6 +12064,7 @@
   &lt;tcpipNetConfig_1 dnOrder=&quot;0&quot; id=&quot;TCPIP_NETWORK_DEFAULT_DNS_IDX1&quot;&gt;
     &lt;Values dnOrder=&quot;0&quot;&gt;
       &lt;Dynamic dnOrder=&quot;0&quot; id=&quot;tcpipNetConfig_1&quot; value=&quot;192.168.100.1&quot;/&gt;
+      &lt;User dnOrder=&quot;1&quot; value=&quot;&quot;/&gt;
     &lt;/Values&gt;
   &lt;/tcpipNetConfig_1&gt;
 &lt;/tcpipNetConfig_1&gt;
@@ -12051,6 +12076,7 @@
   &lt;tcpipNetConfig_1 dnOrder=&quot;0&quot; id=&quot;TCPIP_NETWORK_DEFAULT_GATEWAY_IDX1&quot;&gt;
     &lt;Values dnOrder=&quot;0&quot;&gt;
       &lt;Dynamic dnOrder=&quot;0&quot; id=&quot;tcpipNetConfig_1&quot; value=&quot;192.168.100.1&quot;/&gt;
+      &lt;User dnOrder=&quot;1&quot; value=&quot;&quot;/&gt;
     &lt;/Values&gt;
   &lt;/tcpipNetConfig_1&gt;
 &lt;/tcpipNetConfig_1&gt;
@@ -12062,7 +12088,6 @@
   &lt;tcpipNetConfig_1 dnOrder=&quot;0&quot; id=&quot;TCPIP_NETWORK_DEFAULT_HOST_NAME_IDX1&quot;&gt;
     &lt;Values dnOrder=&quot;0&quot;&gt;
       &lt;Dynamic dnOrder=&quot;0&quot; id=&quot;tcpipNetConfig_1&quot; value=&quot;MCHPBOARD_C&quot;/&gt;
-      &lt;User dnOrder=&quot;1&quot; value=&quot;MCHPBOARD_C&quot;/&gt;
     &lt;/Values&gt;
   &lt;/tcpipNetConfig_1&gt;
 &lt;/tcpipNetConfig_1&gt;
@@ -12112,7 +12137,7 @@
   &lt;tcpipNetConfig_1 dnOrder=&quot;0&quot; id=&quot;TCPIP_NETWORK_DEFAULT_IP_ADDRESS_IDX1&quot;&gt;
     &lt;Values dnOrder=&quot;0&quot;&gt;
       &lt;Dynamic dnOrder=&quot;0&quot; id=&quot;tcpipNetConfig_1&quot; value=&quot;192.168.100.11&quot;/&gt;
-      &lt;User dnOrder=&quot;1&quot; value=&quot;192.168.100.12&quot;/&gt;
+      &lt;User dnOrder=&quot;1&quot; value=&quot;&quot;/&gt;
     &lt;/Values&gt;
   &lt;/tcpipNetConfig_1&gt;
 &lt;/tcpipNetConfig_1&gt;
@@ -12122,7 +12147,9 @@
          <key class="com.microchip.mcc.core.tokenManager.CustomKey" moduleName="tcpipNetConfig_1" name="TCPIP_NETWORK_DEFAULT_IP_MASK_IDX1"/>
          <value>&lt;?xml version=&quot;1.0&quot; encoding=&quot;UTF-8&quot;?&gt;&lt;tcpipNetConfig_1&gt;
   &lt;tcpipNetConfig_1 dnOrder=&quot;0&quot; id=&quot;TCPIP_NETWORK_DEFAULT_IP_MASK_IDX1&quot;&gt;
-    &lt;Values dnOrder=&quot;0&quot;/&gt;
+    &lt;Values dnOrder=&quot;0&quot;&gt;
+      &lt;User dnOrder=&quot;0&quot; value=&quot;&quot;/&gt;
+    &lt;/Values&gt;
   &lt;/tcpipNetConfig_1&gt;
 &lt;/tcpipNetConfig_1&gt;
 </value>
@@ -12133,6 +12160,7 @@
   &lt;tcpipNetConfig_1 dnOrder=&quot;0&quot; id=&quot;TCPIP_NETWORK_DEFAULT_MAC_ADDR_IDX1&quot;&gt;
     &lt;Values dnOrder=&quot;0&quot;&gt;
       &lt;Dynamic dnOrder=&quot;0&quot; id=&quot;tcpipNetConfig_1&quot; value=&quot;00:04:25:1C:A0:02&quot;/&gt;
+      &lt;User dnOrder=&quot;1&quot; value=&quot;&quot;/&gt;
     &lt;/Values&gt;
   &lt;/tcpipNetConfig_1&gt;
 &lt;/tcpipNetConfig_1&gt;
@@ -13102,7 +13130,9 @@
          <key class="com.microchip.mcc.core.tokenManager.CustomKey" moduleName="tcpipStack" name="TCPIP_STACK_INT_MAC_IDX2"/>
          <value>&lt;?xml version=&quot;1.0&quot; encoding=&quot;UTF-8&quot;?&gt;&lt;tcpipStack&gt;
   &lt;tcpipStack dnOrder=&quot;0&quot; id=&quot;TCPIP_STACK_INT_MAC_IDX2&quot;&gt;
-    &lt;Values dnOrder=&quot;0&quot;/&gt;
+    &lt;Values dnOrder=&quot;0&quot;&gt;
+      &lt;Dynamic dnOrder=&quot;0&quot; id=&quot;tcpipStack&quot; value=&quot;false&quot;/&gt;
+    &lt;/Values&gt;
   &lt;/tcpipStack&gt;
 &lt;/tcpipStack&gt;
 </value>
@@ -13198,7 +13228,14 @@
          <key class="com.microchip.mcc.core.tokenManager.CustomKey" moduleName="tcpipStack" name="TCPIP_STACK_MII_MODE_IDX2"/>
          <value>&lt;?xml version=&quot;1.0&quot; encoding=&quot;UTF-8&quot;?&gt;&lt;tcpipStack&gt;
   &lt;tcpipStack dnOrder=&quot;0&quot; id=&quot;TCPIP_STACK_MII_MODE_IDX2&quot;&gt;
-    &lt;Values dnOrder=&quot;0&quot;/&gt;
+    &lt;Attributes dnOrder=&quot;0&quot;&gt;
+      &lt;Boolean dnOrder=&quot;0&quot; id=&quot;visible&quot;&gt;
+        &lt;Value dnOrder=&quot;0&quot;&gt;false&lt;/Value&gt;
+      &lt;/Boolean&gt;
+    &lt;/Attributes&gt;
+    &lt;Values dnOrder=&quot;1&quot;&gt;
+      &lt;Dynamic dnOrder=&quot;0&quot; id=&quot;tcpipStack&quot; value=&quot;&quot;/&gt;
+    &lt;/Values&gt;
   &lt;/tcpipStack&gt;
 &lt;/tcpipStack&gt;
 </value>
@@ -13256,7 +13293,9 @@
          <key class="com.microchip.mcc.core.tokenManager.CustomKey" moduleName="tcpipStack" name="TCPIP_STACK_NET_INTERFACE_NAME_IDX2"/>
          <value>&lt;?xml version=&quot;1.0&quot; encoding=&quot;UTF-8&quot;?&gt;&lt;tcpipStack&gt;
   &lt;tcpipStack dnOrder=&quot;0&quot; id=&quot;TCPIP_STACK_NET_INTERFACE_NAME_IDX2&quot;&gt;
-    &lt;Values dnOrder=&quot;0&quot;/&gt;
+    &lt;Values dnOrder=&quot;0&quot;&gt;
+      &lt;Dynamic dnOrder=&quot;0&quot; id=&quot;tcpipStack&quot; value=&quot;&quot;/&gt;
+    &lt;/Values&gt;
   &lt;/tcpipStack&gt;
 &lt;/tcpipStack&gt;
 </value>
@@ -14104,7 +14143,7 @@
       </entry>
       <entry>
          <file>..\src\config\default\configuration.h</file>
-         <hash>af70c3a8edcaae8e31a1d2573d4d8ea8aa8c8121be6cd049d17cde11f6a927b4</hash>
+         <hash>951fe64d07f07022ee83fb23696218f0cbeafaad40409534b1a93a6716ab22b2</hash>
       </entry>
       <entry>
          <file>..\src\packs\ATSAME54P20A_DFP\instance\eic.h</file>
