@@ -298,8 +298,13 @@ extern "C" {
                                                         TCPIP_MAC_RX_FILTER_TYPE_BCAST_ACCEPT |\
                                                         TCPIP_MAC_RX_FILTER_TYPE_MCAST_ACCEPT |\
                                                         TCPIP_MAC_RX_FILTER_TYPE_UCAST_ACCEPT |\
+                                                        TCPIP_MAC_RX_FILTER_TYPE_MCAST_HASH_ACCEPT |\
+                                                        TCPIP_MAC_RX_FILTER_TYPE_UCAST_HASH_ACCEPT |\
                                                         TCPIP_MAC_RX_FILTER_TYPE_CRC_ERROR_REJECT |\
+                                                        TCPIP_MAC_RX_FILTER_TYPE_CRC_ERROR_ACCEPT |\
+                                                        TCPIP_MAC_RX_FILTER_TYPE_MAXFRAME_ACCEPT |\
                                                         TCPIP_MAC_RX_FILTER_TYPE_ALL_ACCEPT |\
+                                                        TCPIP_MAC_RX_FILTER_TYPE_FRAMEERROR_ACCEPT |\
                                                           0
        
 #define TCPIP_GMAC_SCREEN1_COUNT_QUE        0 

@@ -20,7 +20,7 @@
 *******************************************************************************/
 //DOM-IGNORE-BEGIN
 /*
-Copyright (C) 2017-2023, Microchip Technology Inc., and its subsidiaries. All rights reserved.
+Copyright (C) 2017-2024, Microchip Technology Inc., and its subsidiaries. All rights reserved.
 
 The software and documentation is provided by microchip and its contributors
 "as is" and any express, implied or statutory warranties, including, but not
@@ -62,7 +62,7 @@ Microchip or any third party.
         #include "driver/gmac/src/dynamic/drv_gmac_lib_pic32ck.h"
     #endif
 #else
-	#include "driver/gmac/src/dynamic/drv_gmac_lib_sam.h"
+    #include "driver/gmac/src/dynamic/drv_gmac_lib_sam.h"
 #endif
 #include "driver/gmac/src/drv_gmac_local.h"
 #include "device.h"
@@ -989,6 +989,43 @@ void DRV_PIC32CGMAC_LibTxAckPendPacket( DRV_GMAC_DRIVER * pMACDrv, GMAC_QUE_LIST
     <p>Replaces:<p><c><b>void DRV_PIC32CGMAC_LibTxAckErrPacket( DRV_GMAC_DRIVER * pMACDrv, GMAC_QUE_LIST queueIdx, TCPIP_MAC_PKT_ACK_RES ackRes)</b></c>
  *****************************************************************************/
 void DRV_PIC32CGMAC_LibTxAckErrPacket( DRV_GMAC_DRIVER * pMACDrv, GMAC_QUE_LIST queueIdx, TCPIP_MAC_PKT_ACK_RES ackRes);
+
+/*******************************************************************************
+  Function:
+    void DRV_PIC32CGMAC_LibTxClearUnAckPacket( DRV_GMAC_DRIVER * pMACDrv, GMAC_QUE_LIST queueIdx, TCPIP_MAC_PKT_ACK_RES ackRes);
+ 
+  Summary:
+    Acknowledge the Unacknowledged Transmit packets during transmit errors
+
+  Description:
+    This function acknowledges packets added to MAC transmit descriptors. This function will
+    acknowledge all the unacknowledged transmitted or not transmitted packets in transmit descriptor. 
+    This will be called during error condition to discard queued TX packets. 
+    The TX acknowledgment function will be called from this routine.
+
+  Precondition:
+    None
+
+  Parameters:
+    pMACDrv         - driver instance.
+    queueIdx        - queue Index
+    ackRes          - packet acknowledgment result
+
+  Returns:
+    None
+
+  Example:
+    <code>
+    DRV_PIC32CGMAC_LibTxClearUnAckPacket(pMACDrv, queueIdx, ackRes); 
+    </code>
+
+  Remarks:
+    Any TX packets in transmit descriptors has to be acknowledged during error condition, 
+    otherwise the memory allocated for the packet will not be freed.
+
+    <p>Replaces:<p><c><b>void DRV_PIC32CGMAC_LibTxClearUnAckPacket( DRV_GMAC_DRIVER * pMACDrv, GMAC_QUE_LIST queueIdx, TCPIP_MAC_PKT_ACK_RES ackRes)</b></c>
+ *****************************************************************************/
+void DRV_PIC32CGMAC_LibTxClearUnAckPacket( DRV_GMAC_DRIVER * pMACDrv, GMAC_QUE_LIST queueIdx, TCPIP_MAC_PKT_ACK_RES ackRes);
 // *****************************************************************************
 // *****************************************************************************
 // Section: Packet receive functions
@@ -1192,7 +1229,40 @@ bool DRV_PIC32CGMAC_LibIsTxComplete(DRV_GMAC_DRIVER* pMACDrv);
     None
  *****************************************************************************/
 void DRV_PIC32CGMAC_LibTxEnable(DRV_GMAC_DRIVER* pMACDrv, bool enable);
+/*******************************************************************************
+  Function:
+    void  DRV_PIC32CGMAC_LibClearTxIndex(DRV_GMAC_DRIVER* pMACDrv, GMAC_QUE_LIST queueIdx);
+ 
+  Summary:
+    Reset Transmit processing indexes.
 
+  Description:
+    After TXEN reset, the Transmit Queue Pointer will point to the start of the 
+    transmit descriptor list. The GMAC H/W engine will look into the first descriptor for 
+    any subsequent transmission. So, the software indexes used for Transmit descriptors
+    must be cleared.
+
+  Precondition:
+    None
+
+  Parameters:
+    pMACDrv         - driver instance.
+    queueIdx        - queue Index
+
+  Returns:
+    None
+
+  Example:
+    <code>
+    DRV_PIC32CGMAC_LibClearTxIndex(pMACDrv, queueIdx); 
+    </code>
+
+  Remarks:
+    Any TX packets in transmit queues must be acked/cleared
+
+    <p>Replaces:<p><c><b>void  DRV_PIC32CGMAC_LibClearTxIndex(DRV_GMAC_DRIVER* pMACDrv, GMAC_QUE_LIST queueIdx)</b></c>
+ *****************************************************************************/
+void  DRV_PIC32CGMAC_LibClearTxIndex(DRV_GMAC_DRIVER* pMACDrv, GMAC_QUE_LIST queueIdx);
 /****************************************************************************
   Function: 
     uint32_t DRV_PIC32CGMAC_LibGetxxxxxx(void)
