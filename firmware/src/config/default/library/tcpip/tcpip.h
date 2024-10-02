@@ -733,7 +733,13 @@ typedef struct TCPIP_STACK_INIT
 #include "tcpip/dhcp.h"
 #include "tcpip/dns.h"
 #include "tcpip/ipv6.h"
+#include "tcpip/arp.h"
+#include "tcpip/tcp.h"
+#include "tcpip/udp.h"
+#include "tcpip/icmp.h"
+#include "tcpip/telnet.h"
 #include "tcpip/lldp.h"
+#include "tcpip/iperf.h"
 #include "tcpip/tcpip_commands.h"
 #include "tcpip/tcpip_mac_bridge.h"
 #endif  // __TCPIP_H__

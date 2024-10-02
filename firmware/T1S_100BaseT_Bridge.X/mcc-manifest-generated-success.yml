@@ -2,12 +2,12 @@
 
 manifest_file_version: 1.0.0
 project: T1S_100BaseT_Bridge
-creation_date: 2024-10-02T10:56:20.041+02:00[Europe/Berlin]
+creation_date: 2024-10-02T13:36:20.479+02:00[Europe/Berlin]
 operating_system: Windows 10
 mcc_mode: IDE
 mcc_mode_version: v6.20
 device_name: ATSAME54P20A
-compiler: XC32 4.40
+compiler: XC32 4.10
 mcc_version: 5.5.1
 mcc_core_version: 5.7.1
 content_manager_version: 5.0.1
