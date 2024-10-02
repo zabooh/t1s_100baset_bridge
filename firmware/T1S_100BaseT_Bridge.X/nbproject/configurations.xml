@@ -298,130 +298,50 @@
                        displayName="ATSAME54P20A_DFP"
                        projectFiles="true">
           <logicalFolder name="component" displayName="component" projectFiles="true">
-            <itemPath>../src/packs/ATSAME54P20A_DFP/component/gmac.h</itemPath>
-            <itemPath>../src/packs/ATSAME54P20A_DFP/component/adc.h</itemPath>
-            <itemPath>../src/packs/ATSAME54P20A_DFP/component/fuses.h</itemPath>
-            <itemPath>../src/packs/ATSAME54P20A_DFP/component/rstc.h</itemPath>
             <itemPath>../src/packs/ATSAME54P20A_DFP/component/evsys.h</itemPath>
-            <itemPath>../src/packs/ATSAME54P20A_DFP/component/supc.h</itemPath>
             <itemPath>../src/packs/ATSAME54P20A_DFP/component/pcc.h</itemPath>
             <itemPath>../src/packs/ATSAME54P20A_DFP/component/freqm.h</itemPath>
-            <itemPath>../src/packs/ATSAME54P20A_DFP/component/can.h</itemPath>
             <itemPath>../src/packs/ATSAME54P20A_DFP/component/pdec.h</itemPath>
             <itemPath>../src/packs/ATSAME54P20A_DFP/component/gclk.h</itemPath>
-            <itemPath>../src/packs/ATSAME54P20A_DFP/component/port.h</itemPath>
             <itemPath>../src/packs/ATSAME54P20A_DFP/component/dmac.h</itemPath>
-            <itemPath>../src/packs/ATSAME54P20A_DFP/component/pm.h</itemPath>
-            <itemPath>../src/packs/ATSAME54P20A_DFP/component/tc.h</itemPath>
             <itemPath>../src/packs/ATSAME54P20A_DFP/component/dac.h</itemPath>
-            <itemPath>../src/packs/ATSAME54P20A_DFP/component/icm.h</itemPath>
             <itemPath>../src/packs/ATSAME54P20A_DFP/component/rtc.h</itemPath>
-            <itemPath>../src/packs/ATSAME54P20A_DFP/component/i2s.h</itemPath>
-            <itemPath>../src/packs/ATSAME54P20A_DFP/component/wdt.h</itemPath>
-            <itemPath>../src/packs/ATSAME54P20A_DFP/component/qspi.h</itemPath>
             <itemPath>../src/packs/ATSAME54P20A_DFP/component/sercom.h</itemPath>
             <itemPath>../src/packs/ATSAME54P20A_DFP/component/ac.h</itemPath>
             <itemPath>../src/packs/ATSAME54P20A_DFP/component/ramecc.h</itemPath>
-            <itemPath>../src/packs/ATSAME54P20A_DFP/component/sdhc.h</itemPath>
-            <itemPath>../src/packs/ATSAME54P20A_DFP/component/tcc.h</itemPath>
             <itemPath>../src/packs/ATSAME54P20A_DFP/component/mclk.h</itemPath>
-            <itemPath>../src/packs/ATSAME54P20A_DFP/component/osc32kctrl.h</itemPath>
             <itemPath>../src/packs/ATSAME54P20A_DFP/component/trng.h</itemPath>
             <itemPath>../src/packs/ATSAME54P20A_DFP/component/oscctrl.h</itemPath>
             <itemPath>../src/packs/ATSAME54P20A_DFP/component/usb.h</itemPath>
             <itemPath>../src/packs/ATSAME54P20A_DFP/component/ccl.h</itemPath>
             <itemPath>../src/packs/ATSAME54P20A_DFP/component/hmatrixb.h</itemPath>
-            <itemPath>../src/packs/ATSAME54P20A_DFP/component/dsu.h</itemPath>
             <itemPath>../src/packs/ATSAME54P20A_DFP/component/aes.h</itemPath>
-            <itemPath>../src/packs/ATSAME54P20A_DFP/component/pac.h</itemPath>
             <itemPath>../src/packs/ATSAME54P20A_DFP/component/eic.h</itemPath>
-            <itemPath>../src/packs/ATSAME54P20A_DFP/component/nvmctrl.h</itemPath>
             <itemPath>../src/packs/ATSAME54P20A_DFP/component/cmcc.h</itemPath>
             <itemPath>../src/packs/ATSAME54P20A_DFP/component/pukcc.h</itemPath>
           </logicalFolder>
           <logicalFolder name="instance" displayName="instance" projectFiles="true">
-            <itemPath>../src/packs/ATSAME54P20A_DFP/instance/qspi.h</itemPath>
             <itemPath>../src/packs/ATSAME54P20A_DFP/instance/tc4.h</itemPath>
-            <itemPath>../src/packs/ATSAME54P20A_DFP/instance/rtc.h</itemPath>
             <itemPath>../src/packs/ATSAME54P20A_DFP/instance/tc3.h</itemPath>
-            <itemPath>../src/packs/ATSAME54P20A_DFP/instance/ac.h</itemPath>
-            <itemPath>../src/packs/ATSAME54P20A_DFP/instance/sercom7.h</itemPath>
             <itemPath>../src/packs/ATSAME54P20A_DFP/instance/i2s.h</itemPath>
             <itemPath>../src/packs/ATSAME54P20A_DFP/instance/tc2.h</itemPath>
-            <itemPath>../src/packs/ATSAME54P20A_DFP/instance/dac.h</itemPath>
-            <itemPath>../src/packs/ATSAME54P20A_DFP/instance/ramecc.h</itemPath>
             <itemPath>../src/packs/ATSAME54P20A_DFP/instance/tc1.h</itemPath>
             <itemPath>../src/packs/ATSAME54P20A_DFP/instance/icm.h</itemPath>
-            <itemPath>../src/packs/ATSAME54P20A_DFP/instance/sercom5.h</itemPath>
             <itemPath>../src/packs/ATSAME54P20A_DFP/instance/wdt.h</itemPath>
-            <itemPath>../src/packs/ATSAME54P20A_DFP/instance/sdhc1.h</itemPath>
-            <itemPath>../src/packs/ATSAME54P20A_DFP/instance/sercom6.h</itemPath>
-            <itemPath>../src/packs/ATSAME54P20A_DFP/instance/port.h</itemPath>
-            <itemPath>../src/packs/ATSAME54P20A_DFP/instance/hmatrix.h</itemPath>
-            <itemPath>../src/packs/ATSAME54P20A_DFP/instance/tc7.h</itemPath>
             <itemPath>../src/packs/ATSAME54P20A_DFP/instance/dmac.h</itemPath>
-            <itemPath>../src/packs/ATSAME54P20A_DFP/instance/tc6.h</itemPath>
-            <itemPath>../src/packs/ATSAME54P20A_DFP/instance/can0.h</itemPath>
-            <itemPath>../src/packs/ATSAME54P20A_DFP/instance/sercom3.h</itemPath>
-            <itemPath>../src/packs/ATSAME54P20A_DFP/instance/sercom4.h</itemPath>
-            <itemPath>../src/packs/ATSAME54P20A_DFP/instance/tc5.h</itemPath>
-            <itemPath>../src/packs/ATSAME54P20A_DFP/instance/sdhc0.h</itemPath>
-            <itemPath>../src/packs/ATSAME54P20A_DFP/instance/gmac.h</itemPath>
-            <itemPath>../src/packs/ATSAME54P20A_DFP/instance/usb.h</itemPath>
             <itemPath>../src/packs/ATSAME54P20A_DFP/instance/tcc3.h</itemPath>
-            <itemPath>../src/packs/ATSAME54P20A_DFP/instance/supc.h</itemPath>
-            <itemPath>../src/packs/ATSAME54P20A_DFP/instance/osc32kctrl.h</itemPath>
-            <itemPath>../src/packs/ATSAME54P20A_DFP/instance/sercom1.h</itemPath>
             <itemPath>../src/packs/ATSAME54P20A_DFP/instance/rstc.h</itemPath>
             <itemPath>../src/packs/ATSAME54P20A_DFP/instance/tcc4.h</itemPath>
-            <itemPath>../src/packs/ATSAME54P20A_DFP/instance/evsys.h</itemPath>
-            <itemPath>../src/packs/ATSAME54P20A_DFP/instance/pac.h</itemPath>
             <itemPath>../src/packs/ATSAME54P20A_DFP/instance/nvmctrl.h</itemPath>
-            <itemPath>../src/packs/ATSAME54P20A_DFP/instance/sercom2.h</itemPath>
-            <itemPath>../src/packs/ATSAME54P20A_DFP/instance/can1.h</itemPath>
             <itemPath>../src/packs/ATSAME54P20A_DFP/instance/adc1.h</itemPath>
-            <itemPath>../src/packs/ATSAME54P20A_DFP/instance/pdec.h</itemPath>
             <itemPath>../src/packs/ATSAME54P20A_DFP/instance/dsu.h</itemPath>
             <itemPath>../src/packs/ATSAME54P20A_DFP/instance/gclk.h</itemPath>
-            <itemPath>../src/packs/ATSAME54P20A_DFP/instance/oscctrl.h</itemPath>
             <itemPath>../src/packs/ATSAME54P20A_DFP/instance/fuses.h</itemPath>
-            <itemPath>../src/packs/ATSAME54P20A_DFP/instance/sercom0.h</itemPath>
             <itemPath>../src/packs/ATSAME54P20A_DFP/instance/tc0.h</itemPath>
-            <itemPath>../src/packs/ATSAME54P20A_DFP/instance/eic.h</itemPath>
-            <itemPath>../src/packs/ATSAME54P20A_DFP/instance/mclk.h</itemPath>
-            <itemPath>../src/packs/ATSAME54P20A_DFP/instance/freqm.h</itemPath>
             <itemPath>../src/packs/ATSAME54P20A_DFP/instance/cmcc.h</itemPath>
             <itemPath>../src/packs/ATSAME54P20A_DFP/instance/trng.h</itemPath>
             <itemPath>../src/packs/ATSAME54P20A_DFP/instance/adc0.h</itemPath>
-            <itemPath>../src/packs/ATSAME54P20A_DFP/instance/tcc0.h</itemPath>
-            <itemPath>../src/packs/ATSAME54P20A_DFP/instance/pm.h</itemPath>
-            <itemPath>../src/packs/ATSAME54P20A_DFP/instance/tcc1.h</itemPath>
-            <itemPath>../src/packs/ATSAME54P20A_DFP/instance/ccl.h</itemPath>
-            <itemPath>../src/packs/ATSAME54P20A_DFP/instance/pcc.h</itemPath>
-            <itemPath>../src/packs/ATSAME54P20A_DFP/instance/aes.h</itemPath>
             <itemPath>../src/packs/ATSAME54P20A_DFP/instance/tcc2.h</itemPath>
-          </logicalFolder>
-          <logicalFolder name="pio" displayName="pio" projectFiles="true">
-            <itemPath>../src/packs/ATSAME54P20A_DFP/pio/same54p20a.h</itemPath>
-          </logicalFolder>
-          <itemPath>../src/packs/ATSAME54P20A_DFP/same54p20a.h</itemPath>
-        </logicalFolder>
-        <logicalFolder name="CMSIS" displayName="CMSIS" projectFiles="true">
-          <logicalFolder name="CMSIS" displayName="CMSIS" projectFiles="true">
-            <logicalFolder name="Core" displayName="Core" projectFiles="true">
-              <logicalFolder name="Include" displayName="Include" projectFiles="true">
-                <itemPath>../src/packs/CMSIS/CMSIS/Core/Include/cachel1_armv7.h</itemPath>
-                <itemPath>../src/packs/CMSIS/CMSIS/Core/Include/cmsis_iccarm.h</itemPath>
-                <itemPath>../src/packs/CMSIS/CMSIS/Core/Include/cmsis_armclang_ltm.h</itemPath>
-                <itemPath>../src/packs/CMSIS/CMSIS/Core/Include/cmsis_gcc.h</itemPath>
-                <itemPath>../src/packs/CMSIS/CMSIS/Core/Include/mpu_armv7.h</itemPath>
-                <itemPath>../src/packs/CMSIS/CMSIS/Core/Include/core_cm4.h</itemPath>
-                <itemPath>../src/packs/CMSIS/CMSIS/Core/Include/cmsis_version.h</itemPath>
-                <itemPath>../src/packs/CMSIS/CMSIS/Core/Include/cmsis_compiler.h</itemPath>
-                <itemPath>../src/packs/CMSIS/CMSIS/Core/Include/cmsis_armcc.h</itemPath>
-                <itemPath>../src/packs/CMSIS/CMSIS/Core/Include/cmsis_armclang.h</itemPath>
-              </logicalFolder>
-            </logicalFolder>
           </logicalFolder>
         </logicalFolder>
       </logicalFolder>
@@ -436,11 +356,6 @@
     <logicalFolder name="LinkerScript"
                    displayName="Linker Files"
                    projectFiles="true">
-      <logicalFolder name="config" displayName="config" projectFiles="true">
-        <logicalFolder name="default" displayName="default" projectFiles="true">
-          <itemPath>../src/config/default/ATSAME54P20A.ld</itemPath>
-        </logicalFolder>
-      </logicalFolder>
     </logicalFolder>
     <logicalFolder name="SourceFiles"
                    displayName="Source Files"
@@ -632,6 +547,7 @@
       <C32>
         <property key="additional-warnings" value="true"/>
         <property key="addresss-attribute-use" value="false"/>
+        <property key="appendMe" value=""/>
         <property key="enable-app-io" value="false"/>
         <property key="enable-omit-frame-pointer" value="false"/>
         <property key="enable-symbols" value="true"/>
@@ -689,6 +605,7 @@
         <property key="additional-options-use-response-files" value="false"/>
         <property key="additional-options-write-sla" value="false"/>
         <property key="allocate-dinit" value="false"/>
+        <property key="appendMe" value=""/>
         <property key="code-dinit" value="false"/>
         <property key="ebase-addr" value=""/>
         <property key="enable-check-sections" value="false"/>
@@ -728,6 +645,7 @@
       <C32CPP>
         <property key="additional-warnings" value="false"/>
         <property key="addresss-attribute-use" value="false"/>
+        <property key="appendMe" value=""/>
         <property key="check-new" value="false"/>
         <property key="eh-specs" value="true"/>
         <property key="enable-app-io" value="false"/>
@@ -756,6 +674,7 @@
         <property key="use-indirect-calls" value="false"/>
       </C32CPP>
       <C32Global>
+        <property key="appendMe" value=""/>
         <property key="common-include-directories" value=""/>
         <property key="gp-relative-option" value=""/>
         <property key="legacy-libc" value="false"/>
