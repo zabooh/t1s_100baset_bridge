@@ -32,7 +32,11 @@
 #include "config/default/library/tcpip/tcpip.h"
 #include "config/default/library/tcpip/telnet.h"
 #include "config/default/system/time/sys_time.h"
+#include "config/default/driver/gmac/drv_gmac.h"
 #include "system/command/sys_command.h"
+#include "tcpip_manager_control.h"
+
+
 // *****************************************************************************
 // *****************************************************************************
 // Section: Global Data Definitions
@@ -80,6 +84,7 @@ void DumpMem(uint32_t addr, uint32_t count);
 bool Command_Init(void);
 
 uint32_t ipdump_mode = 0;
+uint32_t fwd_mode = 1;
 uint32_t my_delay_time = 0;
 SYS_TIME_HANDLE timerHandle;
 
@@ -166,7 +171,9 @@ void APP_Tasks(void) {
 
         case APP_STATE_SERVICE_TASKS:
         {
-            SYS_CONSOLE_PRINT("Init Packet Handler\n\r ");
+            SYS_CONSOLE_PRINT("======================================\n\r ");
+            SYS_CONSOLE_PRINT("T1S Packet Sniffer\n\r ");
+            SYS_CONSOLE_PRINT("Build Timestamp: "__DATE__" "__TIME__"\n\r" );
             TCPIP_NET_HANDLE eth0_net_hd = TCPIP_STACK_IndexToNet(0);
             TCPIP_STACK_PacketHandlerRegister(eth0_net_hd, pktEth0Handler, MyEth0HandlerParam);
             TCPIP_NET_HANDLE eth1_net_hd = TCPIP_STACK_IndexToNet(1);
@@ -188,13 +195,11 @@ void APP_Tasks(void) {
     }
 }
 
-
-
-
 bool pktEth0Handler(TCPIP_NET_HANDLE hNet, struct _tag_TCPIP_MAC_PACKET* rxPkt, uint16_t frameType, const void* hParam) {
     static uint32_t packet_counter = 0;
     uint8_t *puc_s;
     uint32_t data_len;
+    bool ret_val = false;
 
     packet_counter++;
 
@@ -206,7 +211,15 @@ bool pktEth0Handler(TCPIP_NET_HANDLE hNet, struct _tag_TCPIP_MAC_PACKET* rxPkt, 
         DumpMem((uint32_t) puc_s, data_len);
     }
 
-    return false;
+    if ( fwd_mode == 1) {
+        /* Raw IP Packet received from eth0 (T1S) is send to eth1 (100BaseT)*/
+        TCPIP_NET_HANDLE NetHdl = TCPIP_STACK_IndexToNet(1);
+        DRV_GMAC_PacketTx(((TCPIP_NET_IF*) NetHdl)->hIfMac, rxPkt);
+        ret_val = true;
+    }
+
+    /* a return value of true, tell the TCP stack not to handle this packet */
+    return ret_val;
 }
 
 bool pktEth1Handler(TCPIP_NET_HANDLE hNet, struct _tag_TCPIP_MAC_PACKET* rxPkt, uint16_t frameType, const void* hParam) {
@@ -281,9 +294,21 @@ static void my_dump(SYS_CMD_DEVICE_NODE* pCmdIO, int argc, char** argv) {
 
 }
 
+static void my_fwd(SYS_CMD_DEVICE_NODE* pCmdIO, int argc, char** argv) {
+
+    fwd_mode = strtoul(argv[1], NULL, 16);
+    if (fwd_mode == 0) {
+        SYS_CONSOLE_PRINT("Forward mode set to off\n\r");
+    } else if (fwd_mode == 1) {
+        SYS_CONSOLE_PRINT("Forward mode set to on\n\r");
+    }
+
+}
+
 
 const SYS_CMD_DESCRIPTOR msd_cmd_tbl[] = {
     {"ipdump", (SYS_CMD_FNC) my_dump, ": dump rx ip packets (0:off 1:eth0 2:eth1 3:both)"},
+    {"fwd", (SYS_CMD_FNC) my_fwd, ": fwd (0:off 1:on default:on)"},
 };
 
 bool Command_Init(void) {
