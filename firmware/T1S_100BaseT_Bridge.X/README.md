@@ -31,5 +31,10 @@ Die verschiedenen Python Test-Skripts verwenden COM8 als Standard-Port. Bei Beda
 - `.vscode/tasks.json` - Build-Tasks für VS Code
 - `.vscode/extensions.json` - Empfohlene Extensions
 - `.vscode/c_cpp_properties.json` - C/C++ IntelliSense Konfiguration
-- `requirements.txt` - Python Dependencies
+- `requirements.txt` - Python Dependencies  
 - `T1S_100BaseT_Bridge.mc3` - MPLAB X Projektkonfiguration
+- `cmake/` - CMake Build-Konfiguration (wird von MPLAB X generiert, aber ins Git committed für Cross-Platform Builds)
+
+## Build-System
+
+Das Projekt verwendet CMake über die MPLAB X Integration. Die CMake-Dateien werden automatisch generiert, sind aber ins Git-Repository committed, damit das Projekt direkt nach dem Checkout buildbar ist, auch ohne MPLAB X zu öffnen.

@@ -13,7 +13,7 @@ _build/
 out/
 build/
 dist/
-cmake/
+# cmake/ - Keep CMake files for cross-platform builds
 
 # MPLAB X IDE
 .main-meta/
