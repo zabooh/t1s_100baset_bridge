@@ -2,6 +2,8 @@
 *.elf
 *.map
 *.d
+
+# MPLAB X IDE files
 **/nbproject/private
 **/nbproject/Makefile-*
 **/nbproject/Package-*
@@ -10,7 +12,33 @@
 **/*.X/dist
 **/*.X/build
 **/*.X/.generated_files
+
+# IAR IDE files
 **/*.IAR/Debug
 **/*.IAR/settings
 **/*.IAR/*.dep
 **/*.IAR/*.custom_argvars
+
+# VS Code and CMake build files
+.vscode/
+_build/
+out/
+build/
+cmake-build-*/
+
+# ClangD Language Server cache
+**/.cache/
+**/clangd/
+**/.clangd/
+
+# CMake generated files
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+compile_commands.json
+CTestTestfile.cmake
+Makefile
+
+# Ninja build files
+*.ninja
+build.ninja

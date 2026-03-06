@@ -33,6 +33,7 @@
 #include "config/default/library/tcpip/telnet.h"
 #include "config/default/system/time/sys_time.h"
 #include "config/default/driver/gmac/drv_gmac.h"
+#include "config/default/driver/lan865x/drv_lan865x.h"
 #include "system/command/sys_command.h"
 #include "tcpip_manager_control.h"
 
@@ -88,12 +89,62 @@ uint32_t fwd_mode = 1;
 uint32_t my_delay_time = 0;
 SYS_TIME_HANDLE timerHandle;
 
+// LAN865X Register access variables
+volatile bool lan_reg_operation_complete = false;
+volatile bool lan_reg_operation_success = false;
+volatile uint32_t lan_reg_read_value = 0;
+
 /* TODO:  Add any necessary local functions.
  */
 
 
 void BRIDGE_TimerCallback(uintptr_t context) {
     if (my_delay_time)my_delay_time--;
+}
+
+// LAN865X Register callback for read operations
+void lan_read_callback(void *reserved1, bool success, uint32_t addr, uint32_t value, void *pTag, void *reserved2) {
+    lan_reg_operation_success = success;
+    lan_reg_read_value = value;
+    lan_reg_operation_complete = true;
+    
+    if (success) {
+        SYS_CONSOLE_PRINT("LAN865X Read: Addr=0x%08X Value=0x%08X\n\r", (unsigned int)addr, (unsigned int)value);
+    } else {
+        SYS_CONSOLE_PRINT("LAN865X Read failed for addr=0x%08X\n\r", (unsigned int)addr);
+    }
+}
+
+// LAN865X Register callback for write operations
+void lan_write_callback(void *reserved1, bool success, uint32_t addr, uint32_t value, void *pTag, void *reserved2) {
+    lan_reg_operation_success = success;
+    lan_reg_operation_complete = true;
+    
+    if (success) {
+        SYS_CONSOLE_PRINT("LAN865X Write: Addr=0x%08X Value=0x%08X - OK\n\r", (unsigned int)addr, (unsigned int)value);
+    } else {
+        SYS_CONSOLE_PRINT("LAN865X Write failed: Addr=0x%08X Value=0x%08X\n\r", (unsigned int)addr, (unsigned int)value);
+    }
+}
+
+// Help command for Test group
+static void test_help(SYS_CMD_DEVICE_NODE* pCmdIO, int argc, char** argv) {
+    SYS_CONSOLE_PRINT("Test group commands:\n\r");
+    SYS_CONSOLE_PRINT("  help           - Show this help\n\r");
+    SYS_CONSOLE_PRINT("  timestamp      - Show build timestamp\n\r");
+    SYS_CONSOLE_PRINT("  ipdump <mode>  - Enable IP packet dumping (0=off, 1=eth0, 2=eth1, 3=both)\n\r");
+    SYS_CONSOLE_PRINT("  fwd <mode>     - Set forwarding mode (0=off, 1=on)\n\r");
+    SYS_CONSOLE_PRINT("  lan_read <addr> - Read LAN865X register (hex address)\n\r");
+    SYS_CONSOLE_PRINT("  lan_write <addr> <value> - Write LAN865X register (hex addr, hex value)\n\r");
+    SYS_CONSOLE_PRINT("\n\rExample: Test lan_read 0x00000004\n\r");
+}
+
+// Timestamp command to show build info
+static void show_timestamp(SYS_CMD_DEVICE_NODE* pCmdIO, int argc, char** argv) {
+    SYS_CONSOLE_PRINT("======================================\n\r");
+    SYS_CONSOLE_PRINT("T1S Packet Sniffer - Build Info\n\r");
+    SYS_CONSOLE_PRINT("Build Timestamp: "__DATE__" "__TIME__"\n\r");
+    SYS_CONSOLE_PRINT("======================================\n\r");
 }
 
 bool TelnetAuthenticationHandler(const char* user, const char* password, const TCPIP_TELNET_CONN_INFO* pInfo, const void* hParam) {
@@ -305,17 +356,89 @@ static void my_fwd(SYS_CMD_DEVICE_NODE* pCmdIO, int argc, char** argv) {
 
 }
 
+// LAN865X Register read command
+static void lan_read(SYS_CMD_DEVICE_NODE* pCmdIO, int argc, char** argv) {
+    if (argc != 2) {
+        SYS_CONSOLE_PRINT("Usage: lan_read <address_hex>\n\r");
+        SYS_CONSOLE_PRINT("Example: lan_read 0x00040000\n\r");
+        return;
+    }
+    
+    uint32_t addr = strtoul(argv[1], NULL, 0);  // Support both hex (0x) and decimal
+    
+    // Reset flags
+    lan_reg_operation_complete = false;
+    lan_reg_operation_success = false;
+    lan_reg_read_value = 0;
+    
+    TCPIP_MAC_RES result = DRV_LAN865X_ReadRegister(0, addr, false, lan_read_callback, NULL);
+    
+    if (result == TCPIP_MAC_RES_OK) {
+        SYS_CONSOLE_PRINT("LAN865X Read initiated for addr=0x%08X\n\r", (unsigned int)addr);
+        
+        // Wait for completion (with timeout)
+        uint32_t timeout = 1000000;  // Simple timeout counter
+        while (!lan_reg_operation_complete && timeout > 0) {
+            timeout--;
+        }
+        
+        if (timeout == 0) {
+            SYS_CONSOLE_PRINT("LAN865X Read timeout for addr=0x%08X\n\r", (unsigned int)addr);
+        }
+    } else {
+        SYS_CONSOLE_PRINT("LAN865X Read failed to start: result=%d\n\r", result);
+    }
+}
+
+// LAN865X Register write command  
+static void lan_write(SYS_CMD_DEVICE_NODE* pCmdIO, int argc, char** argv) {
+    if (argc != 3) {
+        SYS_CONSOLE_PRINT("Usage: lan_write <address_hex> <value_hex>\n\r");
+        SYS_CONSOLE_PRINT("Example: lan_write 0x00040000 0x12345678\n\r");
+        return;
+    }
+    
+    uint32_t addr = strtoul(argv[1], NULL, 0);   // Support both hex (0x) and decimal
+    uint32_t value = strtoul(argv[2], NULL, 0);  // Support both hex (0x) and decimal
+    
+    // Reset flags
+    lan_reg_operation_complete = false;
+    lan_reg_operation_success = false;
+    
+    TCPIP_MAC_RES result = DRV_LAN865X_WriteRegister(0, addr, value, false, lan_write_callback, NULL);
+    
+    if (result == TCPIP_MAC_RES_OK) {
+        SYS_CONSOLE_PRINT("LAN865X Write initiated: addr=0x%08X value=0x%08X\n\r", (unsigned int)addr, (unsigned int)value);
+        
+        // Wait for completion (with timeout)
+        uint32_t timeout = 1000000;  // Simple timeout counter
+        while (!lan_reg_operation_complete && timeout > 0) {
+            timeout--;
+        }
+        
+        if (timeout == 0) {
+            SYS_CONSOLE_PRINT("LAN865X Write timeout: addr=0x%08X value=0x%08X\n\r", (unsigned int)addr, (unsigned int)value);
+        }
+    } else {
+        SYS_CONSOLE_PRINT("LAN865X Write failed to start: result=%d\n\r", result);
+    }
+}
+
 
 const SYS_CMD_DESCRIPTOR msd_cmd_tbl[] = {
+    {"help", (SYS_CMD_FNC) test_help, ": show Test group commands"},
+    {"timestamp", (SYS_CMD_FNC) show_timestamp, ": show build timestamp"},
     {"ipdump", (SYS_CMD_FNC) my_dump, ": dump rx ip packets (0:off 1:eth0 2:eth1 3:both)"},
     {"fwd", (SYS_CMD_FNC) my_fwd, ": fwd (0:off 1:on default:on)"},
+    {"lan_read", (SYS_CMD_FNC) lan_read, ": read LAN865X register (lan_read <addr_hex>)"},
+    {"lan_write", (SYS_CMD_FNC) lan_write, ": write LAN865X register (lan_write <addr_hex> <value_hex>)"},
 };
 
 bool Command_Init(void) {
-    bool ret = false;
+    bool ret = true;  // Start with success
 
     if (!SYS_CMD_ADDGRP(msd_cmd_tbl, sizeof (msd_cmd_tbl) / sizeof (*msd_cmd_tbl), "Test", ": Test Commands")) {
-        ret = true;
+        ret = false;  // If SYS_CMD_ADDGRP fails, return failure
     }
     return ret;
 }
