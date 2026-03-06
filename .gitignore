@@ -35,9 +35,10 @@ cmake-build-*/
 CMakeCache.txt
 CMakeFiles/
 cmake_install.cmake
-compile_commands.json
+compile_commands.json  
 CTestTestfile.cmake
 Makefile
+**/.generated/
 
 # Ninja build files
 *.ninja
