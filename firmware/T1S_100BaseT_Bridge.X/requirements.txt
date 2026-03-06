@@ -1,0 +1,2 @@
+# Python dependencies for T1S 100BaseT Bridge project
+pyserial>=3.5
