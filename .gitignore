@@ -22,7 +22,6 @@
 # VS Code and CMake build files
 .vscode/
 _build/
-out/
 build/
 cmake-build-*/
 
