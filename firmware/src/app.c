@@ -405,7 +405,7 @@ static void lan_write(SYS_CMD_DEVICE_NODE* pCmdIO, int argc, char** argv) {
     lan_reg_operation_complete = false;
     lan_reg_operation_success = false;
     
-    TCPIP_MAC_RES result = DRV_LAN865X_WriteRegister(0, addr, value, false, lan_write_callback, NULL);
+    TCPIP_MAC_RES result = DRV_LAN865X_WriteRegister(0, addr, value, true, lan_write_callback, NULL);
     
     if (result == TCPIP_MAC_RES_OK) {
         SYS_CONSOLE_PRINT("LAN865X Write initiated: addr=0x%08X value=0x%08X\n\r", (unsigned int)addr, (unsigned int)value);
