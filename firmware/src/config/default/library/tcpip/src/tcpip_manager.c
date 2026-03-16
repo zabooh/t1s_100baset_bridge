@@ -4521,8 +4521,8 @@ TCPIP_MAC_RES _TCPIPStackPacketTx(TCPIP_NET_IF* pNetIf, TCPIP_MAC_PACKET * ptrPa
     if(pNetIf->hIfMac != 0)
     {
         res = pNetIf->pMacObj->TCPIP_MAC_PacketTx(pNetIf->hIfMac, ptrPacket);
-        // stack should always use well formatted packets!
-        _TCPIPStack_Assert(res >= 0, __FILE__, __func__, __LINE__);
+        // Backpressure can be normal under heavy bridge load; assert only on unexpected TX errors.
+        _TCPIPStack_Assert((res >= 0) || (res == TCPIP_MAC_RES_IS_BUSY) || (res == TCPIP_MAC_RES_QUEUE_TX_FULL), __FILE__, __func__, __LINE__);
     }
     else
     {

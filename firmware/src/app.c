@@ -134,9 +134,37 @@ static void test_help(SYS_CMD_DEVICE_NODE* pCmdIO, int argc, char** argv) {
     SYS_CONSOLE_PRINT("  timestamp      - Show build timestamp\n\r");
     SYS_CONSOLE_PRINT("  ipdump <mode>  - Enable IP packet dumping (0=off, 1=eth0, 2=eth1, 3=both)\n\r");
     SYS_CONSOLE_PRINT("  fwd <mode>     - Set forwarding mode (0=off, 1=on)\n\r");
+    SYS_CONSOLE_PRINT("  stats          - Show TX/RX software counters for eth0 and eth1\n\r");
     SYS_CONSOLE_PRINT("  lan_read <addr> - Read LAN865X register (hex address)\n\r");
     SYS_CONSOLE_PRINT("  lan_write <addr> <value> - Write LAN865X register (hex addr, hex value)\n\r");
+    SYS_CONSOLE_PRINT("  dump <addr> <count> - Dump memory (hex addr, decimal or hex count)\n\r");
     SYS_CONSOLE_PRINT("\n\rExample: Test lan_read 0x00000004\n\r");
+    SYS_CONSOLE_PRINT("Example: Test dump 0x20000000 64\n\r");
+}
+
+// stats command: print TX/RX software counters for both interfaces
+static void cmd_stats(SYS_CMD_DEVICE_NODE* pCmdIO, int argc, char** argv) {
+    TCPIP_MAC_RX_STATISTICS rxStats;
+    TCPIP_MAC_TX_STATISTICS txStats;
+    const char *ifNames[] = {"eth0", "eth1"};
+    int i;
+    for (i = 0; i < 2; i++) {
+        TCPIP_NET_HANDLE netH = TCPIP_STACK_NetHandleGet(ifNames[i]);
+        if (netH == NULL) {
+            SYS_CONSOLE_PRINT("%s: not found\n\r", ifNames[i]);
+            continue;
+        }
+        if (TCPIP_STACK_NetMACStatisticsGet(netH, &rxStats, &txStats)) {
+            SYS_CONSOLE_PRINT("%s TX: ok=%d err=%d qFull=%d pend=%d\n\r",
+                ifNames[i], txStats.nTxOkPackets, txStats.nTxErrorPackets,
+                txStats.nTxQueueFull, txStats.nTxPendBuffers);
+            SYS_CONSOLE_PRINT("%s RX: ok=%d err=%d nobufs=%d pend=%d\n\r",
+                ifNames[i], rxStats.nRxOkPackets, rxStats.nRxErrorPackets,
+                rxStats.nRxBuffNotAvailable, rxStats.nRxPendBuffers);
+        } else {
+            SYS_CONSOLE_PRINT("%s: stats not available\n\r", ifNames[i]);
+        }
+    }
 }
 
 // Timestamp command to show build info
@@ -356,6 +384,26 @@ static void my_fwd(SYS_CMD_DEVICE_NODE* pCmdIO, int argc, char** argv) {
 
 }
 
+// Memory dump command: dump <address> <count>
+static void cmd_mem_dump(SYS_CMD_DEVICE_NODE* pCmdIO, int argc, char** argv) {
+    if (argc != 3) {
+        SYS_CONSOLE_PRINT("Usage: dump <address_hex> <count>\n\r");
+        SYS_CONSOLE_PRINT("Example: dump 0x20000000 64\n\r");
+        return;
+    }
+
+    uint32_t addr  = strtoul(argv[1], NULL, 0);
+    uint32_t count = strtoul(argv[2], NULL, 0);
+
+    if (count == 0) {
+        SYS_CONSOLE_PRINT("Count must be > 0\n\r");
+        return;
+    }
+
+    SYS_CONSOLE_PRINT("Memory dump: 0x%08X  %u bytes\n\r", (unsigned int)addr, (unsigned int)count);
+    DumpMem(addr, count);
+}
+
 // LAN865X Register read command
 static void lan_read(SYS_CMD_DEVICE_NODE* pCmdIO, int argc, char** argv) {
     if (argc != 2) {
@@ -375,16 +423,7 @@ static void lan_read(SYS_CMD_DEVICE_NODE* pCmdIO, int argc, char** argv) {
     
     if (result == TCPIP_MAC_RES_OK) {
         SYS_CONSOLE_PRINT("LAN865X Read initiated for addr=0x%08X\n\r", (unsigned int)addr);
-        
-        // Wait for completion (with timeout)
-        uint32_t timeout = 1000000;  // Simple timeout counter
-        while (!lan_reg_operation_complete && timeout > 0) {
-            timeout--;
-        }
-        
-        if (timeout == 0) {
-            SYS_CONSOLE_PRINT("LAN865X Read timeout for addr=0x%08X\n\r", (unsigned int)addr);
-        }
+        // Result printed asynchronously by lan_read_callback
     } else {
         SYS_CONSOLE_PRINT("LAN865X Read failed to start: result=%d\n\r", result);
     }
@@ -409,16 +448,7 @@ static void lan_write(SYS_CMD_DEVICE_NODE* pCmdIO, int argc, char** argv) {
     
     if (result == TCPIP_MAC_RES_OK) {
         SYS_CONSOLE_PRINT("LAN865X Write initiated: addr=0x%08X value=0x%08X\n\r", (unsigned int)addr, (unsigned int)value);
-        
-        // Wait for completion (with timeout)
-        uint32_t timeout = 1000000;  // Simple timeout counter
-        while (!lan_reg_operation_complete && timeout > 0) {
-            timeout--;
-        }
-        
-        if (timeout == 0) {
-            SYS_CONSOLE_PRINT("LAN865X Write timeout: addr=0x%08X value=0x%08X\n\r", (unsigned int)addr, (unsigned int)value);
-        }
+        // Result printed asynchronously by lan_write_callback
     } else {
         SYS_CONSOLE_PRINT("LAN865X Write failed to start: result=%d\n\r", result);
     }
@@ -430,8 +460,10 @@ const SYS_CMD_DESCRIPTOR msd_cmd_tbl[] = {
     {"timestamp", (SYS_CMD_FNC) show_timestamp, ": show build timestamp"},
     {"ipdump", (SYS_CMD_FNC) my_dump, ": dump rx ip packets (0:off 1:eth0 2:eth1 3:both)"},
     {"fwd", (SYS_CMD_FNC) my_fwd, ": fwd (0:off 1:on default:on)"},
+    {"stats", (SYS_CMD_FNC) cmd_stats, ": show TX/RX counters for eth0 and eth1"},
     {"lan_read", (SYS_CMD_FNC) lan_read, ": read LAN865X register (lan_read <addr_hex>)"},
     {"lan_write", (SYS_CMD_FNC) lan_write, ": write LAN865X register (lan_write <addr_hex> <value_hex>)"},
+    {"dump", (SYS_CMD_FNC) cmd_mem_dump, ": dump memory (dump <addr_hex> <count>)"},
 };
 
 bool Command_Init(void) {

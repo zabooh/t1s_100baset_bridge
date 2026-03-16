@@ -33,6 +33,12 @@ extern "C" {
 // *****************************************************************************
 // *****************************************************************************
 
+// Increase TC6 TX buffering for sustained bridge throughput (e.g. iperf).
+// These are consumed by tc6-conf.h via #ifndef guards.
+#define TC6_TX_ETH_QSIZE           (16u)
+#define TC6_TX_ETH_MAX_SEGMENTS    (4u)
+#define SPI_FULL_BUFFERS           (2u)
+
 
 //DOM-IGNORE-BEGIN
 #ifdef __cplusplus

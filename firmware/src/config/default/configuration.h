@@ -136,7 +136,7 @@ extern "C" {
 #define DRV_LAN865X_INTERRUPT_PIN_IDX0       SYS_PORT_PIN_PC14
 #define DRV_LAN865X_RESET_PIN_IDX0           SYS_PORT_PIN_PC18
 #define DRV_LAN865X_PROMISCUOUS_IDX0         true
-#define DRV_LAN865X_TX_CUT_THROUGH_IDX0      true
+#define DRV_LAN865X_TX_CUT_THROUGH_IDX0      false
 #define DRV_LAN865X_RX_CUT_THROUGH_IDX0      false
 #define DRV_LAN865X_CHUNK_SIZE_IDX0          64
 #define DRV_LAN865X_CHUNK_XACT_IDX0          31
@@ -157,7 +157,7 @@ extern "C" {
 #define DRV_SPI_DMA_MODE
 #define DRV_SPI_XMIT_DMA_CH_IDX0              SYS_DMA_CHANNEL_0
 #define DRV_SPI_RCV_DMA_CH_IDX0               SYS_DMA_CHANNEL_1
-#define DRV_SPI_QUEUE_SIZE_IDX0               1
+#define DRV_SPI_QUEUE_SIZE_IDX0               4
 
 /*** MIIM Driver Configuration ***/
 #define DRV_MIIM_ETH_MODULE_ID_0                GMAC_BASE_ADDRESS
