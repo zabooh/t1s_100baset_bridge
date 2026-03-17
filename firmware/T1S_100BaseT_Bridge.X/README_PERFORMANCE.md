@@ -7,6 +7,102 @@
 
 ---
 
+## Schnellstart — Testskripte
+
+Alle Skripte laufen im venv (`\.venv\Scripts\Activate.ps1`) aus dem Verzeichnis `T1S_100BaseT_Bridge.X\`.  
+Gemeinsame Parameter (alle vier Skripte): `--mcu-port COM8  --mpu-port COM9  --baudrate 115200  --mcu-ip 192.168.0.200  --mpu-ip 192.168.0.5`
+
+---
+
+### 1. `dual_target_iperf_serial_test.py` — UDP bidirektionaler Einzeltest
+
+```powershell
+python dual_target_iperf_serial_test.py                    # Standardlauf (10M UDP, beide Richtungen)
+python dual_target_iperf_serial_test.py --udp-bandwidth 4M # andere Zielrate
+python dual_target_iperf_serial_test.py --iperf-duration 30
+python dual_target_iperf_serial_test.py --ramp-test        # zusätzlicher MCU→MPU Ramp-Test
+python dual_target_iperf_serial_test.py --ramp-rates 1M,2M,4M,6M
+python dual_target_iperf_serial_test.py --out-dir results\
+```
+
+| Parameter | Standard | Beschreibung |
+|---|---|---|
+| `--udp-bandwidth` | `10M` | UDP-Zielrate für Linux-Client (`-b`); MCU Timer-Floor: > 2M unzuverlässig |
+| `--iperf-duration` | `10.0` | Testdauer in Sekunden |
+| `--client-timeout` | `40.0` | Max. Wartezeit für iperf-Client-Abschluss |
+| `--client-idle-timeout` | `12.0` | Idle-Timeout für Linux-Output-Erfassung |
+| `--ramp-test` | aus | Aktiviert optionalen MCU→MPU Ramp-Test |
+| `--ramp-rates` | `1M,2M,4M,6M,8M,10M` | Raten für Ramp-Test |
+| `--out-dir` | `.` | Ausgabeverzeichnis für JSON/TXT-Report |
+
+---
+
+### 2. `bandwidth_sweep_iperf_test.py` — UDP Rate-Sweep
+
+```powershell
+python bandwidth_sweep_iperf_test.py                             # Sweep 1M–10M, beide Richtungen
+python bandwidth_sweep_iperf_test.py --rates 1M,2M,4M
+python bandwidth_sweep_iperf_test.py --rates 1M,2M --iperf-duration 30
+python bandwidth_sweep_iperf_test.py --out-dir results\
+```
+
+| Parameter | Standard | Beschreibung |
+|---|---|---|
+| `--rates` | `1M,2M,4M,6M,8M,10M` | Komma-getrennte Zielraten für den Sweep |
+| `--iperf-duration` | `10.0` | Testdauer je Rate in Sekunden |
+| `--client-timeout` | `40.0` | Max. Wartezeit für iperf-Client-Abschluss |
+| `--client-idle-timeout` | `12.0` | Idle-Timeout für Linux-Output-Erfassung |
+| `--out-dir` | `.` | Ausgabeverzeichnis für JSON/TXT-Report |
+
+---
+
+### 3. `tcp_dual_target_iperf_test.py` — TCP bidirektionaler Einzeltest (Baseline)
+
+```powershell
+python tcp_dual_target_iperf_test.py                       # Standardlauf, kein Fenster-Tuning
+python tcp_dual_target_iperf_test.py --tcp-window 32K      # Linux-Sendefenster explizit setzen
+python tcp_dual_target_iperf_test.py --parallel 2          # 2 parallele iperf-Streams
+python tcp_dual_target_iperf_test.py --iperf-duration 30
+python tcp_dual_target_iperf_test.py --out-dir results\
+```
+
+| Parameter | Standard | Beschreibung |
+|---|---|---|
+| `--iperf-duration` | `10.0` | Testdauer in Sekunden |
+| `--tcp-window` | _(kein)_ | Linux-iperf `-w`-Wert, z. B. `64K` (kein Tuning = Baseline) |
+| `--parallel` | `1` | Anzahl paralleler iperf-Streams (`-P`) |
+| `--client-timeout` | `40.0` | Max. Wartezeit für iperf-Client-Abschluss |
+| `--client-idle-timeout` | `12.0` | Idle-Timeout für Linux-Output-Erfassung |
+| `--out-dir` | `.` | Ausgabeverzeichnis für JSON/TXT-Report |
+
+---
+
+### 4. `tcp_optimized_iperf_test.py` — TCP mit Puffer-/Fenster-Optimierung
+
+```powershell
+python tcp_optimized_iperf_test.py                              # Standardlauf (-w 16K, MCU RX=16384)
+python tcp_optimized_iperf_test.py --tcp-window 32K
+python tcp_optimized_iperf_test.py --mcu-rx-buffer 32768        # MCU RX-Puffer für Phase 1
+python tcp_optimized_iperf_test.py --tcp-window 32K --mcu-rx-buffer 32768
+python tcp_optimized_iperf_test.py --parallel 2
+python tcp_optimized_iperf_test.py --out-dir results\
+```
+
+| Parameter | Standard | Beschreibung |
+|---|---|---|
+| `--iperf-duration` | `10.0` | Testdauer in Sekunden |
+| `--tcp-window` | `16K` | Linux-iperf `-w`-Wert; Kernel verdoppelt (16K→32K effektiv) |
+| `--mcu-rx-buffer` | `16384` | MCU `iperfs -rx N` für Phase 1 (MCU als Server); wirksam nur wenn `TCPIP_TCP_DYNAMIC_OPTIONS=1` |
+| `--mcu-tx-buffer` | `16384` | Nur im `args`-Objekt gespeichert; Phase 2 setzt MCU TX **immer** auf 4096 B zurück (> 4096 verursacht TCP-Regression) |
+| `--parallel` | `1` | Anzahl paralleler iperf-Streams (`-P`) |
+| `--client-timeout` | `40.0` | Max. Wartezeit für iperf-Client-Abschluss |
+| `--client-idle-timeout` | `12.0` | Idle-Timeout für Linux-Output-Erfassung |
+| `--out-dir` | `.` | Ausgabeverzeichnis für JSON/TXT-Report |
+
+> **Wichtig:** `--mcu-tx-buffer > 4096` hat keinen Effekt — das Skript setzt Phase-2-TX automatisch auf 4096 B (Firmware-Default) zurück. Wert > 4096 würde TCP-Regression (~65 Kbps) verursachen.
+
+---
+
 ## 1. Messergebnisse — Bandwidth Sweep
 
 Beide Richtungen wurden für jede Rate separat gemessen (`bandwidth_sweep_iperf_test.py`).
