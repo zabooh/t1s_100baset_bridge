@@ -1,8 +1,8 @@
-# PTP Grandmaster Mode — Design & Implementation Plan
+# PTP Grandmaster Mode — Design & Implementation
 
 **Project:** T1S 100BaseT Bridge — ATSAME54P20A / LAN865x  
 **Reference:** `LAN865x-TimeSync/noIP-SAM-E54-Curiosity-PTP-Grandmaster/`  
-**Status:** Design / Pre-Implementation
+**Status:** ✅ Implemented — build verified (make + CMake/ninja, XC32 v4.60, 2026-03-30)
 
 ---
 
@@ -309,41 +309,45 @@ void PTP_GM_Service(void) {
 > section 2.2.  Each state checks `gm_rd_done` (set by `gm_read_cb`) before advancing,
 > mirroring the pattern already used in `ptp_bridge_task.c` for the Follower servo.
 
-### 3.3 Key Challenge: TSC=1 in the Harmony TX Path
+### 3.3 Key Challenge: TSC=1 in the Harmony TX Path  ✅ Solved
 
 `DRV_LAN865X_PacketTx()` does **not** expose the `txCaptureTimeStampA` flag in the TC6
 Data Header.  Without TSC=1, `OA_TTSCAH`/`OA_TTSCAL` will not be populated.
 
-**Recommended solution — Option A: Add `DRV_LAN865X_SendRawWithTscA()`**
+**Implemented solution — Generic `DRV_LAN865X_SendRawEthFrame()` with `tsc` param**
 
-Patch `firmware/src/config/default/driver/lan865x/src/dynamic/drv_lan865x_api.c`:
+Added to `firmware/src/config/default/driver/lan865x/src/dynamic/drv_lan865x_api.c`:
 
 ```c
-/* New public function — send raw Ethernet frame with TSC=1 set in TC6 Data Header */
-bool DRV_LAN865X_SendRawWithTscA(uint8_t drvInst,
-                                  const uint8_t *pBuf, uint16_t len,
-                                  TC6_RawTxCallback_t cb, void *pTag)
+/* Callback typedef (void* for pInst avoids tc6.h in public header) */
+typedef void (*DRV_LAN865X_RawTxCallback_t)(void *pInst, const uint8_t *pTx,
+                                             uint16_t len, void *pTag,
+                                             void *pGlobalTag);
+
+/* Generic raw frame send — tsc=0x01 for Sync, tsc=0x00 for FollowUp */
+bool DRV_LAN865X_SendRawEthFrame(uint8_t idx, const uint8_t *pBuf, uint16_t len,
+                                  uint8_t tsc,
+                                  DRV_LAN865X_RawTxCallback_t cb, void *pTag)
 {
-    DRV_LAN865X_OBJ *obj = &drvLan865xObj[drvInst];
-    if (!obj->isOpen) return false;
-    return TC6_SendRawEthernetPacket(obj->tc6, pBuf, len,
-                                      0x01u,   /* txCaptureTimeStampA */
-                                      cb, pTag);
+    bool result = false;
+    if (idx < DRV_LAN865X_INSTANCES_NUMBER) {
+        DRV_LAN865X_DriverInfo *pDrv = &drvLAN865XDrvInst[idx];
+        if (SYS_STATUS_READY == pDrv->state) {
+            result = TC6_SendRawEthernetPacket(pDrv->drvTc6, pBuf, len,
+                                               tsc,
+                                               (TC6_RawTxCallback_t)(void *)cb,
+                                               pTag);
+        }
+    }
+    return result;
 }
 ```
 
-Declare in `drv_lan865x.h`:
+Usage in `ptp_gm_task.c`:
 ```c
-bool DRV_LAN865X_SendRawWithTscA(uint8_t drvInst, const uint8_t *pBuf,
-                                   uint16_t len, TC6_RawTxCallback_t cb,
-                                   void *pTag);
+DRV_LAN865X_SendRawEthFrame(0, gm_sync_buf,    58, 0x01u, gm_tx_cb, NULL); /* Sync     */
+DRV_LAN865X_SendRawEthFrame(0, gm_followup_buf, 90, 0x00u, gm_tx_cb, NULL); /* FollowUp */
 ```
-
-**Alternative — Option B: TX Match auto-capture (no TSC)**
-
-With TXMCTL configured as above the LAN865x can capture a timestamp on pattern match
-regardless of TSC.  But in practice the TTSCAA flag may not be set without an explicit
-TSC request; this is untested.  Option A is recommended.
 
 ### 3.4 Patch: `firmware/src/ptp_bridge_task.c` / `.h`
 
@@ -478,31 +482,31 @@ asynchronously for the clock servo.
 
 ## 5. File Change Summary
 
-| File | Change Type | Details |
-|------|------------|---------|
-| `firmware/src/ptp_gm_task.h` | **NEW** | GM register defines, state enum, public API |
-| `firmware/src/ptp_gm_task.c` | **NEW** | GM state machine, frame build/send, `PTP_GM_Init/Service/GetStatus` |
-| `firmware/src/ptp_bridge_task.h` | **PATCH** | Add `PTP_Bridge_GetMode()` / `PTP_Bridge_SetMode()` declarations |
-| `firmware/src/ptp_bridge_task.c` | **PATCH** | Implement `GetMode`/`SetMode`; gate `OnFrame` on `ptpMode == PTP_SLAVE` |
-| `firmware/src/app.c` | **PATCH** | Add `cmd_ptp_mode`, `cmd_ptp_status`, `cmd_ptp_interval`; add 1 ms GM timer |
-| `firmware/src/config/default/driver/lan865x/src/dynamic/drv_lan865x_api.c` | **PATCH** | Add `DRV_LAN865X_SendRawWithTscA()` |
-| `firmware/src/config/default/driver/lan865x/drv_lan865x.h` | **PATCH** | Declare `DRV_LAN865X_SendRawWithTscA()` |
-| `nbproject/Makefile-default.mk` | **UPDATE** | Add compile rules for `ptp_gm_task.c` |
-| `nbproject/configurations.xml` | **UPDATE** | Add `ptp_gm_task.c` / `.h` to project tree |
-| `cmake/.generated/file.cmake` | **UPDATE** | Add `ptp_gm_task.c` to source list |
+| File | Change Type | Status | Details |
+|------|------------|--------|---------|
+| `firmware/src/ptp_gm_task.h` | **NEW** | ✅ Done | GM register defines, 14-state enum, public API |
+| `firmware/src/ptp_gm_task.c` | **NEW** | ✅ Done | Full 14-state non-blocking GM state machine |
+| `firmware/src/ptp_bridge_task.h` | **PATCH** | ✅ Done | Added `PTP_Bridge_GetMode()` / `PTP_Bridge_SetMode()` declarations |
+| `firmware/src/ptp_bridge_task.c` | **PATCH** | ✅ Done | Implemented `GetMode`/`SetMode`; `OnFrame` gated on `ptpMode == PTP_SLAVE` |
+| `firmware/src/app.c` | **PATCH** | ✅ Done | Added `cmd_ptp_mode`, `cmd_ptp_status`, `cmd_ptp_interval`; 1 ms GM timer |
+| `firmware/src/config/default/driver/lan865x/src/dynamic/drv_lan865x_api.c` | **PATCH** | ✅ Done | Added `DRV_LAN865X_SendRawEthFrame()` (generic TSC param) |
+| `firmware/src/config/default/driver/lan865x/drv_lan865x.h` | **PATCH** | ✅ Done | Added `DRV_LAN865X_RawTxCallback_t` typedef + `SendRawEthFrame` declaration |
+| `nbproject/Makefile-default.mk` | **UPDATE** | ✅ Done | Variable lists + DEBUG/release compile rules for `ptp_gm_task.c` |
+| `nbproject/configurations.xml` | **UPDATE** | ✅ Done | Added `ptp_gm_task.c` to project source tree |
+| `cmake/.generated/file.cmake` | **UPDATE** | ✅ Done | Added `ptp_gm_task.c` to CMake source list |
 
 ---
 
 ## 6. Implementation Order
 
-1. **Define registers & API** → Create `ptp_gm_task.h`
-2. **Driver patch** → Add `DRV_LAN865X_SendRawWithTscA()` to `drv_lan865x_api.c` / `.h`
-3. **GM init** → Implement `PTP_GM_Init()` (port `TC6_ptp_master_init` from `tc6-noip.c`)
-4. **Read accessors** → Add `PTP_Bridge_GetMode()` / `PTP_Bridge_SetMode()` to `ptp_bridge_task.c`
-5. **GM state machine** → Implement `PTP_GM_Service()` as non-blocking state machine
-6. **Timer** → Add 1 ms periodic timer for `PTP_GM_Service()` in `APP_Initialize()`
-7. **CLI** → Add `ptp_mode`, `ptp_status`, `ptp_interval` commands to `app.c`
-8. **Build plumbing** → Update `Makefile-default.mk`, `configurations.xml`, `file.cmake`
+1. **Define registers & API** → Created `ptp_gm_task.h` ✅
+2. **Driver patch** → Added `DRV_LAN865X_SendRawEthFrame()` to `drv_lan865x_api.c` / `.h` ✅
+3. **GM init** → Implemented `PTP_GM_Init()` (port of `TC6_ptp_master_init` from `tc6-noip.c`) ✅
+4. **Read accessors** → Added `PTP_Bridge_GetMode()` / `PTP_Bridge_SetMode()` to `ptp_bridge_task.c` ✅
+5. **GM state machine** → Implemented `PTP_GM_Service()` as 14-state non-blocking machine ✅
+6. **Timer** → Added 1 ms periodic timer for `PTP_GM_Service()` in `APP_Initialize()` ✅
+7. **CLI** → Added `ptp_mode`, `ptp_status`, `ptp_interval` commands to `app.c` ✅
+8. **Build plumbing** → Updated `Makefile-default.mk`, `configurations.xml`, `file.cmake` ✅
 9. **Test** → Verify FollowUp timestamp visible on Follower within ≈ 1–2 µs offset  
    (compare with Follower `offset` variable via `ptp_status` CLI)
 
@@ -510,58 +514,142 @@ asynchronously for the clock servo.
 
 ## 7. Reference Comparison
 
-| Aspect | noIP GM (reference) | Bridge Harmony (target) |
-|--------|---------------------|------------------------|
-| TX with TSC=1 | `TC6_SendRawEthernetPacket(..., 0x01)` | `DRV_LAN865X_SendRawWithTscA()` (new) |
+| Aspect | noIP GM (reference) | Bridge Harmony (implemented) |
+|--------|---------------------|------------------------------|
+| TX with TSC=1 | `TC6_SendRawEthernetPacket(..., 0x01)` | `DRV_LAN865X_SendRawEthFrame(..., tsc=0x01, ...)` — generic tsc param |
+| TX without TSC | same, tsc=0 | `DRV_LAN865X_SendRawEthFrame(..., tsc=0x00, ...)` for FollowUp |
 | Register write | `TC6_WriteRegister()` + `TC6_Service()` (blocking) | `DRV_LAN865X_WriteRegister()` (async) |
-| Register read | `TC6_ReadRegister()` + `TC6_Service()` → value ready | `DRV_LAN865X_ReadRegister()` + callback |
+| Register read | `TC6_ReadRegister()` + `TC6_Service()` → value ready | `DRV_LAN865X_ReadRegister()` + callback flag |
 | Periodic timer | `systick.tickCounter` in `while(true)` | `SYS_TIME_TimerCreate()` 1 ms callback |
-| State machine | Single `switch` in main loop (synchronous) | Non-blocking `PTP_GM_Service()` + callback flags |
-| Source MAC | Hardcoded (`40:84:32:7D:07:FA`) | Read via `TCPIP_STACK_NetAddressMac()` |
+| State machine | 7 states, synchronous | 14 states (READ + WAIT pairs), non-blocking |
+| Source MAC | Hardcoded (`40:84:32:7D:07:FA`) | Read via `TCPIP_STACK_NetAddressMac(netH)` → `const uint8_t*` |
 | Init | `TC6_ptp_master_init()` in `tc6-noip.c` | `PTP_GM_Init()` using Harmony register API |
-| Retry on error | `MAX_NUM_REG_RETRIES = 5` counter | Same: retry counter in `PTP_GM_Service()` |
+| Retry on error | `MAX_NUM_REG_RETRIES = 5` counter | `PTP_GM_MAX_RETRIES = 5` counter in `PTP_GM_Service()` |
 
 ---
 
-## 8. Risks and Open Questions
+## 8. Implementation Notes (Deviations from Plan)
 
-| Item | Risk | Mitigation |
-|------|------|-----------|
-| **TSC=1 TX path** | `DRV_LAN865X_PacketTx` doesn't expose TSC flag | Add `DRV_LAN865X_SendRawWithTscA()` (Option A) |
-| **RMW register API** | `DRV_LAN865X_ReadModifyWriteRegister` may not exist in bridge driver | If absent: manual Read → callback → Write sequence |
-| **OA_TTSCAH value at 0x10** | Bridge `ptp_bridge_task.h` had wrong value in notes (0x11) | Confirmed `tc6-regs.h`: `OA_TTSCAH=0x10`, `OA_TTSCAL=0x11` |
-| **Harmony read callback latency** | Async reads span multiple SPI cycles; state machine must not time out | State is persisted across `PTP_GM_Service()` calls; only timestamp deadline matters |
-| **Source MAC** | Hardcoded in reference; must match interface MAC | Read via `TCPIP_STACK_NetAddressMac()` once in `PTP_GM_Init()` |
-| **GM + Follower simultaneously** | Both modes active would cause TX–RX race on EtherType 0x88F7 | Gated by `ptpMode`; `PTP_Bridge_OnFrame()` skips when mode == PTP_MASTER |
-| **PPSCTL side-effects** | Writing `0x7D` enables PPS output on a pin; verify pin is free | Make PPSCTL write conditional with a `#define PTP_GM_ENABLE_PPS` guard |
-| **Sequence ID on reinit** | After `ptp_mode master` → `off` → `master`, seq_id resets | This is correct behaviour; Follower will re-sync |
-| **125 ms timer vs. 1 ms callback overhead** | 125 `PTP_GM_Service()` calls per Sync cycle all no-ops except on period boundary | Negligible: state check is O(1) |
+### 8.1 `DRV_LAN865X_SendRawEthFrame` — Generic TSC Parameter
+
+The plan proposed a dedicated `DRV_LAN865X_SendRawWithTscA()`.  The implementation uses
+a single generic function with an explicit `tsc` argument:
+
+```c
+/* drv_lan865x.h */
+typedef void (*DRV_LAN865X_RawTxCallback_t)(void *pInst, const uint8_t *pTx,
+                                             uint16_t len, void *pTag,
+                                             void *pGlobalTag);
+
+bool DRV_LAN865X_SendRawEthFrame(uint8_t idx, const uint8_t *pBuf, uint16_t len,
+                                  uint8_t tsc,
+                                  DRV_LAN865X_RawTxCallback_t cb, void *pTag);
+```
+
+`tsc=0x01` for Sync (capture TSC-A), `tsc=0x00` for FollowUp (no capture).
+
+The callback typedef uses `void*` for the TC6 instance pointer to avoid pulling
+`tc6.h` into the public driver header.
+
+### 8.2 `TCPIP_STACK_NetAddressMac` Signature
+
+The Harmony TCP/IP library declares this function as returning `const uint8_t*`,
+**not** taking an output pointer:
+
+```c
+/* Actual Harmony declaration (tcpip_manager.h) */
+const uint8_t* TCPIP_STACK_NetAddressMac(TCPIP_NET_HANDLE netH);
+
+/* ptp_gm_task.c — correct usage */
+const uint8_t *pMac = TCPIP_STACK_NetAddressMac(netH);
+if (pMac != NULL) {
+    memcpy(gm_src_mac, pMac, 6);
+}
+```
+
+The README plan showed a two-argument form; this was corrected during the build.
+
+### 8.3 14-State Machine Instead of 7
+
+Because every register read is asynchronous, each logical state from the reference is
+split into a **READ** state (kick off the async request) and a **WAIT** state (poll the
+callback flag).  Actual states:
+
+```
+IDLE → WAIT_PERIOD → SEND_SYNC
+     → READ_TXMCTL → WAIT_TXMCTL
+     → READ_STATUS0 → WAIT_STATUS0
+     → READ_TTSCA_H → WAIT_TTSCA_H
+     → READ_TTSCA_L → WAIT_TTSCA_L
+     → WRITE_CLEAR → WAIT_CLEAR
+     → SEND_FOLLOWUP → (back to WAIT_PERIOD)
+```
+
+### 8.4 `PTP_GM_SetSyncInterval` Added to Public API
+
+Beyond `Init / Service / GetStatus`, a fourth function was added to support the
+`ptp_interval` CLI command (runtime-adjustable Sync period):
+
+```c
+void PTP_GM_SetSyncInterval(uint32_t intervalMs);
+```
+
+Default: `PTP_GM_SYNC_PERIOD_MS = 125`.
+
+### 8.5 CMake `file.cmake`
+
+The `cmake/T1S_100BaseT_Bridge/default/.generated/file.cmake` file is auto-generated
+by MPLAB X but can be patched because it is tracked in the project.  `ptp_gm_task.c`
+must be added there in addition to `Makefile-default.mk` so that both the traditional
+MPLAB make build and the VS Code CMake build work.
 
 ---
 
-## 9. Estimating Implementation Effort
+## 9. Risks and Open Questions
 
-| Task | Estimated effort |
-|------|-----------------|
-| `ptp_gm_task.h` — constants and declarations | ~30 min |
-| `DRV_LAN865X_SendRawWithTscA()` driver patch | ~45 min |
-| `PTP_GM_Init()` — register writes | ~30 min |
-| `PTP_GM_Service()` — full 10-state machine | ~3–4 h |
-| `PTP_Bridge_GetMode/SetMode` + `OnFrame` gate | ~30 min |
-| CLI commands in `app.c` | ~45 min |
-| Build plumbing (Makefile, configs.xml, cmake) | ~20 min |
-| Integration test on hardware | ~2–4 h |
-| **Total** | **~8–10 h** |
+| Item | Risk | Status |
+|------|------|--------|
+| **TSC=1 TX path** | `DRV_LAN865X_PacketTx` doesn't expose TSC flag | ✅ Solved: `DRV_LAN865X_SendRawEthFrame(tsc=0x01)` |
+| **RMW register API** | `DRV_LAN865X_ReadModifyWriteRegister` may not exist | ✅ Exists in `drv_lan865x_api.c` |
+| **OA_TTSCAH value** | Notes had wrong value 0x11 | ✅ Confirmed: `OA_TTSCAH=0x10`, `OA_TTSCAL=0x11` |
+| **Harmony read callback latency** | Async reads span multiple SPI cycles | ✅ Handled: READ/WAIT state pairs |
+| **Source MAC** | Hardcoded in reference | ✅ Read via `TCPIP_STACK_NetAddressMac()` |
+| **GM + Follower simultaneously** | TX–RX race on EtherType 0x88F7 | ✅ Gated: `PTP_Bridge_OnFrame()` skips when `ptpMode == PTP_MASTER` |
+| **PPSCTL side-effects** | Writes `0x7D`, enables PPS output pin | ⚠️ Open: verify PPS pin is free on board |
+| **Sequence ID on reinit** | After `ptp_mode off` → `master`, seq_id resets | ✅ Intended; Follower re-syncs |
+| **`TCPIP_STACK_NetAddressMac` signature** | Two-arg form assumed in plan | ✅ Fixed: returns `const uint8_t*` |
+| **Hardware timestamp accuracy** | ±1 µs expected | ⚠️ Open: verify on hardware vs. Follower offset |
 
 ---
 
-## 10. Related Files
+## 10. Estimating Implementation Effort (Actual)
+
+| Task | Estimated | Actual |
+|------|-----------|--------|
+| `ptp_gm_task.h` — constants and declarations | ~30 min | ✅ Done |
+| `DRV_LAN865X_SendRawEthFrame()` driver patch | ~45 min | ✅ Done |
+| `PTP_GM_Init()` — register writes | ~30 min | ✅ Done |
+| `PTP_GM_Service()` — full 14-state machine | ~3–4 h | ✅ Done |
+| `PTP_Bridge_GetMode/SetMode` + `OnFrame` gate | ~30 min | ✅ Done |
+| CLI commands in `app.c` | ~45 min | ✅ Done |
+| Build plumbing (Makefile, configs.xml, cmake) | ~20 min | ✅ Done (cmake fix needed) |
+| Build error fix (`NetAddressMac` signature) | — | ✅ 5 min |
+| Integration test on hardware | ~2–4 h | ⏳ Pending |
+
+---
+
+## 11. Related Files
 
 | File | Description |
 |------|-------------|
 | [README_PTP_TCP.md](README_PTP_TCP.md) | PTP Follower implementation — already done |
-| `firmware/src/ptp_bridge_task.c` | Follower clock servo (ptpMode variable lives here) |
-| `firmware/src/ptp_bridge_task.h` | Follower types, addresses, API |
-| `firmware/src/filters.c` / `.h` | FIR/IIR filter helpers used by the servo |
+| `firmware/src/ptp_gm_task.h` | GM register defines, public API |
+| `firmware/src/ptp_gm_task.c` | GM 14-state non-blocking state machine |
+| `firmware/src/ptp_bridge_task.c` | Follower clock servo + `ptpMode` variable |
+| `firmware/src/ptp_bridge_task.h` | Follower types, addresses, mode API |
+| `firmware/src/app.c` | CLI commands + GM 1 ms timer |
+| `firmware/src/config/default/driver/lan865x/drv_lan865x.h` | `DRV_LAN865X_SendRawEthFrame` declaration |
+| `firmware/src/config/default/driver/lan865x/src/dynamic/drv_lan865x_api.c` | `DRV_LAN865X_SendRawEthFrame` implementation |
+| `firmware/src/filters.c` / `.h` | FIR/IIR filter helpers used by the Follower servo |
 | `LAN865x-TimeSync/noIP-SAM-E54-Curiosity-PTP-Grandmaster/firmware/src/main.c` | GM state machine reference (830 lines) |
 | `LAN865x-TimeSync/noIP-SAM-E54-Curiosity-PTP-Grandmaster/libtc6.X/inc/tc6-regs.h` | Authoritative register address source |

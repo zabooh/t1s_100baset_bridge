@@ -366,8 +366,24 @@ void PTP_Bridge_Init(void)
     PTP_LOG("PTP_Bridge_Init: PTP Follower ready (LAN865x idx=0)\r\n");
 }
 
+ptpMode_t PTP_Bridge_GetMode(void)
+{
+    return ptpMode;
+}
+
+void PTP_Bridge_SetMode(ptpMode_t mode)
+{
+    ptpMode = mode;
+    if (mode == PTP_SLAVE) {
+        resetSlaveNode();
+    }
+}
+
 void PTP_Bridge_OnFrame(const uint8_t *pData, uint16_t len, uint64_t rxTimestamp)
 {
+    if (ptpMode != PTP_SLAVE) {
+        return;
+    }
     uint32_t sec  = (uint32_t)((rxTimestamp >> 32u) & 0xFFFFFFFFu);
     uint32_t nsec = (uint32_t)( rxTimestamp         & 0xFFFFFFFFu);
     handlePtp((uint8_t *)pData, (uint32_t)len, sec, nsec);

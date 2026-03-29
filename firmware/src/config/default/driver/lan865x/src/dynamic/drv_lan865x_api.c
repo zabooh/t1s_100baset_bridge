@@ -2404,3 +2404,23 @@ static void _RxPacketAck(TCPIP_MAC_PACKET* pkt, const void* param)
         TCPIP_Helper_ProtectedSingleListTailAdd(&pDrvInst->rxFreePackets, (SGL_LIST_NODE*) pkt);
     }
 }
+
+/* --------------------------------------------------------------------------
+ * DRV_LAN865X_SendRawEthFrame
+ * Send a raw Ethernet frame through TC6 with a caller-selected TSC flag.
+ * Use tsc=0x01 for Sync (to arm Timestamp Capture A) and tsc=0x00 otherwise.
+ * -------------------------------------------------------------------------- */
+bool DRV_LAN865X_SendRawEthFrame(uint8_t idx, const uint8_t *pBuf, uint16_t len,
+                                  uint8_t tsc, DRV_LAN865X_RawTxCallback_t cb,
+                                  void *pTag)
+{
+    bool result = false;
+    if (idx < DRV_LAN865X_INSTANCES_NUMBER) {
+        DRV_LAN865X_DriverInfo *pDrv = &drvLAN865XDrvInst[idx];
+        if (SYS_STATUS_READY == pDrv->state) {
+            result = TC6_SendRawEthernetPacket(pDrv->drvTc6, pBuf, len, tsc,
+                                               (TC6_RawTxCallback_t)(void *)cb, pTag);
+        }
+    }
+    return result;
+}

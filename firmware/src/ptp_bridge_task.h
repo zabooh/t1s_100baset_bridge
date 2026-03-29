@@ -234,8 +234,15 @@ typedef struct
 /** Initialise the PTP bridge follower (call once after the TCPIP stack is up). */
 void PTP_Bridge_Init(void);
 
+/** Get current PTP operating mode. */
+ptpMode_t PTP_Bridge_GetMode(void);
+
+/** Set PTP operating mode.  Setting PTP_SLAVE also resets the follower servo. */
+void PTP_Bridge_SetMode(ptpMode_t mode);
+
 /**
  * Feed a received Ethernet frame into the PTP engine.
+ * Only active when mode == PTP_SLAVE; frames are ignored in other modes.
  *
  * pData        - Pointer to the start of the Ethernet frame (MAC header included).
  * len          - Total frame length in bytes.

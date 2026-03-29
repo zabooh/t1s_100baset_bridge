@@ -30,6 +30,7 @@
 #include "app.h"
 #include "ptp_ts_ipc.h"
 #include "ptp_bridge_task.h"
+#include "ptp_gm_task.h"
 #include "config/default/system/console/sys_console.h"
 #include "config/default/library/tcpip/tcpip.h"
 #include "config/default/library/tcpip/telnet.h"
@@ -90,6 +91,7 @@ uint32_t ipdump_mode = 0;
 uint32_t fwd_mode = 0;
 uint32_t my_delay_time = 0;
 SYS_TIME_HANDLE timerHandle;
+static SYS_TIME_HANDLE gmTimerHandle = SYS_TIME_HANDLE_INVALID;
 
 // LAN865X Register access variables
 volatile bool lan_reg_operation_complete = false;
@@ -102,6 +104,12 @@ volatile uint32_t lan_reg_read_value = 0;
 
 void BRIDGE_TimerCallback(uintptr_t context) {
     if (my_delay_time)my_delay_time--;
+}
+
+static void GM_TimerCallback(uintptr_t context) {
+    if (PTP_Bridge_GetMode() == PTP_MASTER) {
+        PTP_GM_Service();
+    }
 }
 
 // LAN865X Register callback for read operations
@@ -211,8 +219,11 @@ void APP_Initialize(void) {
     TCPIP_TELNET_AuthenticationRegister(TelnetAuthenticationHandler, &TelnetHandlerParam);
 
     timerHandle = SYS_TIME_TimerCreate(0, SYS_TIME_MSToCount(1000), &BRIDGE_TimerCallback, (uintptr_t) NULL, SYS_TIME_PERIODIC);
-
     SYS_TIME_TimerStart(timerHandle);
+
+    gmTimerHandle = SYS_TIME_TimerCreate(0, SYS_TIME_MSToCount(1), &GM_TimerCallback, (uintptr_t) NULL, SYS_TIME_PERIODIC);
+    SYS_TIME_TimerStart(gmTimerHandle);
+
     Command_Init();
     /* TODO: Initialize your application's state machine and other
      * parameters.
@@ -469,6 +480,45 @@ static void lan_write(SYS_CMD_DEVICE_NODE* pCmdIO, int argc, char** argv) {
 }
 
 
+static void cmd_ptp_mode(SYS_CMD_DEVICE_NODE *pCmdIO, int argc, char **argv) {
+    if (argc != 2) {
+        SYS_CONSOLE_PRINT("Usage: ptp_mode [off|follower|master]\r\n");
+        return;
+    }
+    if (strcmp(argv[1], "off") == 0) {
+        PTP_Bridge_SetMode(PTP_DISABLED);
+        SYS_CONSOLE_PRINT("[PTP] disabled\r\n");
+    } else if (strcmp(argv[1], "follower") == 0) {
+        PTP_Bridge_SetMode(PTP_SLAVE);
+        SYS_CONSOLE_PRINT("[PTP] follower mode\r\n");
+    } else if (strcmp(argv[1], "master") == 0) {
+        PTP_GM_Init();
+        PTP_Bridge_SetMode(PTP_MASTER);
+        SYS_CONSOLE_PRINT("[PTP] grandmaster mode\r\n");
+    } else {
+        SYS_CONSOLE_PRINT("Unknown mode: %s\r\n", argv[1]);
+    }
+}
+
+static void cmd_ptp_status(SYS_CMD_DEVICE_NODE *pCmdIO, int argc, char **argv) {
+    const char *modeStr[] = {"disabled", "master", "slave"};
+    uint32_t cnt = 0u, state = 0u;
+    PTP_GM_GetStatus(&cnt, &state);
+    SYS_CONSOLE_PRINT("[PTP] mode=%s gmSyncs=%u gmState=%u\r\n",
+                       modeStr[PTP_Bridge_GetMode()],
+                       (unsigned)cnt, (unsigned)state);
+}
+
+static void cmd_ptp_interval(SYS_CMD_DEVICE_NODE *pCmdIO, int argc, char **argv) {
+    if (argc != 2) {
+        SYS_CONSOLE_PRINT("Usage: ptp_interval <ms>\r\n");
+        return;
+    }
+    uint32_t ms = (uint32_t)strtoul(argv[1], NULL, 10);
+    PTP_GM_SetSyncInterval(ms);
+    SYS_CONSOLE_PRINT("[PTP-GM] sync interval set to %u ms\r\n", (unsigned)ms);
+}
+
 const SYS_CMD_DESCRIPTOR msd_cmd_tbl[] = {
     {"help", (SYS_CMD_FNC) test_help, ": show Test group commands"},
     {"timestamp", (SYS_CMD_FNC) show_timestamp, ": show build timestamp"},
@@ -478,6 +528,9 @@ const SYS_CMD_DESCRIPTOR msd_cmd_tbl[] = {
     {"lan_read", (SYS_CMD_FNC) lan_read, ": read LAN865X register (lan_read <addr_hex>)"},
     {"lan_write", (SYS_CMD_FNC) lan_write, ": write LAN865X register (lan_write <addr_hex> <value_hex>)"},
     {"dump", (SYS_CMD_FNC) cmd_mem_dump, ": dump memory (dump <addr_hex> <count>)"},
+    {"ptp_mode",     (SYS_CMD_FNC) cmd_ptp_mode,     ": set PTP mode (off|follower|master)"},
+    {"ptp_status",   (SYS_CMD_FNC) cmd_ptp_status,   ": show PTP mode, sync count, offset"},
+    {"ptp_interval", (SYS_CMD_FNC) cmd_ptp_interval, ": set GM Sync interval in ms (default 125)"},
 };
 
 bool Command_Init(void) {
