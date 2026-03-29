@@ -1,9 +1,66 @@
 # Performance Analysis — T1S/100BaseT Bridge (UDP + TCP)
 
-**Datum:** 2026-03-17  
+**Datum:** 2026-03-17 (Basis) + Update 2026-03-18  
 **Hardware:** ATSAME54P20A (MCU, COM8, 192.168.0.200) ↔ LAN8651 10BASE-T1S ↔ Linux/MPU (COM9, 192.168.0.5)  
 **Protokolle:** UDP und TCP / iperf, Port 5001, Datagramme 1470 Byte  
 **Testdauer:** 10 s pro Messung  
+
+---
+
+## Update 2026-03-18 - UDP Sweep nach MCU-Reflash
+
+**Quelle:**
+- `bandwidth_sweep_report_20260318_135711.txt`
+- `bandwidth_sweep_report_20260318_135711.json`
+
+### Kurzfazit
+
+- **MPU -> MCU** bleibt stabil und verlustfrei bis 6 Mbit/s.
+- **MCU -> MPU** ist weiterhin nicht ratenstabil und zeigt starke Uebersendung sowie hohen Loss.
+- Ab Zielrate 3M sendet die MCU effektiv fast immer bei ~9.27 Mbit/s und der MPU-Server sieht ~85 % Verlust.
+
+### Messergebnisse 1M bis 6M (beide Richtungen)
+
+| Zielrate | Richtung | Tat. Client BW | Tat. Server BW | Verlust |
+|---:|---|---:|---:|---|
+| 1 Mbit/s | MPU -> MCU | 1.05 Mbit/s | 1.05 Mbit/s | 0/894 (0 %) |
+| 1 Mbit/s | MCU -> MPU | 3.64 Mbit/s | 3.70 Mbit/s | 0/3137 (0 %) |
+| 2 Mbit/s | MPU -> MCU | 2.10 Mbit/s | 2.09 Mbit/s | 0/1786 (0 %) |
+| 2 Mbit/s | MCU -> MPU | 7.22 Mbit/s | 4.70 Mbit/s | 2239/6232 (36 %) |
+| 3 Mbit/s | MPU -> MCU | 3.15 Mbit/s | 3.14 Mbit/s | 0/2677 (0 %) |
+| 3 Mbit/s | MCU -> MPU | 9.28 Mbit/s | 1.41 Mbit/s | 6816/8012 (85 %) |
+| 4 Mbit/s | MPU -> MCU | 4.20 Mbit/s | 4.19 Mbit/s | 0/3569 (0 %) |
+| 4 Mbit/s | MCU -> MPU | 9.29 Mbit/s | 1.40 Mbit/s | 6825/8013 (85 %) |
+| 5 Mbit/s | MPU -> MCU | 5.24 Mbit/s | 5.23 Mbit/s | 0/4460 (0 %) |
+| 5 Mbit/s | MCU -> MPU | 9.26 Mbit/s | 1.39 Mbit/s | 6830/8011 (85 %) |
+| 6 Mbit/s | MPU -> MCU | 6.09 Mbit/s | 6.03 Mbit/s | 0/5196 (0 %) |
+| 6 Mbit/s | MCU -> MPU | 9.27 Mbit/s | 1.43 Mbit/s | 6795/8011 (85 %) |
+
+### Interpretation (Update)
+
+- Das vorherige 1ms-Timer-Floor-Bild bleibt in der Grobtendenz sichtbar (Plateau bei ~9.3 Mbit/s),
+    aber die neue Firmware zeigt zusaetzlich bereits bei 1M und 2M massive Uebersendung.
+- Die ausgegebene MCU-IPG passt nicht zur effektiven Datengroesse von 1470 Byte
+    (z. B. 1M -> period 3.170 ms ergibt ~3.7 Mbit/s effektiv). Das deutet auf eine falsche
+    Rate-/IPG-Berechnung (vermutlich falsche Paketgroesse in der Formel) hin.
+- Auf MPU-Seite bleibt der Verlustpfad unterhalb des UDP-Socket-Layers konsistent
+    (hoher Loss bei hoher Eingangslast, UDP-Anwendung nicht der primaere Engpass).
+
+### Sofort nutzbare Betriebsgrenzen (Update)
+
+- **MPU -> MCU (UDP):** bis 6M stabil (0 % Loss in diesem Sweep)
+- **MCU -> MPU (UDP):**
+    - 1M: stabil, aber falsche reale Rate (~3.7M)
+    - 2M: bereits kritisch (36 % Loss)
+    - >=3M: nicht verwendbar (~85 % Loss)
+
+### Empfehlung (Update)
+
+1. MCU-iperf Rate-Control erneut im Code pruefen: verwendete Payload-Bits in der IPG-Formel,
+     Einheitenumrechnung und Tick-/Timer-Pfad.
+2. Guardrail im MCU-Client einfuehren: Ist/Soll-Abweichung > 10 % als Fehler melden.
+3. Bis Fix: fuer MCU->MPU UDP keine Raten >=2M fuer belastbare Messungen verwenden.
+4. Verbindliche Alternativen fuer Durchsatztests: MPU->MCU UDP oder TCP in beide Richtungen.
 
 ---
 
@@ -679,3 +736,105 @@ Diagnose auf MPU (ohne ethtool):
   # Spalte 3 (hex) = time_squeeze → wenn > 0: NAPI-Budget-Engpass
   # Spalte 2 (hex) = total dropped in NET_RX softirq
 ```
+
+---
+
+## 12. TC6-Architektur: Control- vs. Data-Transaktionen als strukturelles RX-Limit
+
+**Datum:** 2026-03-26 (Analyse aus `oa_tc6.c` Treiberquellcode)
+
+### 12.1 Hintergrund: TC6 kann Control und Data nicht gleichzeitig übertragen
+
+Jede SPI-Transaktion zum LAN8651 enthält in Bit 31 des 4-Byte-Headers das Flag `DATA_NOT_CTRL`:
+
+```
+DATA_NOT_CTRL = 1  →  DATA-Transaktion   (Ethernet-Chunks, max. 48 × 68 Byte)
+DATA_NOT_CTRL = 0  →  CTRL-Transaktion   (Register-Lesen/Schreiben, 12 Byte)
+```
+
+Ein SPI-CS-Zyklus kann immer nur **eines davon** transportieren — niemals beides gleichzeitig.
+
+Der `oa_tc6`-Treiber implenentiert dies mit zwei völlig getrennten Pfaden:
+
+```
+CTRL-Pfad:  spi_ctrl_tx/rx_buf  → oa_tc6_read/write_register()
+                                   geschützt durch spi_ctrl_lock (Mutex)
+DATA-Pfad:  spi_data_tx/rx_buf  → oa_tc6_try_spi_transfer()
+                                   läuft im dedizierten kthread (SCHED_FIFO)
+```
+
+### 12.2 Was unter hoher RX-Last passiert
+
+Der kthread-Loop `oa_tc6_try_spi_transfer()` arbeitet in dieser Schleife:
+
+```
+while (true):
+  1. Baue leere TX-Chunks auf  (um RX-Daten aus dem FIFO zu holen)
+  2. → DATA-SPI-Transfer        (bis zu 48 Chunks = 3072 Byte Nutzdaten)
+  3. Lies rx_chunks_available aus dem Footer des letzten empfangenen Chunks
+  4. Falls EXTENDED_STS-Bit im Footer gesetzt:
+       → CTRL-SPI-Transfer: STATUS0 lesen     (12 Byte, ~10 µs auf 5 MHz SPI)
+       → CTRL-SPI-Transfer: STATUS0 löschen   (12 Byte, ~10 µs)
+       Falls Status = RX_BUFFER_OVERFLOW → rx_buf_overflow = true
+  5. Falls noch rx_chunks_available > 0 → goto 1
+  6. Sonst: break
+```
+
+**Das Problem:** Sobald der LAN8651 RX-FIFO überläuft, setzt der Chip `EXTENDED_STS = 1` in **jedem** Footer. Das zwingt den Treiber nach **jedem DATA-Transfer** zu zwei zusätzlichen CTRL-SPI-Transfers (je 12 Byte). Diese blockieren den SPI-Bus — während das FIFO weiterläuft.
+
+### 12.3 Zahlenmäßige Einschätzung des strukturellen Limits
+
+| Parameter | Wert | Quelle |
+|---|---|---|
+| Max. Chunks pro DATA-Transfer | **48** | `OA_TC6_MAX_TX_CHUNKS` |
+| Chunk-Größe | 68 Byte (64 Payload + 4 Header) | `OA_TC6_CHUNK_SIZE` |
+| Max. Payload pro SPI-Transfer | 48 × 64 = **3072 Byte** | — |
+| Frames pro Transfer bei 1470 Byte | **~2 Frames** (≈23 Chunks/Frame) | — |
+| Max. meldbare RX-Chunks im Footer | **31** (5-Bit-Feld) | `OA_TC6_DATA_FOOTER_RX_CHUNKS` |
+| CTRL-Overhead pro Overflow-Zyklus | **2 × 12 Byte = 24 Byte** statt 0 | `oa_tc6_process_extended_status()` |
+| RX-Drainzeit für 31 Chunks @ 5 MHz SPI | **~3,4 ms** | gerechnet |
+| Zeit bis FIFO wieder voll bei 9,3 Mbit/s | **~1,7 ms** | gerechnet (31 × 64 = 1984 Byte) |
+
+**Fazit:** Das FIFO füllt sich doppelt so schnell wie der Treiber es leeren kann. Sobald der Overflow-Zustand einmal eintritt, ist er selbstverstärkend.
+
+### 12.4 Zweites strukturelles Problem: MDIO-Polling auf demselben SPI-Bus
+
+Der phylib-Layer pollt regelmäßig den Link-Status über:
+
+```c
+oa_tc6_mdiobus_read()
+  → oa_tc6_read_register()
+    → mutex_lock(&tc6->spi_ctrl_lock)
+    → spi_sync()                    ← serialisiert mit dem DATA-kthread
+    → mutex_unlock()
+```
+
+Alle `spi_sync()`-Aufrufe zum selben SPI-Device werden im Linux-SPI-Subsystem serialisiert. Jeder MDIO-Register-Read (Link-Status, AN-Zustand) unterbricht den DATA-kthread mitten im RX-Drain-Loop und erzeugt eine messbare Lücke im SPI-Datenstrom.
+
+### 12.5 Verortung im Gesamtbild (Verlustpfad Wiederholung)
+
+```
+MCU sendet 9,3 Mbit/s
+    │
+    ▼ LAN8651 RX-FIFO (physisch begrenzt, ~31 Chunks meldbar)
+    │   FIFO füllt sich in ~1,7 ms
+    │   oa_tc6-Treiber draint in ~3,4 ms
+    │   → FIFO-Overflow tritt strukturell auf
+    │
+    ▼ EXTENDED_STS = 1 in jedem Footer
+    │   → 2 CTRL-Transfers nach jedem DATA-Transfer
+    │   → Drain-Lücke vergrößert sich
+    │
+    ▼ Kernel-Drop-Zähler (netdev dropped: +2542 / 10s)
+    │
+    ▼ iperf-Server: ~1167 von 8020 Paketen → 85% Loss
+```
+
+### 12.6 Offene Fragen (für Treiberentwickler / Parthiban)
+
+1. Ist `OA_TC6_MAX_TX_CHUNKS = 48` ein TC6-Spec-Constraint oder ein Tuning-Parameter, der erhöht werden kann?
+2. Ließe sich der `EXTENDED_STS`-CTRL-Round-Trip unter Overflow vermeiden — z.B. `RXBO` als transienten Zustand behandeln ohne STATUS0-Read-Modify-Write?
+3. Erzeugt das phylib-MDIO-Polling messbare SPI-Bus-Contention bei hoher Eingangsrate?
+4. Wäre ein größerer SPI-DMA-Burst (mehr als 48 Chunks pro Transfer) mit dem TC6-Protokoll konform?
+
+**Status:** Offen — noch nicht an Parthiban kommuniziert (Stand 2026-03-26)

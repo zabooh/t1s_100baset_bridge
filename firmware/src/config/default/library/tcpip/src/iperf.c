@@ -146,7 +146,8 @@ typedef struct
     // int      remoteAddrlen;
     // tSocketAddr remoteAddr;
 
-    // Calculated packet period, in msec, to reflect the target bit rate.
+    // Calculated packet period, in microseconds, to reflect the target bit rate.
+    // For precise UDP rate control at high speeds (>1 Mbit/s).
     uint32_t        mPktPeriod;
 
     uint32_t        startTime;
@@ -1121,14 +1122,20 @@ static void GenericTxHeaderPreparation(tIperfState* pIState, uint8_t *pData, boo
 static tIperfTxResult GenericTxStart(tIperfState* pIState)
 {
     uint32_t currentTime;
+    uint32_t currentTime_us; // Current time in microseconds
     bool iperfKilled;
     const void* cmdIoParam = pIState->pCmdIO->cmdIoParam;    
     tIperfState* mpIState;
     uint8_t i;
     
     currentTime = SYS_TMR_TickCountGet();
+    // Use SYS_TIME hardware counter directly for true µs resolution.
+    // SYS_TMR_TickCountGet() returns 1ms ticks (H2 adapter), so the old conversion
+    // currentTime * 1000000 / 1000 only advanced currentTime_us in 1000µs steps.
+    // SYS_TIME_Counter64Get() / SYS_TIME_FrequencyGet() gives genuine sub-ms precision.
+    currentTime_us = (uint32_t)( (SYS_TIME_Counter64Get() * 1000000ULL) / SYS_TIME_FrequencyGet() );
 
-    if ( currentTime < (pIState->nextTxTime - TCPIP_IPERF_TIMING_ERROR_MARGIN))
+    if ( currentTime_us < (pIState->nextTxTime - TCPIP_IPERF_TIMING_ERROR_MARGIN))
     {
         // Wait until we are scheduled to Tx.
         return IPERF_TX_WAIT;
@@ -1154,9 +1161,9 @@ static tIperfTxResult GenericTxStart(tIperfState* pIState)
         // Reset startTime, to get a more accurate report.
 
         pIState->startTime = currentTime;
-        pIState->nextTxTime = pIState->startTime;
+        pIState->nextTxTime = currentTime_us;
 
-        pIState->lastCheckTime =    pIState->startTime;
+        pIState->lastCheckTime =    currentTime;
 
         pIState->lastCheckPktId = pIState->pktId;
         pIState->lastCheckPktCount = pIState->pktCount;
@@ -1164,8 +1171,8 @@ static tIperfTxResult GenericTxStart(tIperfState* pIState)
         pIState->nAttempts = 0;
     }
 
-    // One Tx per mPktPeriod msec.
-    pIState->nextTxTime = currentTime + pIState->mPktPeriod;
+    // One Tx per mPktPeriod microseconds.
+    pIState->nextTxTime = currentTime_us + pIState->mPktPeriod;
     
     switch(pIState->mProtocol)
     {
@@ -1361,9 +1368,11 @@ static void GenericTxEnd(tIperfState* pIState)
                     pIState->remoteSide.remoteIPaddress.v4Add.v[3],
                     pIState->mServerPort );
 
-            (pIState->pCmdIO->pCmdApi->print)(cmdIoParam, "    - Target rate = %ld bps, period = %ld ms\r\n",
+            (pIState->pCmdIO->pCmdApi->print)(cmdIoParam, "    - Target rate = %ld bps, period = %ld.%03ld ms (IPG %ld µs)\r\n",
                     (unsigned long)pIState->mTxRate, 
-                    (unsigned long)(pIState->mPktPeriod*1000/SYS_TMR_TickCounterFrequencyGet()) );
+                    (unsigned long)(pIState->mPktPeriod / 1000),
+                    (unsigned long)(pIState->mPktPeriod % 1000),
+                    (unsigned long)pIState->mPktPeriod);
 
         }
 
@@ -1420,7 +1429,8 @@ static void GenericTxEnd(tIperfState* pIState)
                     }
 
                     // Don't follow the same transmision rate during retransmit.
-                    pIState->mPktPeriod = UDP_FIN_RETRANSMIT_PERIOD;
+                    // FIN retransmit period: 10ms = 10,000 microseconds
+                    pIState->mPktPeriod = UDP_FIN_RETRANSMIT_PERIOD * 1000;
                 }
                 else
                 {
@@ -1718,7 +1728,8 @@ static void StateMachineTCPTxConnect(tIperfState* pIState)
     TCPIP_TCP_WasReset(pIState->tcpClientSock);
 
     pIState->startTime = SYS_TMR_TickCountGet();
-    pIState->nextTxTime = pIState->startTime + pIState->mPktPeriod;
+    // Use SYS_TIME hardware counter for true µs resolution nextTxTime
+    pIState->nextTxTime = (uint32_t)( (SYS_TIME_Counter64Get() * 1000000ULL) / SYS_TIME_FrequencyGet() ) + pIState->mPktPeriod;
     IperfSetState(pIState, IPERF_TCP_TX_SEGMENT_STATE);
 }
 
@@ -1848,8 +1859,9 @@ static void StateMachineUDPTxOpen(tIperfState* pIState)
 
     pIState->startTime = SYS_TMR_TickCountGet();
 
-     // Wait for a few seconds before first TCP tx, so we can resolve ARP.
-    pIState->nextTxTime = pIState->startTime + pIState->mPktPeriod;
+    // Wait for a few seconds before first UDP tx, so we can resolve ARP.
+    // Use SYS_TIME hardware counter for true µs resolution nextTxTime
+    pIState->nextTxTime = (uint32_t)( (SYS_TIME_Counter64Get() * 1000000ULL) / SYS_TIME_FrequencyGet() ) + pIState->mPktPeriod;
 
     /* Fill the buffer with ASCII char U */
     memset( txfer_buffer, 0x55, sizeof(txfer_buffer));
@@ -2145,7 +2157,6 @@ static void CommandIperfStart(SYS_CMD_DEVICE_NODE* pCmdIO, int argc, char** argv
     uint32_t tickFreq;
     uint32_t values[4] = {0}, bw=0;
     
-    float pktRate;
     uint16_t payloadSize = 0, asciTos;
     const void* cmdIoParam = pCmdIO->cmdIoParam;
 
@@ -2392,8 +2403,10 @@ static void CommandIperfStart(SYS_CMD_DEVICE_NODE* pCmdIO, int argc, char** argv
             }
 #endif  // defined(TCPIP_STACK_USE_UDP)
 
-            pktRate =  (float) (pIState->mTxRate / 8) / (float) payloadSize;
-            pIState->mPktPeriod =  (uint32_t) ( (float) tickFreq / pktRate );
+            // BUGFIX: Calculate inter-packet-gap in microseconds instead of millisecond ticks.
+            // This enables precise UDP rate control for rates > 1 Mbit/s.
+            // Formula: IPG_us = (packet_size_bits * 1,000,000) / target_rate_bps
+            pIState->mPktPeriod =  (uint32_t) ( (payloadSize * 8UL * 1000000UL) / pIState->mTxRate );
 
             IperfSetState(pIState, IPERF_TX_START_STATE);
             break;

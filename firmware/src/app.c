@@ -85,7 +85,7 @@ void DumpMem(uint32_t addr, uint32_t count);
 bool Command_Init(void);
 
 uint32_t ipdump_mode = 0;
-uint32_t fwd_mode = 1;
+uint32_t fwd_mode = 0;
 uint32_t my_delay_time = 0;
 SYS_TIME_HANDLE timerHandle;
 

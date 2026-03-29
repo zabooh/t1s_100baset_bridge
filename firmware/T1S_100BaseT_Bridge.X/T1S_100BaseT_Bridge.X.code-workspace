@@ -9,12 +9,16 @@
 		}
 	],
 	"settings": {
+		"mplab.clangd.compileCommandsDir": "${workspaceFolder}\\_build\\T1S_100BaseT_Bridge\\default",
 		"files.associations": {
 			"*.mc3": "xml",
 			"*.mhc": "yaml"
 		},
-		"mplab.clangd.arguments": [
-			"--compile-commands-dir=${workspaceFolder}\\_build\\T1S_100BaseT_Bridge\\default"
+		"memory-inspector.debugTypes": [
+			"arm-debugger",
+			"embedded-debug",
+			"gdb",
+			"mplab-core-da"
 		],
 		"mplab.clangd.path": "c:\\Program Files\\Microchip\\xc32\\v4.60\\bin\\xc32-clangd.exe"
 	}

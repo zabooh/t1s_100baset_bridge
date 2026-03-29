@@ -4,17 +4,17 @@
         {
             "name": "Default",
             "includePath": [
-                "${workspaceFolder}/../src",
-                "${workspaceFolder}/../src/config/default",
-                "${workspaceFolder}/../src/config/default/library",
-                "${workspaceFolder}/../src/config/default/library/tcpip/src",
-                "${workspaceFolder}/../src/config/default/library/tcpip/src/common",
-                "${workspaceFolder}/../src/packs/ATSAME54P20A_DFP",
-                "${workspaceFolder}/../src/packs/CMSIS",
-                "${workspaceFolder}/../src/packs/CMSIS/CMSIS/Core/Include",
-                "${workspaceFolder}/../src/third_party/wolfssl",
-                "${workspaceFolder}/../src/third_party/wolfssl/wolfssl",
-                "${workspaceFolder}"
+                "${workspaceFolder:T1S_100BaseT_Bridge.X}/../src",
+                "${workspaceFolder:T1S_100BaseT_Bridge.X}/../src/config/default",
+                "${workspaceFolder:T1S_100BaseT_Bridge.X}/../src/config/default/library",
+                "${workspaceFolder:T1S_100BaseT_Bridge.X}/../src/config/default/library/tcpip/src",
+                "${workspaceFolder:T1S_100BaseT_Bridge.X}/../src/config/default/library/tcpip/src/common",
+                "${workspaceFolder:T1S_100BaseT_Bridge.X}/../src/packs/ATSAME54P20A_DFP",
+                "${workspaceFolder:T1S_100BaseT_Bridge.X}/../src/packs/CMSIS",
+                "${workspaceFolder:T1S_100BaseT_Bridge.X}/../src/packs/CMSIS/CMSIS/Core/Include",
+                "${workspaceFolder:T1S_100BaseT_Bridge.X}/../src/third_party/wolfssl",
+                "${workspaceFolder:T1S_100BaseT_Bridge.X}/../src/third_party/wolfssl/wolfssl",
+                "${workspaceFolder:T1S_100BaseT_Bridge.X}"
             ],
             "defines": [
                 "__ATSAME54P20A__",

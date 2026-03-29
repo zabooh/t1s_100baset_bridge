@@ -92,6 +92,50 @@ class SerialCLI:
         self.ser.write(b"\x03")
         self.ser.flush()
 
+    def login(self, username: str, password: str, timeout: float = 30.0) -> bool:
+        """Handle Linux login prompt if the system has just booted.
+
+        Sends an initial newline, then waits for either a shell prompt
+        (already logged in) or a 'login:' / 'Password:' sequence.
+        Returns True when a shell prompt is detected, False on timeout.
+        """
+        if not self.ser:
+            raise RuntimeError(f"Serial port {self.port} is not open")
+
+        self.ser.write(b"\n")
+        self.ser.flush()
+
+        buf = ""
+        end_time = time.time() + timeout
+        while time.time() < end_time:
+            chunk = self.ser.read_all().decode("utf-8", errors="ignore")
+            if chunk:
+                buf += chunk
+
+            # Already at a shell prompt
+            if re.search(r'[#\$]\s*$', buf):
+                return True
+
+            # Login prompt
+            if re.search(r'login:\s*$', buf, re.IGNORECASE):
+                self.ser.write((username + "\n").encode("utf-8", errors="ignore"))
+                self.ser.flush()
+                buf = ""
+                time.sleep(0.5)
+                continue
+
+            # Password prompt
+            if re.search(r'[Pp]assword:\s*$', buf):
+                self.ser.write((password + "\n").encode("utf-8", errors="ignore"))
+                self.ser.flush()
+                buf = ""
+                time.sleep(1.0)
+                continue
+
+            time.sleep(0.2)
+
+        return False
+
     def run_command(
         self,
         command: str,
@@ -200,15 +244,30 @@ class MPURXDiagnosticRunner:
             self.mcu.open()
             self.mpu.open()
             
-            # Wake up both systems
-            print("[INFO] Synchronizing prompts...")
-            self.mcu.clear_input()
+            # Wake up / log in MPU
+            print("[INFO] Synchronizing prompts (MPU login if needed)...")
             self.mpu.clear_input()
+            mpu_ready = self.mpu.login(username="root", password="microchip", timeout=30.0)
+            if mpu_ready:
+                print("[INFO] MPU shell ready.")
+            else:
+                print("[WARN] MPU login timed out – continuing anyway.")
+
+            # Wake up MCU
+            self.mcu.clear_input()
             self.mcu.write_line("")
-            self.mpu.write_line("")
             time.sleep(0.5)
 
+            # Ensure MCU forward mode is OFF before any test.
+            # The MCU firmware's iperf may re-enable forwarding or reinitialise
+            # the T1S stack; issuing fwd 0 here puts it into a known-good state.
+            print("[INFO] Setting MCU to passthrough mode (fwd 0)...")
+            self.mcu.run_command("fwd 0", timeout=5.0, expect_prompt=True)
+            time.sleep(1.0)
+
             # Execute diagnostic phases
+            self._run_phase0_connectivity_check()
+
             if 1 not in self.skip_phases:
                 self._run_phase1_baseline()
                 
@@ -226,6 +285,11 @@ class MPURXDiagnosticRunner:
                 
             self._run_phase6_analysis_and_report()
 
+            # Register snapshot intentionally runs LAST.
+            # lan_read corrupts TC6 SPI state machine permanently (confirmed
+            # 2026-03-18) — all iperf measurements must be complete before this.
+            self._run_final_register_snapshot()
+
         except Exception as e:
             print(f"[ERROR] Diagnostic failed: {e}")
             self.report.analysis["fatal_error"] = str(e)
@@ -236,6 +300,131 @@ class MPURXDiagnosticRunner:
             self.mpu.close()
 
         return self.report
+
+    def _wait_for_mcu_iperf_idle(self, iperf_start_time: float, min_idle_secs: int = 15) -> None:
+        """Wait until MCU iperf is expected to have finished.
+
+        The MCU RTOS CLI returns the shell prompt immediately while iperf runs
+        as a background task (default iperf duration is 10 seconds). Block until
+        at least min_idle_secs have elapsed since iperf was started, so the next
+        phase does not see 'iperf: All instances busy'.
+        """
+        elapsed = time.time() - iperf_start_time
+        remaining = min_idle_secs - elapsed
+        if remaining > 0.5:
+            print(f"    [MCU] Waiting {remaining:.0f}s for MCU iperf to finish...")
+            time.sleep(remaining)
+        # Send Ctrl+C in case the iperf instance is still alive, then restore
+        # passthrough mode so the T1S stack is back in its known-good state.
+        self.mcu.write_ctrl_c()
+        time.sleep(0.3)
+        self.mcu.run_command("fwd 0", timeout=5.0, expect_prompt=True)
+        time.sleep(0.5)
+
+    def _mcu_ping_and_wait(self, target_ip: str, timeout: float = 20.0,
+                           label: str = "MCU-PING") -> bool:
+        """Send a ping from the MCU and wait for the async 'Ping: done.' line.
+
+        The MCU RTOS ping command is non-blocking: it immediately returns the
+        '>' shell prompt while the ping runs in the background.  Waiting for
+        the prompt (as run_command does) therefore returns before any replies
+        arrive.  This helper bypasses prompt detection and instead polls until
+        'Ping: done.' appears or the timeout expires.
+
+        Returns True if at least one reply was received.
+        """
+        if not self.mcu.ser:
+            return False
+
+        print(f"[{label}] $ ping {target_ip}")
+        self.mcu.clear_input()
+        self.mcu.write_line(f"ping {target_ip}")
+
+        buf = ""
+        end_time = time.time() + timeout
+        while time.time() < end_time:
+            chunk = self.mcu.ser.read_all().decode("utf-8", errors="ignore")
+            if chunk:
+                buf += chunk
+                for line in chunk.splitlines():
+                    if line.strip():
+                        print(f"[{label}] {line}")
+            if "Ping: done." in buf:
+                break
+            time.sleep(0.2)
+
+        rx_match = re.search(r'received (\d+) replies', buf)
+        ok = bool(rx_match and int(rx_match.group(1)) > 0)
+        if ok:
+            print(f"[{label}] ✓ Ping done — {rx_match.group(1)} replies")
+        else:
+            if "Ping: done." in buf:
+                print(f"[{label}] ✗ Ping done but 0 replies")
+            else:
+                print(f"[{label}] ✗ Ping timed out (no 'Ping: done.' in {timeout:.0f}s)")
+        return ok
+
+    def _mpu_ping_mcu(self, label: str = "MPU-PING") -> tuple:
+        """Ping MCU from MPU. Returns (result, ping_ok, rx_match)."""
+        result = self.mpu.run_command(
+            f"ping -c 4 -W 2 {self.mcu_ip} 2>&1",
+            timeout=20.0, live_output=True, label=label
+        )
+        rx_match = re.search(r'(\d+) received', result.output)
+        ok = bool(rx_match and int(rx_match.group(1)) > 0)
+        return result, ok, rx_match
+
+    def _run_phase0_connectivity_check(self) -> None:
+        """Phase 0: Pre-flight T1S connectivity check.
+
+        NOTE: lan_read calls are deliberately absent here.
+        Testing confirmed that any lan_read (SPI/TC6 register access) races
+        with the kernel LAN865x ISR on the SPI bus and corrupts the TC6 state
+        machine, breaking T1S connectivity immediately.  Register reads happen
+        in Phase 1; the link is restored by a recovery ping at the end of
+        Phase 1 before Phase 2 iperf starts.
+        """
+        print("\n🔌 Phase 0: T1S Connectivity Pre-Check")
+        print("-" * 40)
+
+        # 0.1  MCU → MPU ping  (kick PLCA bus; MCU is coordinator/node 0)
+        # MCU ping is asynchronous — shell returns '>' immediately.
+        # _mcu_ping_and_wait() blocks until 'Ping: done.' or 20 s timeout.
+        print(f"  0.1 MCU → MPU ping ({self.mpu_ip}) — kick PLCA bus...")
+        mcu_ping_ok = self._mcu_ping_and_wait(self.mpu_ip, timeout=20.0, label="MCU-PING-0.1")
+        if mcu_ping_ok:
+            print("  ✓ MCU → MPU OK — PLCA bus active")
+        else:
+            print("  ⚠ MCU → MPU: 0 replies — PLCA may not be running")
+        time.sleep(0.5)  # let ARP settle
+
+        # 0.2  MPU → MCU ping  (bidirectional check)
+        print(f"  0.2 MPU → MCU ping ({self.mcu_ip}) — bidirectional check...")
+        ping_result, ping_ok, rx_match = self._mpu_ping_mcu("MPU-PING-0.2")
+        if ping_ok:
+            print(f"  ✓ T1S link UP — {rx_match.group(1)}/4 replies")
+        else:
+            print("  ✗ T1S link DOWN: MCU did not respond to ping!")
+            print("    ↻ Recovery: fwd 0 + MCU kick...")
+            self.mcu.run_command("fwd 0", timeout=5.0, expect_prompt=True)
+            time.sleep(1.0)
+            self._mcu_ping_and_wait(self.mpu_ip, timeout=20.0, label="MCU-RECOVER-0")
+            time.sleep(1.0)
+            ping_result, ping_ok, rx_match = self._mpu_ping_mcu("MPU-PING-RETRY-0")
+            if ping_ok:
+                print(f"  ✓ Recovery OK: {rx_match.group(1)}/4 replies")
+            else:
+                print("  ✗ Recovery failed — power cycle both boards")
+                print("    Continuing to collect static data anyway...")
+
+        self.report.baseline["connectivity_check"] = {
+            "mcu_ping_ok":   mcu_ping_ok,
+            "mpu_ping_ok":   ping_ok,
+            "ping_result":   ping_result.output.strip(),
+            "t1s_link":      "up" if ping_ok else "down",
+            "mcu_reachable": "yes" if ping_ok else "no",
+        }
+        print(f"  Phase 0 complete. T1S link: {'UP ✓' if ping_ok else 'DOWN ✗'}")
 
     def _run_phase1_baseline(self) -> None:
         """Phase 1: Baseline System Information."""
@@ -271,32 +460,14 @@ class MPURXDiagnosticRunner:
                 "duration": result.duration_sec
             })
 
-        # 1.2 Hardware Register Snapshot
-        print("  1.2 Hardware Register Snapshot...")
-        register_commands = [
-            "lan_read 0x00800004",  # PHY_STS - Link Quality
-            "lan_read 0x00800100",  # SQI - Signal Quality Index
-            "lan_read 0x00800304",  # PLCA_CTRL0 - PLCA Config
-            "lan_read 0x00800306",  # PLCA_CTRL1 - Node ID
-            "lan_read 0x00010000",  # MAC_NET_CTL
-            "lan_read 0x00010001",  # MAC_NET_CFG
-            "lan_read 0x00000008",  # IRQ_STS
-            "lan_read 0x000000E0",  # DMY_CTRL
-            "lan_read 0x00020000",  # RX_GOOD_FRAMES (estimated)
-            "lan_read 0x00020004",  # RX_BAD_FRAMES
-            "lan_read 0x00020040",  # RX_OVERSIZE_FRAMES
-        ]
-        
-        for cmd in register_commands:
-            result = self.mpu.run_command(cmd, timeout=3.0, live_output=True, label="MPU-REG")
-            result.phase = "Phase1"
-            result.step = "RegisterSnapshot"
-            phase_data["results"].append({
-                "command": result.command,
-                "output": result.output,
-                "success": result.success,
-                "duration": result.duration_sec
-            })
+        # NOTE: Hardware register snapshot (lan_read) is intentionally NOT done here.
+        # EMPIRICALLY CONFIRMED (2026-03-18): any lan_read call races with the
+        # kernel LAN865x ISR (IRQ 37, spi0.0) on the TC6 SPI bus, permanently
+        # corrupting the TC6 state machine. Recovery (eth0 bounce) does not help.
+        # Only power-cycle restores the link.
+        # Register snapshot is done in _run_final_register_snapshot() which runs
+        # AFTER all iperf phases, so it doesn't matter if it breaks the link.
+        print("  1.2 Hardware register snapshot deferred to end of test (see final phase).")
 
         phase_data["end_time"] = datetime.now().isoformat()
         self.report.phases["phase1_baseline"] = phase_data
@@ -360,12 +531,20 @@ class MPURXDiagnosticRunner:
 
         # Start MCU iperf client (this should cause 85% packet loss)
         print("    Starting MCU iperf client...")
+        # Restore passthrough mode: the MCU iperf command may reinitialise the
+        # T1S stack and re-enable frame forwarding, which disrupts PLCA/CSMA.
+        self.mcu.run_command("fwd 0", timeout=5.0, expect_prompt=True, label="MCU-FWD")
+        time.sleep(0.5)
+        iperf_start_time = time.time()
         mcu_iperf = self.mcu.run_command(
             f"iperf -u -c {self.mpu_ip}",
-            timeout=float(self.test_duration + 10), 
+            timeout=float(self.test_duration + 10),
             expect_prompt=True, live_output=True, label="MCU-CLIENT"
         )
-        
+        # MCU RTOS CLI returns the prompt immediately while iperf runs in the background;
+        # wait here so subsequent phases don't hit 'iperf: All instances busy'.
+        self._wait_for_mcu_iperf_idle(iperf_start_time)
+
         phase_data["results"].append({
             "step": "mcu_client",
             "command": mcu_iperf.command,
@@ -376,7 +555,7 @@ class MPURXDiagnosticRunner:
 
         # Stop monitoring and iperf server
         print("    Stopping monitoring and server...")
-        time.sleep(2)  # Let monitoring catch final data
+        time.sleep(1)  # Let monitoring catch final data
         
         stop_commands = [
             "killall iperf 2>/dev/null || true",
@@ -472,12 +651,16 @@ done > /tmp/detailed_net_stats.log
         time.sleep(2)
         
         # MCU client
+        self.mcu.run_command("fwd 0", timeout=5.0, expect_prompt=True, label="MCU-FWD")
+        time.sleep(0.5)
+        iperf_start_time = time.time()
         mcu_iperf = self.mcu.run_command(
             f"iperf -u -c {self.mpu_ip}",
             timeout=float(self.test_duration + 10),
             expect_prompt=True, live_output=True, label="MCU-NET-CLIENT"
         )
-        
+        self._wait_for_mcu_iperf_idle(iperf_start_time)
+
         phase_data["results"].append({
             "step": "network_iperf",
             "command": mcu_iperf.command,
@@ -529,15 +712,21 @@ done > /tmp/detailed_net_stats.log
         # 4.1 T1S Link Quality During Load
         print("  4.1 T1S Link Quality During Load...")
         
-        phy_monitoring_script = '''
-#!/bin/bash
+        # NOTE: lan_read is intentionally NOT used here.
+        # CONFIRMED: any lan_read SPI access races with the kernel ISR (IRQ 37
+        # spi0.0) and corrupts the TC6 state machine, breaking T1S connectivity
+        # immediately.  Use only kernel-space counters via /proc and /sys.
+        phy_monitoring_script = r'''
+#!/bin/sh
 while true; do
-    TIMESTAMP=$(date '+%H:%M:%S')
-    PHY_STS=$(lan_read 0x00800004 2>/dev/null | grep -o "0x[0-9A-Fa-f]*" | head -1)
-    SQI_VAL=$(lan_read 0x00800100 2>/dev/null | grep -o "0x[0-9A-Fa-f]*" | head -1)
-    PLCA_STS=$(lan_read 0x00800304 2>/dev/null | grep -o "0x[0-9A-Fa-f]*" | head -1)
-    IRQ_STS=$(lan_read 0x00000008 2>/dev/null | grep -o "0x[0-9A-Fa-f]*" | head -1)
-    echo "$TIMESTAMP: PHY=$PHY_STS SQI=$SQI_VAL PLCA=$PLCA_STS IRQ=$IRQ_STS"
+    TS=$(date "+%H:%M:%S")
+    RX=$(cat /sys/class/net/eth0/statistics/rx_packets 2>/dev/null)
+    TX=$(cat /sys/class/net/eth0/statistics/tx_packets 2>/dev/null)
+    RX_DROP=$(cat /sys/class/net/eth0/statistics/rx_dropped 2>/dev/null)
+    RX_ERR=$(cat /sys/class/net/eth0/statistics/rx_errors 2>/dev/null)
+    IRQ37=$(grep -E "^ *37:" /proc/interrupts 2>/dev/null | awk "{print \$2}")
+    IRQ33=$(grep -E "^ *33:" /proc/interrupts 2>/dev/null | awk "{print \$2}")
+    echo "$TS: RX=$RX TX=$TX RX_drop=$RX_DROP RX_err=$RX_ERR IRQ37=$IRQ37 IRQ33=$IRQ33"
     sleep 2
 done > /tmp/phy_quality.log
 '''
@@ -557,12 +746,16 @@ done > /tmp/phy_quality.log
                                      timeout=5.0, expect_prompt=True, label="MPU-IPERF-PHY")
         time.sleep(2)
         
+        self.mcu.run_command("fwd 0", timeout=5.0, expect_prompt=True, label="MCU-FWD")
+        time.sleep(0.5)
+        iperf_start_time = time.time()
         mcu_iperf = self.mcu.run_command(
             f"iperf -u -c {self.mpu_ip}",
             timeout=float(self.test_duration + 10),
             expect_prompt=True, live_output=True, label="MCU-PHY-CLIENT"
         )
-        
+        self._wait_for_mcu_iperf_idle(iperf_start_time)
+
         phase_data["results"].append({
             "step": "phy_iperf",
             "command": mcu_iperf.command,
@@ -590,52 +783,23 @@ done > /tmp/phy_quality.log
             })
 
         # 4.3 Register Access Performance Impact Test
-        print("  4.3 Register Access Performance Impact Test...")
-        
-        # Test 1: Baseline (no register access)
-        print("    Test 1: Baseline (no register access)")
-        result = self.mpu.run_command("timeout 30s iperf -s -u -i 1 > /tmp/iperf_baseline.log 2>&1 &",
-                                     timeout=5.0, expect_prompt=True, label="MPU-REG-BASE")
-        
-        mcu_baseline = self.mcu.run_command(f"iperf -u -c {self.mpu_ip}", timeout=35.0, 
-                                          expect_prompt=True, live_output=True, label="MCU-REG-BASE")
+        # SKIPPED: Confirmed via empirical testing (Phase 0 experiment, 2026-03-18)
+        # that ANY lan_read call instantly corrupts the TC6 state machine by
+        # racing with the kernel ISR on the SPI bus.  Running this test would
+        # only destroy connectivity and produce meaningless results.
+        # The conclusion is already known: register reads must NEVER happen
+        # while the kernel driver is active.  The ioctl needs spin_lock_irqsave
+        # protection in the kernel driver to be safe to use concurrently.
+        print("  4.3 Register access performance test: SKIPPED")
+        print("      (CONFIRMED: lan_read always corrupts TC6 state — see Phase 0 results)")
         phase_data["results"].append({
-            "step": "register_baseline",
-            "command": mcu_baseline.command,
-            "output": mcu_baseline.output,
-            "success": mcu_baseline.success,
-            "duration": mcu_baseline.duration_sec
+            "step": "register_perf_test",
+            "command": "SKIPPED",
+            "output": "lan_read confirmed to corrupt TC6 via SPI race with kernel ISR",
+            "success": True,
+            "duration": 0.0
         })
-        
-        time.sleep(2)
         self.mpu.run_command("killall iperf 2>/dev/null || true", timeout=3.0, expect_prompt=True, label="MPU-KILL")
-
-        # Test 2: With moderate register access
-        print("    Test 2: With moderate register access (every 5s)")
-        result = self.mpu.run_command("timeout 30s iperf -s -u -i 1 > /tmp/iperf_moderate.log 2>&1 &",
-                                     timeout=5.0, expect_prompt=True, label="MPU-REG-MOD")
-
-        # Start background register access
-        reg_script = '''
-#!/bin/bash
-while sleep 5; do
-    lan_read 0x00800004 >/dev/null 2>&1
-    lan_read 0x00010000 >/dev/null 2>&1
-done &
-'''
-        self.mpu.run_command(f'bash -c \'{reg_script}\'', timeout=3.0, expect_prompt=True, label="MPU-REG-ACCESS")
-        
-        mcu_moderate = self.mcu.run_command(f"iperf -u -c {self.mpu_ip}", timeout=35.0,
-                                          expect_prompt=True, live_output=True, label="MCU-REG-MOD")
-        phase_data["results"].append({
-            "step": "register_moderate",
-            "command": mcu_moderate.command,
-            "output": mcu_moderate.output,
-            "success": mcu_moderate.success,
-            "duration": mcu_moderate.duration_sec
-        })
-        
-        self.mpu.run_command("killall iperf bash 2>/dev/null || true", timeout=3.0, expect_prompt=True, label="MPU-KILL")
 
         phase_data["end_time"] = datetime.now().isoformat()
         self.report.phases["phase4_hardware_diagnostics"] = phase_data
@@ -706,12 +870,16 @@ done &
                 })
 
             # Run iperf test
-            result = self.mpu.run_command("timeout 30s iperf -s -u -i 1 > /tmp/iperf_opt.log 2>&1 &",
+            result = self.mpu.run_command("iperf -s -u -i 1 > /tmp/iperf_opt.log 2>&1 &",
                                          timeout=5.0, expect_prompt=True, label="MPU-OPT-IPERF")
             time.sleep(2)
 
+            self.mcu.run_command("fwd 0", timeout=5.0, expect_prompt=True, label="MCU-FWD")
+            time.sleep(0.5)
+            iperf_start_time = time.time()
             mcu_iperf = self.mcu.run_command(f"iperf -u -c {self.mpu_ip}", timeout=35.0,
                                            expect_prompt=True, live_output=True, label=f"MCU-OPT-{i}")
+            self._wait_for_mcu_iperf_idle(iperf_start_time)
             
             # Get iperf server results
             server_result = self.mpu.run_command("cat /tmp/iperf_opt.log", timeout=3.0, live_output=True, label="MPU-OPT-RESULT")
@@ -849,6 +1017,43 @@ done &
 
         print(f"\n💾 Full report available in generated files")
         print("🏁 Diagnostic execution completed successfully")
+
+    def _run_final_register_snapshot(self) -> None:
+        """Final phase: hardware register snapshot via lan_read.
+
+        MUST run LAST.  lan_read races with the kernel LAN865x ISR on the TC6
+        SPI bus and permanently corrupts the TC6 state machine (confirmed
+        empirically 2026-03-18).  By running this after all iperf tests the
+        link damage does not affect any measurements.
+        """
+        print("\n📍 Final: Hardware Register Snapshot (lan_read — will break T1S link)")
+        print("-" * 40)
+        print("  WARNING: these lan_read calls corrupt TC6. Running last on purpose.")
+
+        register_commands = [
+            ("lan_read 0x00800004", "STS0 — PHY/T1S link status"),
+            ("lan_read 0x00800100", "SQI — signal quality index"),
+            ("lan_read 0x00800300", "PLCA_CTRL0 — PLCA_EN + coordinator"),
+            ("lan_read 0x00800302", "PLCA_CTRL1 — node count + node ID"),
+            ("lan_read 0x00800304", "PLCA_STATUS0"),
+            ("lan_read 0x00800306", "PLCA_STATUS1 / TX opportunity timer"),
+            ("lan_read 0x00010000", "MAC_NET_CTL"),
+            ("lan_read 0x00010001", "MAC_NET_CFG"),
+            # 0x00000008 (TC6 STATUS0 W1C) deliberately omitted — even more destructive
+            ("lan_read 0x000000E0", "VENDOR_CTRL"),
+            ("lan_read 0x00020000", "RX_GOOD_FRAMES"),
+            ("lan_read 0x00020004", "RX_BAD_FRAMES"),
+            ("lan_read 0x00020040", "RX_OVERSIZE_FRAMES"),
+        ]
+
+        snapshot = {}
+        for cmd, desc in register_commands:
+            result = self.mpu.run_command(cmd, timeout=3.0, live_output=True, label="FINAL-REG")
+            print(f"    {desc}: {result.output.strip()}")
+            snapshot[cmd] = result.output.strip()
+
+        self.report.phases["final_register_snapshot"] = snapshot
+        print("  ✓ Register snapshot complete (T1S link may now be broken — power cycle to restore).")
 
     def _extract_packet_loss(self, mcu_output: str, mpu_output: str) -> Dict[str, object]:
         """Extract packet loss percentages from iperf outputs."""
