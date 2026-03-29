@@ -255,4 +255,13 @@ void PTP_Bridge_OnFrame(const uint8_t *pData, uint16_t len, uint64_t rxTimestamp
 uint64_t tsToInternal(const timeStamp_t *ts);
 void     handlePtp(uint8_t *pData, uint32_t size, uint32_t sec, uint32_t nsec);
 
+/** Get current follower offset.
+ *  pOffset    - receives signed offset in nanoseconds (may be NULL).
+ *  pOffsetAbs - receives absolute offset in nanoseconds (may be NULL).
+ */
+void PTP_Bridge_GetOffset(int64_t *pOffset, uint64_t *pOffsetAbs);
+
+/** Reset follower servo to UNINIT state (same effect as SetMode(PTP_SLAVE)). */
+void PTP_Bridge_Reset(void);
+
 #endif /* PTP_BRIDGE_TASK_H */

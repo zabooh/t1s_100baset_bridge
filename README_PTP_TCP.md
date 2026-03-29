@@ -411,14 +411,166 @@ case APP_STATE_IDLE:
     break;
 ```
 
-### 8.4 CLI-Erweiterung (optional, aber empfohlen)
+### 8.4 CLI-Kommandos ✅ Implementiert
+
+Alle PTP-Kommandos sind über Telnet erreichbar (`telnet 192.168.0.200 23`) und in
+`msd_cmd_tbl[]` in `app.c` registriert.  
+Übersicht:
+
+| Kommando | Syntax | Beschreibung |
+|---|---|---|
+| `ptp_mode` | `ptp_mode [off\|follower\|master]` | PTP-Modus umschalten |
+| `ptp_status` | `ptp_status` | Modus, GM-Sync-Zähler und GM-State ausgeben |
+| `ptp_interval` | `ptp_interval <ms>` | GM Sync-Periode zur Laufzeit ändern |
+| `ptp_offset` | `ptp_offset` | Follower-Zeitoffset in Nanosekunden anzeigen |
+| `ptp_reset` | `ptp_reset` | Follower-Servo auf UNINIT zurücksetzen |
+
+---
+
+#### `ptp_mode [off|follower|master]`
+
+Schaltet den PTP-Betriebsmodus der Bridge um.
+
+| Argument | Wirkung |
+|---|---|
+| `off` | PTP deaktivieren (`PTP_DISABLED`); Sync-Frames werden ignoriert |
+| `follower` | Follower-Modus aktivieren (`PTP_SLAVE`); Servo synchronisiert lokalen Takt auf eingehende Sync-Nachrichten |
+| `master` | Grandmaster-Modus aktivieren: ruft zuerst `PTP_GM_Init()` (Initialisiert LAN865x TX-Timestamp-Engine, PPS-Ausgang, MAC-Zeitgeber) dann `PTP_Bridge_SetMode(PTP_MASTER)` |
+
+Ausgabe-Beispiele:
+```
+> ptp_mode follower
+[PTP] follower mode
+
+> ptp_mode master
+[PTP] grandmaster mode
+
+> ptp_mode off
+[PTP] disabled
+```
+
+---
+
+#### `ptp_status`
+
+Gibt den aktuellen PTP-Zustand in einer Zeile aus.
+
+```
+> ptp_status
+[PTP] mode=follower gmSyncs=42 gmState=3
+```
+
+| Feld | Bedeutung |
+|---|---|
+| `mode` | Aktueller Modus: `disabled`, `master` oder `slave` |
+| `gmSyncs` | Anzahl der bisher verarbeiteten Sync-Frames (Grandmaster-Zähler, `PTP_GM_GetStatus`) |
+| `gmState` | Interner Zustand des GM-Statemachine (0 = IDLE, steigt beim Senden von Sync-Frames) |
+
+> **Tipp:** Im Follower-Betrieb steigen `gmSyncs` nicht an (kein GM aktiv auf dieser Seite).  
+> Zum Prüfen der Synchronisationsgenauigkeit `ptp_offset` verwenden.
+
+---
+
+#### `ptp_interval <ms>`
+
+Setzt die Periode, in der der Grandmaster Sync-Nachrichten aussendet.
+
+```
+> ptp_interval 250
+[PTP-GM] sync interval set to 250 ms
+
+> ptp_interval 125
+[PTP-GM] sync interval set to 125 ms
+```
+
+- Standardwert: **125 ms** (8 Sync-Frames/s, entspricht PTP-Profil `logMessageInterval = -3`)
+- Wirkt nur im Grandmaster-Modus (`ptp_mode master`)
+- Kleinere Werte erhöhen die Genauigkeit, belasten aber den Bus; größere Werte reduzieren die Last auf langsamen T1S-Segmenten
+
+---
+
+#### `ptp_offset`
+
+Zeigt den aktuellen Zeitoffset des Follower-Servos.
+
+```
+> ptp_offset
+[PTP] offset=-1234 ns  abs=1234 ns
+```
+
+| Feld | Typ | Bedeutung |
+|---|---|---|
+| `offset` | `int64_t` | Vorzeichenbehafteter Offset in Nanosekunden. Negativ: lokaler Takt läuft vor; Positiv: läuft nach |
+| `abs` | `uint64_t` | Betrag des Offsets (unabhängig vom Vorzeichen); nützlich für Konvergenzüberwachung |
+
+**Konvergenzphasen:**
+
+| abs-Wert | Bedeutung |
+|---|---|
+| > 100.000 ns | Servo noch in Grobsynchronisation (COARSELOCKED oder früher) |
+| 1.000 – 100.000 ns | Servo nähert sich (LOCKEDFREQ / MATCHFREQ) |
+| < 1.000 ns | Servo eingeschwungen (FINE) — gute PTP-Qualität |
+
+---
+
+#### `ptp_reset`
+
+Setzt den Follower-Servo auf den Anfangszustand zurück.
+
+```
+> ptp_reset
+[PTP] follower servo reset to UNINIT
+```
+
+Ruft `PTP_Bridge_Reset()` auf, das den internen Servo-Zustand auf `UNINIT` zurücksetzt,
+ohne den PTP-Modus selbst zu ändern.  
+Der Servo beginnt direkt im nächsten Task-Zyklus neu einzuschwingen.
+
+**Anwendungsfälle:**
+- Nach einem vorübergehenden Signalverlust auf dem T1S-Segment
+- Wenn `ptp_offset abs` trotz langer Laufzeit nicht konvergiert
+- Nach einer manuellen Taktänderung auf dem Grandmaster
+
+---
+
+#### Typischer Workflow (Telnet)
+
+```
+telnet 192.168.0.200 23
+
+> ptp_mode follower          # Follower-Modus aktivieren
+[PTP] follower mode
+
+> ptp_offset                 # Offset beim Einschwingen beobachten
+[PTP] offset=-45230 ns  abs=45230 ns
+
+> ptp_offset                 # Wiederholen bis abs < 1000 ns
+[PTP] offset=-312 ns  abs=312 ns
+
+> ptp_status                 # Zustand prüfen
+[PTP] mode=slave gmSyncs=0 gmState=0
+
+> ptp_reset                  # Servo bei Bedarf neu starten
+[PTP] follower servo reset to UNINIT
+
+> ptp_mode master            # Optional: Bridge als Grandmaster
+[PTP] grandmaster mode
+
+> ptp_interval 250           # Optional: GM-Rate reduzieren
+[PTP-GM] sync interval set to 250 ms
+```
+
+---
+
+#### Öffentliche API (`ptp_bridge_task.h`)
 
 ```c
-// Neue Einträge in msd_cmd_tbl[]:
-{"ptp_status",  (SYS_CMD_FNC) cmd_ptp_status,  ": PTP sync state and offset"},
-{"ptp_offset",  (SYS_CMD_FNC) cmd_ptp_offset,  ": last measured time offset [ns]"},
-{"ptp_reset",   (SYS_CMD_FNC) cmd_ptp_reset,   ": reset PTP servo to UNINIT"},
-{"ptp_1pps",    (SYS_CMD_FNC) cmd_ptp_1pps,    ": enable/disable 1PPS output"},
+void      PTP_Bridge_Init(void);
+ptpMode_t PTP_Bridge_GetMode(void);
+void      PTP_Bridge_SetMode(ptpMode_t mode);
+void      PTP_Bridge_OnFrame(const uint8_t *pData, uint16_t len, NET_IF_t iface);
+void      PTP_Bridge_GetOffset(int64_t *pOffset, uint64_t *pOffsetAbs);
+void      PTP_Bridge_Reset(void);
 ```
 
 ---
@@ -524,11 +676,12 @@ void PTP_Bridge_OnFrame(const uint8_t *pData, uint16_t len,     // Einstiegspunk
    laufen ist dies aktuell unkritisch — bei Umstieg auf ISR-basierten RX Atomic-Zugriff
    ergänzen.
 
-3. **CLI-Kommandos** (optional): `ptp_status`, `ptp_offset`, `ptp_reset` noch nicht
-   implementiert. Können nach erfolgreicher Inbetriebnahme ergänzt werden.
+3. **CLI-Kommandos** ✅: `ptp_mode`, `ptp_status`, `ptp_interval`, `ptp_offset`,
+   `ptp_reset` sind vollständig implementiert und erfolgreich gebaut (2026-03-30).
 
-4. **TX-Timestamp** (für Grandmaster-Modus): Noch nicht implementiert. Für
-   reinen Follower-Betrieb nicht benötigt.
+4. **TX-Timestamp / Grandmaster-Modus** ✅: `ptp_gm_task.c` implementiert,
+   CLI-Kommando `ptp_mode master` aktiviert den GM-Modus mit Hardware-Timestamp
+   über `DRV_LAN865X_SendRawEthFrame(tsc=0x01)`. Build verifiziert (2026-03-30).
 
 ---
 

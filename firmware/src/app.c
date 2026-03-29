@@ -519,6 +519,19 @@ static void cmd_ptp_interval(SYS_CMD_DEVICE_NODE *pCmdIO, int argc, char **argv)
     SYS_CONSOLE_PRINT("[PTP-GM] sync interval set to %u ms\r\n", (unsigned)ms);
 }
 
+static void cmd_ptp_offset(SYS_CMD_DEVICE_NODE *pCmdIO, int argc, char **argv) {
+    int64_t  off     = 0;
+    uint64_t off_abs = 0;
+    PTP_Bridge_GetOffset(&off, &off_abs);
+    SYS_CONSOLE_PRINT("[PTP] offset=%lld ns  abs=%llu ns\r\n",
+                      (long long)off, (unsigned long long)off_abs);
+}
+
+static void cmd_ptp_reset(SYS_CMD_DEVICE_NODE *pCmdIO, int argc, char **argv) {
+    PTP_Bridge_Reset();
+    SYS_CONSOLE_PRINT("[PTP] follower servo reset to UNINIT\r\n");
+}
+
 const SYS_CMD_DESCRIPTOR msd_cmd_tbl[] = {
     {"help", (SYS_CMD_FNC) test_help, ": show Test group commands"},
     {"timestamp", (SYS_CMD_FNC) show_timestamp, ": show build timestamp"},
@@ -531,6 +544,8 @@ const SYS_CMD_DESCRIPTOR msd_cmd_tbl[] = {
     {"ptp_mode",     (SYS_CMD_FNC) cmd_ptp_mode,     ": set PTP mode (off|follower|master)"},
     {"ptp_status",   (SYS_CMD_FNC) cmd_ptp_status,   ": show PTP mode, sync count, offset"},
     {"ptp_interval", (SYS_CMD_FNC) cmd_ptp_interval, ": set GM Sync interval in ms (default 125)"},
+    {"ptp_offset",   (SYS_CMD_FNC) cmd_ptp_offset,   ": show follower time offset [ns]"},
+    {"ptp_reset",    (SYS_CMD_FNC) cmd_ptp_reset,    ": reset PTP follower servo to UNINIT"},
 };
 
 bool Command_Init(void) {

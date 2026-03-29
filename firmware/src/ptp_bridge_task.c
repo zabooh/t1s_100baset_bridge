@@ -379,6 +379,17 @@ void PTP_Bridge_SetMode(ptpMode_t mode)
     }
 }
 
+void PTP_Bridge_GetOffset(int64_t *pOffset, uint64_t *pOffsetAbs)
+{
+    if (pOffset)    *pOffset    = offset;
+    if (pOffsetAbs) *pOffsetAbs = offset_abs;
+}
+
+void PTP_Bridge_Reset(void)
+{
+    resetSlaveNode();
+}
+
 void PTP_Bridge_OnFrame(const uint8_t *pData, uint16_t len, uint64_t rxTimestamp)
 {
     if (ptpMode != PTP_SLAVE) {
