@@ -17,7 +17,7 @@
 7. [Gesamtarchitektur PTP im Bridge-Projekt](#7-gesamtarchitektur-ptp-im-bridge-projekt)
 8. [Konkrete Integrationsstellen in app.c](#8-konkrete-integrationsstellen-in-appc)
 9. [Anwendungsszenarien](#9-anwendungsszenarien)
-10. [Zusammenfassung Aufwand und Risiken](#10-zusammenfassung-aufwand-und-risiken)
+10. [Implementierungsstatus (Stand 30. März 2026)](#10-implementierungsstatus-stand-30-märz-2026)
 
 ---
 
@@ -472,57 +472,65 @@ eignet sich **ptpd** (als Bibliothek einbindbar) oder das
 
 ---
 
-## 10. Zusammenfassung Aufwand und Risiken
+## 10. Implementierungsstatus (Stand 30. März 2026)
 
-### Aufwand (Schätzung)
+### Alle geplanten Änderungen wurden umgesetzt
 
-| Aufgabe | Aufwand | Risiko |
+| Datei | Änderung | Status |
 |---|---|---|
-| Treiber-Patch in `drv_lan865x_api.c` (Abschnitt 6) | ~15 Zeilen | niedrig — gut lokalisiert |
-| `ptp_ts_ipc.h` globale Timestamp-Struktur | ~20 Zeilen | niedrig |
-| `pktEth0Handler` PTP-Frame-Filter | ~10 Zeilen | niedrig |
-| Clock-Servo-Modul (von noIP-Projekt portieren) | ~300 Zeilen | mittel — Abhängigkeiten prüfen |
-| `ptp_bridge_task.c` (Init, Service) | ~150 Zeilen | mittel |
-| OA_CONFIG0.FTSE-Prüfung + MAC_TI/MAC_TA-Init | ~50 Zeilen | niedrig |
-| CLI-Kommandos (Status, Offset, Reset) | ~80 Zeilen | niedrig |
-| **Gesamt** | **~630 Zeilen** | **überschaubar** |
+| `firmware/src/ptp_ts_ipc.h` | IPC-Struct `PTP_RxTimestampEntry_t` + `extern volatile g_ptp_rx_ts` | ✅ neu erstellt |
+| `firmware/src/filters.h` + `filters.c` | FIR/IIR-Filterbibliothek — direkt aus noIP portiert | ✅ neu erstellt |
+| `firmware/src/ptp_bridge_task.h` | Alle PTP-Typen, Register-Adressen, State-Machine-Konstanten, API | ✅ neu erstellt |
+| `firmware/src/ptp_bridge_task.c` | Vollständiger Clock-Servo: UNINIT→MATCHFREQ→HARDSYNC→COARSE→FINE | ✅ neu erstellt |
+| `drv_lan865x_api.c` | `(void)rxTimestamp` ersetzt durch Capture in `g_ptp_rx_ts` | ✅ gepatcht |
+| `firmware/src/app.c` | `#include ptp_ts_ipc.h / ptp_bridge_task.h`, `PTP_Bridge_Init()`, 0x88F7-Filter | ✅ gepatcht |
+| `nbproject/configurations.xml` | `filters.c` + `ptp_bridge_task.c` als `<itemPath>` eingetragen | ✅ aktualisiert |
+| `nbproject/Makefile-default.mk` | 5 Variablen-Listen + 4 Compile-Rules (DEBUG + non-DEBUG) ergänzt | ✅ aktualisiert |
+| `cmake/.generated/file.cmake` | `filters.c` + `ptp_bridge_task.c` in CMake-Quelldateiliste ergänzt | ✅ aktualisiert |
 
-Zum Vergleich: Das gesamte noIP-PTP-Follower-Modul (`ptp_task.c`, `tc6-noip.c`,
-`filters.c`) umfasst ca. 900 Zeilen.
+### Abweichungen vom ursprünglichen Plan
 
-### Zentrale Risiken
+Die ursprüngliche Planung sah `PTP_Task_OnSyncReceived()` als Einstiegspunkt vor.
+Da der gesamte Clock-Servo aus `ptp_task.c` portiert wurde, lautet die tatsächliche API:
 
-1. **FTSE nicht aktiviert**: Wenn `OA_CONFIG0.FTSE` in der Bridge-Initialisierung nicht
-   gesetzt ist, liefert `g_ptp_rx_ts.rxTimestamp` immer 0. Prüfbar via
-   `DRV_LAN865X_ReadRegister(0, 0x00000004, ...)`.
+```c
+void PTP_Bridge_Init(void);                                      // Initialisierung
+void PTP_Bridge_OnFrame(const uint8_t *pData, uint16_t len,     // Einstiegspunkt
+                        uint64_t rxTimestamp);                   // aus pktEth0Handler
+```
 
-2. **Race Condition**: `g_ptp_rx_ts.valid` wird aus dem Treiber-Callback (ISR-Kontext
-   möglich) und dem App-Task gesetzt/gelesen. Atomic-Zugriff oder Critical-Section
-   notwendig, falls FreeRTOS-Preemption aktiv ist.
+`PTP_Bridge_OnFrame()` übernimmt intern die Sync/Follow_Up-Erkennung und ruft
+`processSync()` / `processFollowUp()` auf — entspricht dem Ablauf in `ptp_task.c`.
 
-3. **Timestamp-Konsistenz**: Der 64-Bit-Timestamp besteht aus zwei 32-Bit-Reads.
-   In der TC6-Bibliothek wird er bereits atomar aus dem SPI-Buffer aufgebaut (Big-Endian,
-   8 Byte), sodass kein Torn-Read-Problem besteht.
+### Wesentliche Portierungs-Unterschiede gegenüber noIP
 
-4. **Keine TSC-Steuerung im Harmony TX-Pfad**: Das `TSC`-Feld im TC6 Data-Header
-   wird vom Harmony-Treiber nicht für die Anwendung gesetzt. Für TX-Timestamps
-   eines selbst gesendeten Sync-Frames (Grandmaster-Betrieb) ist ein zusätzlicher
-   Treiber-Eingriff nötig oder der TX-Timestamp wird via Polling der
-   `OA_STATUS0.TTSCAA` + `OA_TTSCAH/OA_TTSCAL`-Register nachgelesen.
+| Aspekt | noIP-Projekt | Bridge-Projekt (dieses) |
+|---|---|---|
+| Register-Schreib-API | `TC6_WriteRegister(macPhy, addr, ...)` | `DRV_LAN865X_WriteRegister(0u, addr, ...)` |
+| Service-Schleife | `TC6_Service()` blocking | entfernt — Harmony-Treiber macht das intern |
+| PHY-Instanz-Zugriff | `get_macPhy_inst()` / `TC6_t *macPhy` | Treiber-Index `0u` |
+| Ausgabe | `printf(...)` | `SYS_CONSOLE_PRINT(...)` |
+| CMSIS-Byte-Swap | `__REV` / `__REV16` | `__builtin_bswap32` (pure C, kein CMSIS-Header) |
+| Build-System | CMakeLists (noIP) | MPLAB X (Makefile) + CMake (via `.generated/file.cmake`) |
 
-### Empfehlung
+### Offene Punkte / nächste Schritte
 
-**Minimaler erster Schritt**: Nur Abschnitt 6 (Treiber-Patch) + PTP-Frame-Filter im
-`pktEth0Handler` + Port des Clock-Servos aus dem noIP-Projekt.
+1. **FTSE-Bit prüfen**: `OA_CONFIG0` (Register 0x00000004) — Bit 19 (FTSE) muss gesetzt
+   sein, damit die TC6-Bibliothek den RX-Timestamp aus dem SPI-Footer extrahiert.
+   Dies bei der Inbetriebnahme verifizieren: `lan_read 0x00000004`.
 
-Das liefert funktionsfähigen PTP-Follower-Betrieb im Bridge-Projekt ohne grosse
-Architekturänderungen.
+2. **Race Condition**: `g_ptp_rx_ts.valid` wird aus dem Treiber-Callback und
+   `pktEth0Handler()` gelesen/geschrieben. Da beide im gleichen FreeRTOS-Task-Kontext
+   laufen ist dies aktuell unkritisch — bei Umstieg auf ISR-basierten RX Atomic-Zugriff
+   ergänzen.
 
-**Offizieller Weg** für Produktanwendungen: Microchip Harmony 3 PTP-Middleware aus
-[net_10base_t1s](https://github.com/Microchip-MPLAB-Harmony/net_10base_t1s) verwenden.
-Dort ist der Treiberpfad für Timestamps vollständig implementiert.
+3. **CLI-Kommandos** (optional): `ptp_status`, `ptp_offset`, `ptp_reset` noch nicht
+   implementiert. Können nach erfolgreicher Inbetriebnahme ergänzt werden.
+
+4. **TX-Timestamp** (für Grandmaster-Modus): Noch nicht implementiert. Für
+   reinen Follower-Betrieb nicht benötigt.
 
 ---
 
-*Erstellt: 29. März 2026*
+*Erstellt: 29. März 2026 | Aktualisiert: 30. März 2026*
 *Basierend auf: AN1847 LAN865x-TimeSync (noIP-Projekt) und T1S 100BaseT Bridge*

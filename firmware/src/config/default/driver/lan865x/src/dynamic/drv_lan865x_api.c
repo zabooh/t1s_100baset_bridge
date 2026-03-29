@@ -1322,6 +1322,10 @@ void TC6_CB_OnRxEthernetSlice(TC6_t *pInst, const uint8_t *pRx, uint16_t offset,
     }
 }
 
+/* PTP RX Timestamp IPC - written here, consumed in pktEth0Handler via ptp_ts_ipc.h */
+typedef struct { uint64_t rxTimestamp; bool valid; } PTP_RxTimestampEntry_t;
+volatile PTP_RxTimestampEntry_t g_ptp_rx_ts = {0u, false};
+
 /**
  * \brief Callback when ever an Ethernet packet was received. This will notify the integrator, that now all chunks very reported by TC6_CB_OnRxEthernetPacket and the data can be processed.
  * \note This function must be implemented by the integrator.
@@ -1334,7 +1338,11 @@ void TC6_CB_OnRxEthernetSlice(TC6_t *pInst, const uint8_t *pRx, uint16_t offset,
 void TC6_CB_OnRxEthernetPacket(TC6_t *pInst, bool success, uint16_t len, uint64_t *rxTimestamp, void *pGlobalTag)
 {
     (void)pInst;
-    (void)rxTimestamp;
+    /* Store RX hardware timestamp for PTP task (see ptp_ts_ipc.h) */
+    if (rxTimestamp != NULL) {
+        g_ptp_rx_ts.rxTimestamp = *rxTimestamp;
+        g_ptp_rx_ts.valid       = true;
+    }
     TCPIP_MAC_PACKET *macPkt = NULL;
     DRV_LAN865X_DriverInfo *pDrvInst = _Dereference(pGlobalTag);
     if (NULL != pDrvInst) {

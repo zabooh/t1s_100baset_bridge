@@ -770,6 +770,8 @@
         <itemPath>../src/third_party/wolfssl/wolfssl/wolfcrypt/src/srp.c</itemPath>
       </logicalFolder>
       <itemPath>../src/app.c</itemPath>
+      <itemPath>../src/filters.c</itemPath>
+      <itemPath>../src/ptp_bridge_task.c</itemPath>
       <itemPath>../src/main.c</itemPath>
       <itemPath>../src/config/default/pin_configurations.csv</itemPath>
     </logicalFolder>

@@ -28,6 +28,8 @@
 // *****************************************************************************
 
 #include "app.h"
+#include "ptp_ts_ipc.h"
+#include "ptp_bridge_task.h"
 #include "config/default/system/console/sys_console.h"
 #include "config/default/library/tcpip/tcpip.h"
 #include "config/default/library/tcpip/telnet.h"
@@ -257,6 +259,7 @@ void APP_Tasks(void) {
             TCPIP_STACK_PacketHandlerRegister(eth0_net_hd, pktEth0Handler, MyEth0HandlerParam);
             TCPIP_NET_HANDLE eth1_net_hd = TCPIP_STACK_IndexToNet(1);
             TCPIP_STACK_PacketHandlerRegister(eth1_net_hd, pktEth1Handler, MyEth1HandlerParam);
+            PTP_Bridge_Init();
             appData.state = APP_STATE_IDLE;
             break;
         }
@@ -281,6 +284,17 @@ bool pktEth0Handler(TCPIP_NET_HANDLE hNet, struct _tag_TCPIP_MAC_PACKET* rxPkt, 
     bool ret_val = false;
 
     packet_counter++;
+
+    /* PTP frame (EtherType 0x88F7): feed into clock servo, do not forward to IP stack */
+    if (frameType == 0x88F7u) {
+        uint64_t rxTs = 0u;
+        if (g_ptp_rx_ts.valid) {
+            rxTs = g_ptp_rx_ts.rxTimestamp;
+            g_ptp_rx_ts.valid = false;
+        }
+        PTP_Bridge_OnFrame(rxPkt->pMacLayer, (uint16_t)rxPkt->pDSeg->segLen, rxTs);
+        return true;
+    }
 
     if (ipdump_mode == 1 || ipdump_mode == 3) {
         SYS_CONSOLE_PRINT("E0:%d\n\r", packet_counter);
