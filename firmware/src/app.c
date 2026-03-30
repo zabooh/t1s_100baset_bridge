@@ -480,6 +480,21 @@ static void lan_write(SYS_CMD_DEVICE_NODE* pCmdIO, int argc, char** argv) {
 }
 
 
+/* Reprogram PLCA node ID at runtime and re-enable PLCA.
+ * Sequence: disable → set nodeId/nodeCount → re-enable.
+ * nodeCount is kept from the build configuration (DRV_LAN865X_PLCA_NODE_COUNT_IDX0).
+ */
+static void plca_set_node(uint8_t nodeId)
+{
+    /* 1. Disable PLCA */
+    DRV_LAN865X_WriteRegister(0u, 0x0004CA01u /* PLCA_CONTROL_0 */, 0u, true, NULL, NULL);
+    /* 2. Write new nodeId + nodeCount */
+    uint32_t ctrl1 = ((uint32_t)DRV_LAN865X_PLCA_NODE_COUNT_IDX0 << 8u) | nodeId;
+    DRV_LAN865X_WriteRegister(0u, 0x0004CA02u /* PLCA_CONTROL_1 */, ctrl1, true, NULL, NULL);
+    /* 3. Re-enable PLCA */
+    DRV_LAN865X_WriteRegister(0u, 0x0004CA01u /* PLCA_CONTROL_0 */, (1u << 15u), true, NULL, NULL);
+}
+
 static void cmd_ptp_mode(SYS_CMD_DEVICE_NODE *pCmdIO, int argc, char **argv) {
     if (argc != 2) {
         SYS_CONSOLE_PRINT("Usage: ptp_mode [off|follower|master]\r\n");
@@ -489,12 +504,14 @@ static void cmd_ptp_mode(SYS_CMD_DEVICE_NODE *pCmdIO, int argc, char **argv) {
         PTP_Bridge_SetMode(PTP_DISABLED);
         SYS_CONSOLE_PRINT("[PTP] disabled\r\n");
     } else if (strcmp(argv[1], "follower") == 0) {
+        plca_set_node(1u);
         PTP_Bridge_SetMode(PTP_SLAVE);
-        SYS_CONSOLE_PRINT("[PTP] follower mode\r\n");
+        SYS_CONSOLE_PRINT("[PTP] follower mode (PLCA node 1)\r\n");
     } else if (strcmp(argv[1], "master") == 0) {
+        plca_set_node(0u);
         PTP_GM_Init();
         PTP_Bridge_SetMode(PTP_MASTER);
-        SYS_CONSOLE_PRINT("[PTP] grandmaster mode\r\n");
+        SYS_CONSOLE_PRINT("[PTP] grandmaster mode (PLCA node 0 / coordinator)\r\n");
     } else {
         SYS_CONSOLE_PRINT("Unknown mode: %s\r\n", argv[1]);
     }
@@ -541,7 +558,7 @@ const SYS_CMD_DESCRIPTOR msd_cmd_tbl[] = {
     {"lan_read", (SYS_CMD_FNC) lan_read, ": read LAN865X register (lan_read <addr_hex>)"},
     {"lan_write", (SYS_CMD_FNC) lan_write, ": write LAN865X register (lan_write <addr_hex> <value_hex>)"},
     {"dump", (SYS_CMD_FNC) cmd_mem_dump, ": dump memory (dump <addr_hex> <count>)"},
-    {"ptp_mode",     (SYS_CMD_FNC) cmd_ptp_mode,     ": set PTP mode (off|follower|master)"},
+    {"ptp_mode",     (SYS_CMD_FNC) cmd_ptp_mode,     ": set PTP mode (off|follower|master) — master=PLCA node 0, follower=PLCA node 1"},
     {"ptp_status",   (SYS_CMD_FNC) cmd_ptp_status,   ": show PTP mode, sync count, offset"},
     {"ptp_interval", (SYS_CMD_FNC) cmd_ptp_interval, ": set GM Sync interval in ms (default 125)"},
     {"ptp_offset",   (SYS_CMD_FNC) cmd_ptp_offset,   ": show follower time offset [ns]"},
