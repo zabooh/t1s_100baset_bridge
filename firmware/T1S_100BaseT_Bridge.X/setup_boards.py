@@ -259,159 +259,62 @@ def main():
         wake_port(ser_gm,       GRANDMASTER_PORT)
 
         # ----------------------------------------------------------------
-        # Schritt 1: PLCA-Modus setzen (unabhängig vom TCP/IP Stack)
-        # WICHTIG: Follower (node 1) ZUERST setzen, damit der PLCA-Bus
-        # schon einen Teilnehmer hat wenn der Grandmaster (node 0) als
-        # Beacon-Sender startet.  Ohne das sieht GM sofort ein
-        # Status0.Loss-of-Framing → Reset → Re-Init Schleife.
+        # PLCA-Modus setzen
+        # WICHTIG: Follower (node 1) ZUERST, damit der PLCA-Bus schon
+        # einen Teilnehmer hat wenn GM (node 0) als Beacon-Sender startet.
         # ----------------------------------------------------------------
         print("\n=== PLCA / PTP Modus konfigurieren ===")
-        send_cmd(ser_follower, FOLLOWER_PORT,    "ptp_mode follower",  timeout=RESPONSE_TIMEOUT)
-        time.sleep(0.5)   # Follower kurz stabilisieren lassen
-        send_cmd(ser_gm,       GRANDMASTER_PORT, "ptp_mode master",   timeout=RESPONSE_TIMEOUT)
+        send_cmd(ser_follower, FOLLOWER_PORT,    "ptp_mode follower", timeout=RESPONSE_TIMEOUT)
+        time.sleep(0.5)
+        send_cmd(ser_gm,       GRANDMASTER_PORT, "ptp_mode master",  timeout=RESPONSE_TIMEOUT)
 
-        # Nach ptp_mode master löst LAN865x oft Status0.Loss-of-Framing aus → TC6-Re-Init.
-        # wait_quiet() wartet bis alle Reset/Init-Meldungen (Status0, Status1) abgeklungen
-        # sind → erst dann ist der GM wirklich sendebereit.
-        print("Warte auf GM-Ruhe nach ptp_mode master (TC6-Reset abklingen) ...")
+        print("Warte auf GM-Ruhe nach ptp_mode master ...")
         wait_quiet(ser_gm, GRANDMASTER_PORT, quiet_secs=2.0, total_timeout=12.0)
-
-        # ----------------------------------------------------------------
-        # MAC-Adressen kommen aus den jeweils geflashten Firmware-Varianten
-        # (GM: ...:00, Follower: ...:01). Zur Laufzeit keine setmac-Änderung.
-        # ----------------------------------------------------------------
-        print("\n=== MAC-Adressen aus Firmware (kein setmac zur Laufzeit) ===")
-
-        # ----------------------------------------------------------------
-        # Interface hochbringen (falls down)
-        # ----------------------------------------------------------------
-        print("\n=== Interface UP ===")
-        ok = if_up(ser_follower, FOLLOWER_PORT,   INTERFACE)
-        if not ok:
-            errors += 1
-
-        ok = if_up(ser_gm,       GRANDMASTER_PORT, INTERFACE)
-        if not ok:
-            errors += 1
 
         # ----------------------------------------------------------------
         # IP-Konfiguration
         # ----------------------------------------------------------------
         print("\n=== IP-Konfiguration ===")
-
-        ok = set_ip(ser_follower, FOLLOWER_PORT,   FOLLOWER_IP,   NETMASK, INTERFACE)
+        ok = set_ip(ser_follower, FOLLOWER_PORT,    FOLLOWER_IP,    NETMASK, INTERFACE)
         if not ok:
             errors += 1
-
         ok = set_ip(ser_gm,       GRANDMASTER_PORT, GRANDMASTER_IP, NETMASK, INTERFACE)
         if not ok:
             errors += 1
 
-        # Warten damit Interfaces hochkommen
-        print("\nWarte 5 s auf IP-Stack-Stabilisierung ...")
-        time.sleep(5)
+        print("\nWarte 3 s auf IP-Stack-Stabilisierung ...")
+        time.sleep(3)
 
         # ----------------------------------------------------------------
-        # eth1 deaktivieren — damit Ping sicher über eth0 (T1S) läuft
+        # netinfo anzeigen
         # ----------------------------------------------------------------
-        print("\n=== eth1 deaktivieren ===")
-        send_cmd(ser_follower, FOLLOWER_PORT,    "if eth1 down", timeout=RESPONSE_TIMEOUT)
-        send_cmd(ser_gm,       GRANDMASTER_PORT, "if eth1 down", timeout=RESPONSE_TIMEOUT)
-        print("Warte 2 s nach eth1 down ...")
-        time.sleep(2)
-
-        # ----------------------------------------------------------------
-        # Stabilitätsprüfung: netinfo auf GM darf keinen Reset-Zustand zeigen
-        # (bis zu 3 Versuche à 5 s)
-        # ----------------------------------------------------------------
-        print("\n=== Stabilitätsprüfung GM ===")
-        for _attempt in range(3):
-            r = send_cmd(ser_gm, GRANDMASTER_PORT, "netinfo", timeout=RESPONSE_TIMEOUT)
-            if "Link is UP" in r and "Status: Ready" in r:
-                print(f"[{GRANDMASTER_PORT}] GM stabil (Link UP, Status Ready).")
-                break
-            print(f"[{GRANDMASTER_PORT}] GM noch nicht stabil, warte 5 s ...")
-            time.sleep(5)
-        else:
-            print(f"[{GRANDMASTER_PORT}] WARNUNG: GM nach 15 s noch nicht stabil — trotzdem weiter.")
-
-        # Follower-Stabilität prüfen
-        print("\n=== Stabilitätsprüfung Follower ===")
-        for _attempt in range(3):
-            r = send_cmd(ser_follower, FOLLOWER_PORT, "netinfo", timeout=RESPONSE_TIMEOUT)
-            if "Link is UP" in r and "Status: Ready" in r:
-                print(f"[{FOLLOWER_PORT}] Follower stabil (Link UP, Status Ready).")
-                break
-            print(f"[{FOLLOWER_PORT}] Follower noch nicht stabil, warte 5 s ...")
-            time.sleep(5)
-        else:
-            print(f"[{FOLLOWER_PORT}] WARNUNG: Follower nach 15 s noch nicht stabil — trotzdem weiter.")
-
-        # Beide Ports leeren: alle ausstehenden Status0/Status1/Reset-Meldungen
-        # konsumieren bevor der Ping startet — kein aktiver Re-Init darf laufen.
-        print("\n=== Serielle Buffer leeren (warte auf Ruhe vor Ping) ===")
-        wait_quiet(ser_gm,       GRANDMASTER_PORT, quiet_secs=2.0, total_timeout=8.0)
-        wait_quiet(ser_follower, FOLLOWER_PORT,    quiet_secs=2.0, total_timeout=8.0)
-
-        # ----- DIAGNOSE: NETWORK_CONTROL lesen vor Ping -----
-        print("\n=== Diagnose: NETWORK_CONTROL vor Ping ===")
-        resp = send_cmd(ser_gm, GRANDMASTER_PORT, "lan_read 0x00010000", timeout=3.0)
-        print(f"  NETWORK_CONTROL (erwartet 0x0000000C): {resp.strip()}")
-        time.sleep(0.3)
-
-        print("\n=== Diagnose: MAC-Statistiken vor Ping ===")
-        send_cmd(ser_gm, GRANDMASTER_PORT, "stats", timeout=RESPONSE_TIMEOUT)
-        send_cmd(ser_follower, FOLLOWER_PORT, "stats", timeout=RESPONSE_TIMEOUT)
+        print("\n=== netinfo Grandmaster ===")
+        send_cmd(ser_gm,       GRANDMASTER_PORT, "netinfo", timeout=RESPONSE_TIMEOUT)
+        print("\n=== netinfo Follower ===")
+        send_cmd(ser_follower, FOLLOWER_PORT,    "netinfo", timeout=RESPONSE_TIMEOUT)
 
         # ----------------------------------------------------------------
-        # Ping-Tests mit ipdump-Überwachung auf der Empfängerseite
+        # Ping-Tests
         # ----------------------------------------------------------------
-        print("\n=== Ping-Tests mit ipdump-Überwachung ===")
+        print("\n=== Ping-Tests ===")
 
-        # --- Follower → Grandmaster: ipdump auf Grandmaster (Empfänger) ---
-        print("\n-- Follower → Grandmaster (ipdump 3 auf Grandmaster) --")
-        send_cmd(ser_gm, GRANDMASTER_PORT, "ipdump 3", timeout=RESPONSE_TIMEOUT)
-        ser_gm.reset_input_buffer()   # Prompt-Rest wegwerfen
+        print("\n-- Follower → Grandmaster --")
         ok = ping_test(ser_follower, FOLLOWER_PORT, GRANDMASTER_IP)
         if not ok:
             errors += 1
-        rx_data = collect_unsolicited(ser_gm, GRANDMASTER_PORT, extra_wait=1.5)
-        if rx_data.strip():
-            print(f"[{GRANDMASTER_PORT}] ipdump RX: JA — Pakete empfangen!")
-        else:
-            print(f"[{GRANDMASTER_PORT}] ipdump RX: KEINE Pakete empfangen.")
-        send_cmd(ser_gm, GRANDMASTER_PORT, "ipdump 0", timeout=RESPONSE_TIMEOUT)
 
-        # ----- DIAGNOSE: NETWORK_CONTROL nach erstem Ping -----
-        time.sleep(0.5)
-        resp = send_cmd(ser_gm, GRANDMASTER_PORT, "lan_read 0x00010000", timeout=3.0)
-        print(f"  NETWORK_CONTROL nach Ping 1: {resp.strip()}")
-        print("\n=== Diagnose: MAC-Statistiken nach Ping 1 ===")
-        send_cmd(ser_gm, GRANDMASTER_PORT, "stats", timeout=RESPONSE_TIMEOUT)
-        send_cmd(ser_follower, FOLLOWER_PORT, "stats", timeout=RESPONSE_TIMEOUT)
-
-        # ARP-Tabellen nach Ping 1 checken — zeigt ob ARP für den Gegenüber aufgelöst wurde
-        print("\n=== ARP-Tabellen nach Ping 1 ===")
-        send_cmd(ser_follower, FOLLOWER_PORT, "arp info", timeout=RESPONSE_TIMEOUT)
-        send_cmd(ser_gm, GRANDMASTER_PORT, "arp info", timeout=RESPONSE_TIMEOUT)
-
-        # --- Grandmaster → Follower: ipdump auf Follower (Empfänger) ---
-        print("\n-- Grandmaster → Follower (ipdump 3 auf Follower) --")
-        send_cmd(ser_follower, FOLLOWER_PORT, "ipdump 3", timeout=RESPONSE_TIMEOUT)
-        ser_follower.reset_input_buffer()   # Prompt-Rest wegwerfen
+        print("\n-- Grandmaster → Follower --")
         ok = ping_test(ser_gm, GRANDMASTER_PORT, FOLLOWER_IP)
         if not ok:
             errors += 1
-        rx_data = collect_unsolicited(ser_follower, FOLLOWER_PORT, extra_wait=1.5)
-        if rx_data.strip():
-            print(f"[{FOLLOWER_PORT}] ipdump RX: JA — Pakete empfangen!")
-        else:
-            print(f"[{FOLLOWER_PORT}] ipdump RX: KEINE Pakete empfangen.")
-        send_cmd(ser_follower, FOLLOWER_PORT, "ipdump 0", timeout=RESPONSE_TIMEOUT)
 
-        print("\n=== Diagnose: MAC-Statistiken nach Ping 2 ===")
-        send_cmd(ser_gm, GRANDMASTER_PORT, "stats", timeout=RESPONSE_TIMEOUT)
-        send_cmd(ser_follower, FOLLOWER_PORT, "stats", timeout=RESPONSE_TIMEOUT)
+        # ----------------------------------------------------------------
+        # netinfo nach den Pings
+        # ----------------------------------------------------------------
+        print("\n=== netinfo nach Pings (Grandmaster) ===")
+        send_cmd(ser_gm,       GRANDMASTER_PORT, "netinfo", timeout=RESPONSE_TIMEOUT)
+        print("\n=== netinfo nach Pings (Follower) ===")
+        send_cmd(ser_follower, FOLLOWER_PORT,    "netinfo", timeout=RESPONSE_TIMEOUT)
 
         # ----------------------------------------------------------------
         # Ergebnis

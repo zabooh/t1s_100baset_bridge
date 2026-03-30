@@ -46,6 +46,7 @@
 #include "configuration.h"
 #include "definitions.h"
 #include "device.h"
+#include <stdio.h>
 
 
 // ****************************************************************************
@@ -339,6 +340,44 @@ TCPIP_STACK_HEAP_INTERNAL_CONFIG tcpipHeapConfig =
     .heapSize = TCPIP_STACK_DRAM_SIZE,
 };
 
+/* Writable MAC address string buffers - filled with random last 3 bytes by
+ * APP_RandomizeMacLastBytes() before TCPIP_STACK_Init(). The const
+ * TCPIP_HOSTS_CONFIGURATION array holds pointers to these buffers, so the
+ * struct itself stays const while the string data is updated at runtime. */
+static char s_macAddrStr0[18] = TCPIP_NETWORK_DEFAULT_MAC_ADDR_IDX0;
+static char s_macAddrStr1[18] = TCPIP_NETWORK_DEFAULT_MAC_ADDR_IDX1;
+
+/* Generate a random MAC using the SAME54 TRNG hardware (polling mode).
+ * The first 3 octets (OUI prefix, e.g. "00:04:25") are kept from oui_prefix;
+ * the last 3 octets are replaced with fresh TRNG data.
+ * buf must be at least 18 characters. */
+static void APP_RandomizeMacLastBytes(char *buf, const char *oui_prefix)
+{
+    /* Enable TRNG APB clock (not enabled by MCC since no TRNG plib configured) */
+    MCLK_REGS->MCLK_APBCMASK |= MCLK_APBCMASK_TRNG_Msk;
+
+    /* Enable TRNG */
+    TRNG_REGS->TRNG_CTRLA |= TRNG_CTRLA_ENABLE_Msk;
+
+    /* Busy-wait until a new random word is ready */
+    while ((TRNG_REGS->TRNG_INTFLAG & TRNG_INTFLAG_DATARDY_Msk) == 0U)
+    {
+        /* intentional busy-wait - called only once at startup */
+    }
+
+    /* Reading TRNG_DATA automatically clears the DATARDY flag */
+    uint32_t rnd = TRNG_REGS->TRNG_DATA;
+
+    /* Disable TRNG to save power */
+    TRNG_REGS->TRNG_CTRLA &= (uint8_t)~TRNG_CTRLA_ENABLE_Msk;
+
+    /* Format: OUI_prefix:XX:XX:XX */
+    (void)snprintf(buf, 18, "%s:%02X:%02X:%02X",
+                   oui_prefix,
+                   (unsigned)((rnd >> 16U) & 0xFFU),
+                   (unsigned)((rnd >>  8U) & 0xFFU),
+                   (unsigned)( rnd         & 0xFFU));
+}
 
 const TCPIP_NETWORK_CONFIG __attribute__((unused))  TCPIP_HOSTS_CONFIGURATION[] =
 {
@@ -346,7 +385,7 @@ const TCPIP_NETWORK_CONFIG __attribute__((unused))  TCPIP_HOSTS_CONFIGURATION[] 
     {
         .interface = TCPIP_NETWORK_DEFAULT_INTERFACE_NAME_IDX0,
         .hostName = TCPIP_NETWORK_DEFAULT_HOST_NAME_IDX0,
-        .macAddr = TCPIP_NETWORK_DEFAULT_MAC_ADDR_IDX0,
+        .macAddr = s_macAddrStr0,
         .ipAddr = TCPIP_NETWORK_DEFAULT_IP_ADDRESS_IDX0,
         .ipMask = TCPIP_NETWORK_DEFAULT_IP_MASK_IDX0,
         .gateway = TCPIP_NETWORK_DEFAULT_GATEWAY_IDX0,
@@ -360,7 +399,7 @@ const TCPIP_NETWORK_CONFIG __attribute__((unused))  TCPIP_HOSTS_CONFIGURATION[] 
     {
         .interface = TCPIP_NETWORK_DEFAULT_INTERFACE_NAME_IDX1,
         .hostName = TCPIP_NETWORK_DEFAULT_HOST_NAME_IDX1,
-        .macAddr = TCPIP_NETWORK_DEFAULT_MAC_ADDR_IDX1,
+        .macAddr = s_macAddrStr1,
         .ipAddr = TCPIP_NETWORK_DEFAULT_IP_ADDRESS_IDX1,
         .ipMask = TCPIP_NETWORK_DEFAULT_IP_MASK_IDX1,
         .gateway = TCPIP_NETWORK_DEFAULT_GATEWAY_IDX1,
@@ -784,6 +823,11 @@ void SYS_Initialize ( void* data )
 
    /* Network Presentation Layer Initialization */
    sysObj.netPres = NET_PRES_Initialize(0, (SYS_MODULE_INIT*)&netPresInitData);
+
+   /* Randomize last 3 MAC address bytes via TRNG - one firmware for all boards */
+   APP_RandomizeMacLastBytes(s_macAddrStr0, "00:04:25");
+   APP_RandomizeMacLastBytes(s_macAddrStr1, "00:04:25");
+
    /* TCPIP Stack Initialization */
    sysObj.tcpip = TCPIP_STACK_Init();
    SYS_ASSERT(sysObj.tcpip != SYS_MODULE_OBJ_INVALID, "TCPIP_STACK_Init Failed" );

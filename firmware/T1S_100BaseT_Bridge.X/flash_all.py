@@ -14,7 +14,7 @@ import os
 # --- Konfiguration -----------------------------------------------------------
 _HERE = os.path.dirname(os.path.abspath(__file__))
 
-HEX_FILE         = os.path.join(_HERE, r"out\T1S_100BaseT_Bridge\default.hex")
+HEX_FILE         = os.path.join(_HERE, r"dist\default\production\T1S_100BaseT_Bridge.X.production.hex")
 FOLLOWER_SERIAL  = "ATML3264031800001049"
 GRANDMASTER_SERIAL = "ATML3264031800001290"
 # -----------------------------------------------------------------------------
