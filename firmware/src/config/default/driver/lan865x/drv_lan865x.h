@@ -808,6 +808,28 @@ bool DRV_LAN865X_SendRawEthFrame(uint8_t idx, const uint8_t *pBuf, uint16_t len,
                                   uint8_t tsc, DRV_LAN865X_RawTxCallback_t cb,
                                   void *pTag);
 
+/**
+ * Persistently set the PLCA node ID for a driver instance so that the value
+ * survives an automatic driver re-initialisation triggered by a
+ * "Loss of Framing Error" (STATUS0 bit 4).
+ *
+ * Call this BEFORE writing the PLCA hardware registers.  The updated value is
+ * stored in the driver configuration structure and will be used the next time
+ * _InitUserSettings() runs during re-init.
+ *
+ *   idx    - Driver instance index (0-based)
+ *   nodeId - New PLCA node identifier (0 = coordinator / Beacon sender)
+ */
+void DRV_LAN865X_SetPlcaNodeId(uint8_t idx, uint8_t nodeId);
+
+/* Updates the MAC address at runtime (both SW stack and LAN865x hardware).
+ * Persists the address in the driver so Loss-of-Framing re-init writes the
+ * correct MAC into SPEC_ADD2 instead of reverting to the firmware default.
+ *   idx  - Driver instance index (0-based)
+ *   pMac - 6-byte MAC address array (must not be NULL)
+ */
+void DRV_LAN865X_UpdateMacAddress(uint8_t idx, const uint8_t *pMac);
+
 #ifdef __cplusplus
 }
 #endif

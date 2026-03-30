@@ -483,9 +483,15 @@ static void lan_write(SYS_CMD_DEVICE_NODE* pCmdIO, int argc, char** argv) {
 /* Reprogram PLCA node ID at runtime and re-enable PLCA.
  * Sequence: disable → set nodeId/nodeCount → re-enable.
  * nodeCount is kept from the build configuration (DRV_LAN865X_PLCA_NODE_COUNT_IDX0).
+ *
+ * The nodeId is also written persistently into the driver configuration struct
+ * via DRV_LAN865X_SetPlcaNodeId() so that it survives an automatic driver
+ * re-initialisation triggered by a "Loss of Framing Error" (STATUS0 bit 4).
  */
 static void plca_set_node(uint8_t nodeId)
 {
+    /* 0. Persist nodeId so driver re-init uses the correct value */
+    DRV_LAN865X_SetPlcaNodeId(0u, nodeId);
     /* 1. Disable PLCA */
     DRV_LAN865X_WriteRegister(0u, 0x0004CA01u /* PLCA_CONTROL_0 */, 0u, true, NULL, NULL);
     /* 2. Write new nodeId + nodeCount */

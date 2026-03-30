@@ -352,7 +352,6 @@ void PTP_Bridge_Init(void)
     DRV_LAN865X_WriteRegister(0u, SEVINTEN, SEVINTEN_PPSDONE_Msk, true, NULL, NULL);
 
     memset(&TS_SYNC, 0, sizeof(TS_SYNC));
-    ptpMode = PTP_SLAVE;
 
     rateRatiolpfState.buffer     = &rateRatioValue[0];
     rateRatiolpfState.filterSize = sizeof(rateRatioValue) / sizeof(rateRatioValue[0]);
@@ -363,7 +362,7 @@ void PTP_Bridge_Init(void)
     offsetCoarseState.buffer     = &offsetCoarseValue[0];
     offsetCoarseState.filterSize = sizeof(offsetCoarseValue) / sizeof(offsetCoarseValue[0]);
 
-    PTP_LOG("PTP_Bridge_Init: PTP Follower ready (LAN865x idx=0)\r\n");
+    PTP_LOG("PTP_Bridge_Init: HW init done, PTP mode=%d (not activated)\r\n", (int)ptpMode);
 }
 
 ptpMode_t PTP_Bridge_GetMode(void)

@@ -46,6 +46,7 @@ Microchip or any third party.
 
 #include "system/debug/sys_debug.h"
 #include "system/command/sys_command.h"
+#include "driver/lan865x/drv_lan865x.h"
 
 #if defined(TCPIP_STACK_USE_HTTP_NET_SERVER) && defined(TCPIP_HTTP_NET_CONSOLE_CMD)
 #include "net_pres/pres/net_pres_socketapi.h"
@@ -2745,6 +2746,13 @@ static void _Command_MACAddressSet(SYS_CMD_DEVICE_NODE* pCmdIO, int argc, char**
         return;
     }
 
+    /* Also update LAN865x driver copy (stackParameters.ifPhyAddress) and hardware
+     * SPEC_ADD registers so that (a) Loss-of-Framing re-init uses the new MAC and
+     * (b) the hardware MAC filter accepts frames addressed to the new address.
+     * Interface index 0 is the T1S / LAN865x interface (eth0). */
+    if (TCPIP_STACK_NetIndexGet(netH) == 0) {
+        DRV_LAN865X_UpdateMacAddress(0u, macAddr.v);
+    }
 }
 
 #if defined(TCPIP_STACK_USE_TFTP_SERVER)

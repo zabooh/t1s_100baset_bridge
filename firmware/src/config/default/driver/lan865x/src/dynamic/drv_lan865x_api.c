@@ -328,11 +328,14 @@ void DRV_LAN865X_Tasks(SYS_MODULE_OBJ object)
                 TC6_UnlockExtendedStatus(pDrvInst->drvTc6);
             }
         }
-        if (!SYS_PORT_PinRead(pDrvInst->drvCfg.interruptPin)) {
-            _Lock(&pDrvInst->drvMutex);
-            (void)TC6_Service(pDrvInst->drvTc6, false);
-            _Unlock(&pDrvInst->drvMutex);
-        }
+    }
+    /* Service interrupt pin regardless of driver state: prevents RX FIFO overflow during
+     * Loss-of-Framing re-initialisation (state == UNINITIALIZED). Without this, incoming
+     * ARP/ICMP replies are lost while the re-init SPI sequence occupies TC6_Service. */
+    if (!SYS_PORT_PinRead(pDrvInst->drvCfg.interruptPin)) {
+        _Lock(&pDrvInst->drvMutex);
+        (void)TC6_Service(pDrvInst->drvTc6, false);
+        _Unlock(&pDrvInst->drvMutex);
     }
     if (pDrvInst->needService) {
         _Lock(&pDrvInst->drvMutex);
@@ -1248,6 +1251,28 @@ TCPIP_MAC_RES DRV_LAN865X_WriteRegister(uint8_t idx, uint32_t addr, uint32_t val
       - TCPIP_MAC_RES_EVENT_INIT_FAIL   - MAC-PHY initialization is still in progress or failed
 
 */
+/* Updates MAC address at runtime: persists in stackParameters (survives Loss-of-Framing re-init)
+ * and immediately writes SPEC_ADD2_BOTTOM/TOP + SPEC_ADD1_BOTTOM to LAN865x hardware.
+ */
+void DRV_LAN865X_UpdateMacAddress(uint8_t idx, const uint8_t *pMac)
+{
+    if ((idx < DRV_LAN865X_INSTANCES_NUMBER) && (NULL != pMac)) {
+        DRV_LAN865X_DriverInfo *pDrv = &drvLAN865XDrvInst[idx];
+        uint32_t regVal;
+        /* Persist so that Loss-of-Framing re-init uses the updated MAC */
+        (void)memcpy(pDrv->stackParameters.ifPhyAddress.v, pMac, sizeof(TCPIP_MAC_ADDR));
+        /* Write SPEC_ADD2_BOTTOM (0x00010024): mac[3..0] */
+        regVal = ((uint32_t)pMac[3] << 24u) | ((uint32_t)pMac[2] << 16u) | ((uint32_t)pMac[1] << 8u) | pMac[0];
+        (void)TC6_WriteRegister(pDrv->drvTc6, 0x00010024u, regVal, CONTROL_PROTECTION, NULL, NULL);
+        /* Write SPEC_ADD2_TOP (0x00010025): mac[5..4] */
+        regVal = ((uint32_t)pMac[5] << 8u) | pMac[4];
+        (void)TC6_WriteRegister(pDrv->drvTc6, 0x00010025u, regVal, CONTROL_PROTECTION, NULL, NULL);
+        /* Write SPEC_ADD1_BOTTOM (0x00010022): mac[5..2] (used for back-off timing seed) */
+        regVal = ((uint32_t)pMac[5] << 24u) | ((uint32_t)pMac[4] << 16u) | ((uint32_t)pMac[3] << 8u) | pMac[2];
+        (void)TC6_WriteRegister(pDrv->drvTc6, 0x00010022u, regVal, CONTROL_PROTECTION, NULL, NULL);
+    }
+}
+
 TCPIP_MAC_RES DRV_LAN865X_ReadModifyWriteRegister(uint8_t idx, uint32_t addr, uint32_t value, uint32_t mask, bool protected, DRV_LAN865X_RegCallback_t modifyCallback, void *pTag)
 {
     TCPIP_MAC_RES result = TCPIP_MAC_RES_NO_DRIVER;
@@ -2423,4 +2448,17 @@ bool DRV_LAN865X_SendRawEthFrame(uint8_t idx, const uint8_t *pBuf, uint16_t len,
         }
     }
     return result;
+}
+
+/* --------------------------------------------------------------------------
+ * DRV_LAN865X_SetPlcaNodeId
+ * Persistently stores the PLCA node ID in the driver configuration so that
+ * after a Loss-of-Framing-Error–triggered re-initialisation the correct
+ * node ID is written back to PLCA_CONTROL_1 by _InitUserSettings().
+ * -------------------------------------------------------------------------- */
+void DRV_LAN865X_SetPlcaNodeId(uint8_t idx, uint8_t nodeId)
+{
+    if (idx < DRV_LAN865X_INSTANCES_NUMBER) {
+        drvLAN865XDrvInst[idx].drvCfg.nodeId = nodeId;
+    }
 }
