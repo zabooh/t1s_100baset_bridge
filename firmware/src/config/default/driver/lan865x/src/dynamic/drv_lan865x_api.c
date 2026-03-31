@@ -108,6 +108,10 @@ const TCPIP_MAC_OBJECT DRV_LAN865X_MACObject = {
 // Local information
 static DRV_LAN865X_DriverInfo drvLAN865XDrvInst[DRV_LAN865X_INSTANCES_NUMBER];
 
+/* TX Timestamp Capture Available bits (STATUS0 bits 8-10) saved by _OnStatus0 before W1C clear.
+ * Read and atomically cleared by DRV_LAN865X_GetAndClearTsCapture(). */
+static volatile uint32_t drvTsCaptureStatus0[DRV_LAN865X_INSTANCES_NUMBER];
+
 extern const DRV_LAN865X_Configuration drvLan865xInitData[DRV_LAN865X_INSTANCES_NUMBER];
 
 /******************************************************************************
@@ -1697,7 +1701,7 @@ static bool _InitMemMap(DRV_LAN865X_DriverInfo * pDrvInst)
     ******************************************************************************/
 
     static const MemoryMap_t TC6_MEMMAP[] = {
-        {  .address=0x00000004,  .value=0x00000026,  .mask=0x00000000,  .op=MemOp_Write,  .secure=false }, /* CONFIG0 */
+        {  .address=0x00000004,  .value=0x000000E6,  .mask=0x00000000,  .op=MemOp_Write,  .secure=false }, /* CONFIG0: 0x26|0xC0 = ZARFE+TXPE+CSARFE + bits6-7 for TX timestamp */
         {  .address=0x00010000,  .value=0x00000000,  .mask=0x00000000,  .op=MemOp_Write,  .secure=true  }, /* NETWORK_CONTROL */
         {  .address=0x00040091,  .value=0x00009660,  .mask=0x00000000,  .op=MemOp_Write,  .secure=true  },
         {  .address=0x00040081,  .value=0x00000080,  .mask=0x00000000,  .op=MemOp_Write,  .secure=true  },
@@ -1987,7 +1991,7 @@ static bool _InitConfig(DRV_LAN865X_DriverInfo * pDrvInst)
             break;
 
         case 46:
-            if (TC6_WriteRegister(tc, 0x000400E0, 0x0000C000, CONTROL_PROTECTION, NULL, NULL)) {
+            if (TC6_WriteRegister(tc, 0x000400E0, 0x0000C100, CONTROL_PROTECTION, NULL, NULL)) { /* PADCTRL: 0xC000|0x100 for TX timestamp (ref: TC6_ptp_master_init) */
                 done = true;
             }
             break;
@@ -2327,6 +2331,20 @@ static void _OnStatus0(TC6_t *pInst, bool success, uint32_t addr, uint32_t value
         if (success) {
             bool reinit = false;
             uint8_t i;
+            /* DEBUG: print STATUS0 value whenever called */
+            if (0u != (value & 0x0F00u)) {
+                SYS_CONSOLE_PRINT("[DBG] _OnStatus0: 0x%08lX\r\n", (unsigned long)value);
+            }
+            /* Save TTSCAA/B/C bits (8-10) before W1C clear so the GM state machine
+             * can retrieve them via DRV_LAN865X_GetAndClearTsCapture(). */
+            if (0u != (value & 0x0700u)) {
+                for (i = 0u; i < DRV_LAN865X_INSTANCES_NUMBER; i++) {
+                    if (pDrvInst == &drvLAN865XDrvInst[i]) {
+                        drvTsCaptureStatus0[i] |= (value & 0x0700u);
+                        break;
+                    }
+                }
+            }
             while (!TC6_WriteRegister(pInst, addr, value, CONTROL_PROTECTION, _OnClearStatus0, NULL)) {
                 (void)TC6_Service(pInst, true);
             }
@@ -2461,4 +2479,18 @@ void DRV_LAN865X_SetPlcaNodeId(uint8_t idx, uint8_t nodeId)
     if (idx < DRV_LAN865X_INSTANCES_NUMBER) {
         drvLAN865XDrvInst[idx].drvCfg.nodeId = nodeId;
     }
+}
+
+bool DRV_LAN865X_IsReady(uint8_t idx)
+{
+    return (idx < DRV_LAN865X_INSTANCES_NUMBER) &&
+           (drvLAN865XDrvInst[idx].state == SYS_STATUS_READY);
+}
+
+uint32_t DRV_LAN865X_GetAndClearTsCapture(uint8_t idx)
+{
+    if (idx >= DRV_LAN865X_INSTANCES_NUMBER) { return 0u; }
+    uint32_t val = drvTsCaptureStatus0[idx];
+    drvTsCaptureStatus0[idx] = 0u;
+    return val;
 }

@@ -57,6 +57,7 @@ static uint32_t         gm_period_start     = 0u;      /* tick at start of curre
 static uint16_t         gm_seq_id           = 0u;
 static uint32_t         gm_sync_cnt         = 0u;
 static uint8_t          gm_retry_cnt        = 0u;
+static uint32_t         gm_wait_ticks       = 0u;      /* ticks spent waiting for a callback */
 static volatile bool    gm_tx_busy          = false;
 static uint32_t         gm_sync_interval_ms = PTP_GM_SYNC_PERIOD_MS;
 static uint8_t          gm_src_mac[6]       = {0u};
@@ -183,16 +184,14 @@ void PTP_GM_Init(void)
     gm_write(GM_TXMPATL,   0xF710u);     /* pattern low byte + next byte */
     gm_write(GM_TXMMSKH,   0x00u);       /* no masking */
     gm_write(GM_TXMMSKL,   0x00u);
-    gm_write(GM_TXMCTL,    0x02u);       /* arm TX match */
+    /* NOTE: GM_TXMCTL is NOT armed here — it is re-armed before every Sync TX
+     * in GM_STATE_SEND_SYNC, so PLCA resets cannot clear the arm permanently. */
 
     /* MAC time increment: 40 ns per clock period */
     gm_write(MAC_TI, 40u);
 
-    /* OA_CONFIG0: enable TX+RX cut-through (bits 7:6) */
-    DRV_LAN865X_ReadModifyWriteRegister(0u, GM_OA_CONFIG0, 0xC0u, 0xC0u, true, NULL, NULL);
-
-    /* PADCTRL: pad timing adjustment (bit 9 := 1, bit 8 := 0) */
-    DRV_LAN865X_ReadModifyWriteRegister(0u, PADCTRL, 0x100u, 0x300u, true, NULL, NULL);
+    /* NOTE: OA_CONFIG0 (cut-through) and PADCTRL writes intentionally omitted.
+     * Writing these registers while PLCA is running causes TC6Error_SyncLost. */
 
     /* PPS output enable (optional, makes timing visible on an oscilloscope) */
     gm_write(PPSCTL, 0x0000007Du);
@@ -204,6 +203,7 @@ void PTP_GM_Init(void)
     gm_seq_id           = 0u;
     gm_sync_cnt         = 0u;
     gm_retry_cnt        = 0u;
+    gm_wait_ticks       = 0u;
     gm_tick_ms          = 0u;
     gm_period_start     = 0u;
 
@@ -235,6 +235,9 @@ void PTP_GM_Service(void)
             if (gm_tx_busy) {
                 break;   /* previous TX still running; retry next tick */
             }
+            /* Re-arm TX match capture: only TXMCTL needs refreshing each cycle.
+             * Location/pattern/mask registers are static (set once in PTP_GM_Init). */
+            gm_write(GM_TXMCTL, 0x02u);
             build_sync();
             gm_tx_busy   = true;
             gm_retry_cnt = 0u;
@@ -243,9 +246,16 @@ void PTP_GM_Service(void)
                 gm_tx_busy = false;   /* send failed; retry next tick */
                 break;
             }
-            /* Immediately kick off TXMCTL polling */
+            /* Immediately kick off TXMCTL polling.
+             * NOTE: DRV_LAN865X_ReadRegister returns TCPIP_MAC_RES_OK (0) on
+             * success, NOT a bool — so the failure check must use != TCPIP_MAC_RES_OK. */
             gm_op_done = false;
-            DRV_LAN865X_ReadRegister(0u, GM_TXMCTL, true, gm_op_cb, NULL);
+            if (DRV_LAN865X_ReadRegister(0u, GM_TXMCTL, true, gm_op_cb, NULL) != TCPIP_MAC_RES_OK) {
+                /* Queue full — retry in next tick from WAIT_PERIOD */
+                gm_tx_busy = false;
+                gm_state   = GM_STATE_WAIT_PERIOD;
+                break;
+            }
             gm_state = GM_STATE_WAIT_TXMCTL;
             break;
 
@@ -258,11 +268,21 @@ void PTP_GM_Service(void)
 
         /* ---- Wait for TXMCTL read; check TXPMDET ---- */
         case GM_STATE_WAIT_TXMCTL:
-            if (!gm_op_done) break;
+            if (!gm_op_done) {
+                if (++gm_wait_ticks >= 200u) {
+                    SYS_CONSOLE_PRINT("[PTP-GM] WAIT_TXMCTL cb timeout, retry\r\n");
+                    gm_wait_ticks = 0u;
+                    gm_state = GM_STATE_WAIT_PERIOD;
+                }
+                break;
+            }
+            gm_wait_ticks = 0u;
             if (gm_op_val & GM_TXMCTL_TXPMDET) {
-                /* Pattern detected: read OA_STATUS0 */
-                gm_op_done = false;
-                DRV_LAN865X_ReadRegister(0u, GM_OA_STATUS0, false, gm_op_cb, NULL);
+                /* Pattern detected: poll captured STATUS0 bits saved by _OnStatus0.
+                 * Do NOT issue a ReadRegister(STATUS0) here — the driver's interrupt
+                 * handler clears STATUS0 (W1C) before our read could complete. */
+                gm_retry_cnt  = 0u;
+                gm_wait_ticks = 0u;
                 gm_state = GM_STATE_WAIT_STATUS0;
             } else {
                 /* Not detected yet: retry up to MAX_RETRIES */
@@ -277,31 +297,33 @@ void PTP_GM_Service(void)
             }
             break;
 
-        /* ---- READ_STATUS0 is issued inside WAIT_TXMCTL; land here on re-issue ---- */
+        /* ---- READ_STATUS0 (legacy, falls through to WAIT_STATUS0 poll) ---- */
         case GM_STATE_READ_STATUS0:
-            gm_op_done = false;
-            DRV_LAN865X_ReadRegister(0u, GM_OA_STATUS0, false, gm_op_cb, NULL);
             gm_state = GM_STATE_WAIT_STATUS0;
             break;
 
-        /* ---- Wait for OA_STATUS0; check timestamp capture available ---- */
+        /* ---- Poll TTSCAA/B/C bits captured by the driver's _OnStatus0 handler ---- */
         case GM_STATE_WAIT_STATUS0:
-            if (!gm_op_done) break;
-            gm_status0 = gm_op_val;
-            if (gm_status0 & (GM_STS0_TTSCAA | GM_STS0_TTSCAB | GM_STS0_TTSCAC)) {
-                /* At least one capture slot has data: read seconds register */
-                gm_state = GM_STATE_READ_TTSCA_H;
+        {
+            /* The driver's interrupt handler (_OnStatus0) reads STATUS0 and clears
+             * it via W1C before any application-level ReadRegister could complete.
+             * We therefore retrieve the saved bits from DRV_LAN865X_GetAndClearTsCapture
+             * instead of issuing our own register read. */
+            uint32_t tsCapture = DRV_LAN865X_GetAndClearTsCapture(0u);
+            if (0u != (tsCapture & (GM_STS0_TTSCAA | GM_STS0_TTSCAB | GM_STS0_TTSCAC))) {
+                gm_status0    = tsCapture;
+                gm_wait_ticks = 0u;
+                gm_state      = GM_STATE_READ_TTSCA_H;
             } else {
-                gm_retry_cnt++;
-                if (gm_retry_cnt >= PTP_GM_MAX_RETRIES) {
+                if (++gm_wait_ticks >= 500u) {  /* 500 ms max wait */
                     SYS_CONSOLE_PRINT("[PTP-GM] TTSCA not set after Sync #%u\r\n",
                                        (unsigned)gm_seq_id);
+                    gm_wait_ticks = 0u;
                     gm_state = GM_STATE_WAIT_PERIOD;
-                } else {
-                    gm_state = GM_STATE_READ_STATUS0;
                 }
             }
             break;
+        }
 
         /* ---- Read seconds register of available capture slot ---- */
         case GM_STATE_READ_TTSCA_H:
@@ -317,7 +339,15 @@ void PTP_GM_Service(void)
 
         /* ---- Store seconds, issue nanoseconds read ---- */
         case GM_STATE_WAIT_TTSCA_H:
-            if (!gm_op_done) break;
+            if (!gm_op_done) {
+                if (++gm_wait_ticks >= 200u) {
+                    SYS_CONSOLE_PRINT("[PTP-GM] WAIT_TTSCA_H cb timeout, retry\r\n");
+                    gm_wait_ticks = 0u;
+                    gm_state = GM_STATE_WAIT_PERIOD;
+                }
+                break;
+            }
+            gm_wait_ticks = 0u;
             gm_ts_sec  = gm_op_val;
             gm_state   = GM_STATE_READ_TTSCA_L;
             break;
@@ -336,7 +366,15 @@ void PTP_GM_Service(void)
 
         /* ---- Store nanoseconds, issue W1C clear of OA_STATUS0 ---- */
         case GM_STATE_WAIT_TTSCA_L:
-            if (!gm_op_done) break;
+            if (!gm_op_done) {
+                if (++gm_wait_ticks >= 200u) {
+                    SYS_CONSOLE_PRINT("[PTP-GM] WAIT_TTSCA_L cb timeout, retry\r\n");
+                    gm_wait_ticks = 0u;
+                    gm_state = GM_STATE_WAIT_PERIOD;
+                }
+                break;
+            }
+            gm_wait_ticks = 0u;
             gm_ts_nsec = gm_op_val;
             gm_state   = GM_STATE_WRITE_CLEAR;
             break;
@@ -350,7 +388,15 @@ void PTP_GM_Service(void)
 
         /* ---- Wait for write ACK, then build and send FollowUp ---- */
         case GM_STATE_WAIT_CLEAR:
-            if (!gm_op_done) break;
+            if (!gm_op_done) {
+                if (++gm_wait_ticks >= 200u) {
+                    SYS_CONSOLE_PRINT("[PTP-GM] WAIT_CLEAR cb timeout, retry\r\n");
+                    gm_wait_ticks = 0u;
+                    gm_state = GM_STATE_WAIT_PERIOD;
+                }
+                break;
+            }
+            gm_wait_ticks = 0u;
             gm_state = GM_STATE_SEND_FOLLOWUP;
             break;
 

@@ -259,20 +259,7 @@ def main():
         wake_port(ser_gm,       GRANDMASTER_PORT)
 
         # ----------------------------------------------------------------
-        # PLCA-Modus setzen
-        # WICHTIG: Follower (node 1) ZUERST, damit der PLCA-Bus schon
-        # einen Teilnehmer hat wenn GM (node 0) als Beacon-Sender startet.
-        # ----------------------------------------------------------------
-        print("\n=== PLCA / PTP Modus konfigurieren ===")
-        send_cmd(ser_follower, FOLLOWER_PORT,    "ptp_mode follower", timeout=RESPONSE_TIMEOUT)
-        time.sleep(0.5)
-        send_cmd(ser_gm,       GRANDMASTER_PORT, "ptp_mode master",  timeout=RESPONSE_TIMEOUT)
-
-        print("Warte auf GM-Ruhe nach ptp_mode master ...")
-        wait_quiet(ser_gm, GRANDMASTER_PORT, quiet_secs=2.0, total_timeout=12.0)
-
-        # ----------------------------------------------------------------
-        # IP-Konfiguration
+        # IP-Konfiguration ZUERST — PTP startet erst danach
         # ----------------------------------------------------------------
         print("\n=== IP-Konfiguration ===")
         ok = set_ip(ser_follower, FOLLOWER_PORT,    FOLLOWER_IP,    NETMASK, INTERFACE)
@@ -282,7 +269,22 @@ def main():
         if not ok:
             errors += 1
 
-        print("\nWarte 3 s auf IP-Stack-Stabilisierung ...")
+        print("\nWarte 2 s auf IP-Stack-Stabilisierung ...")
+        time.sleep(2)
+
+        # ----------------------------------------------------------------
+        # PLCA-Modus und PTP starten (erst NACH setip)
+        # Follower (node 1) ZUERST, bevor GM (node 0) als Beacon startet.
+        # ----------------------------------------------------------------
+        print("\n=== PLCA / PTP Modus konfigurieren ===")
+        send_cmd(ser_follower, FOLLOWER_PORT,    "ptp_mode follower", timeout=RESPONSE_TIMEOUT)
+        time.sleep(0.5)
+        send_cmd(ser_gm,       GRANDMASTER_PORT, "ptp_mode master",  timeout=RESPONSE_TIMEOUT)
+
+        print("Warte auf GM-Ruhe nach ptp_mode master ...")
+        wait_quiet(ser_gm, GRANDMASTER_PORT, quiet_secs=2.0, total_timeout=12.0)
+
+        print("\nWarte 3 s auf PTP-Stabilisierung ...")
         time.sleep(3)
 
         # ----------------------------------------------------------------

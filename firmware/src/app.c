@@ -28,11 +28,14 @@
 // *****************************************************************************
 
 #include "app.h"
+#include <string.h>
 #include "ptp_ts_ipc.h"
 #include "ptp_bridge_task.h"
 #include "ptp_gm_task.h"
 #include "config/default/system/console/sys_console.h"
 #include "config/default/library/tcpip/tcpip.h"
+#define TCPIP_THIS_MODULE_ID    TCPIP_MODULE_MANAGER
+#include "config/default/library/tcpip/src/tcpip_packet.h"
 #include "config/default/library/tcpip/telnet.h"
 #include "config/default/system/time/sys_time.h"
 #include "config/default/driver/gmac/drv_gmac.h"
@@ -90,8 +93,24 @@ bool Command_Init(void);
 uint32_t ipdump_mode = 0;
 uint32_t fwd_mode = 0;
 uint32_t my_delay_time = 0;
+
+/* --- NoIP raw Ethernet test (EtherType 0x88B5 = IEEE 802 Local Experimental) --- */
+#define NOIP_ETHERTYPE  0x88B5u
+static uint32_t noip_tx_cnt = 0u;
+static uint32_t noip_rx_cnt = 0u;
 SYS_TIME_HANDLE timerHandle;
 static SYS_TIME_HANDLE gmTimerHandle = SYS_TIME_HANDLE_INVALID;
+
+static void app_wait_ms(uint32_t ms)
+{
+    uint64_t start = SYS_TIME_Counter64Get();
+    uint64_t ticks = ((uint64_t)SYS_TIME_FrequencyGet() * (uint64_t)ms) / 1000ULL;
+    while ((SYS_TIME_Counter64Get() - start) < ticks) {
+    }
+}
+
+/* Track LAN865x driver ready state to detect reinit-complete while in GM mode */
+static bool lan865x_prev_ready = false;
 
 // LAN865X Register access variables
 volatile bool lan_reg_operation_complete = false;
@@ -147,6 +166,8 @@ static void test_help(SYS_CMD_DEVICE_NODE* pCmdIO, int argc, char** argv) {
     SYS_CONSOLE_PRINT("  stats          - Show TX/RX software counters for eth0 and eth1\n\r");
     SYS_CONSOLE_PRINT("  lan_read <addr> - Read LAN865X register (hex address)\n\r");
     SYS_CONSOLE_PRINT("  lan_write <addr> <value> - Write LAN865X register (hex addr, hex value)\n\r");
+    SYS_CONSOLE_PRINT("  noip_send <n> [gap_ms] - Send N raw Ethernet frames (EtherType 0x88B5) on T1S\n\r");
+    SYS_CONSOLE_PRINT("  noip_stat      - Show NoIP TX/RX counters\n\r");
     SYS_CONSOLE_PRINT("  dump <addr> <count> - Dump memory (hex addr, decimal or hex count)\n\r");
     SYS_CONSOLE_PRINT("\n\rExample: Test lan_read 0x00000004\n\r");
     SYS_CONSOLE_PRINT("Example: Test dump 0x20000000 64\n\r");
@@ -277,7 +298,21 @@ void APP_Tasks(void) {
 
             /* TODO: implement your application state machine.*/
         case APP_STATE_IDLE:
+        {
+            /* Re-run PTP_GM_Init() if the LAN865x driver recovers from a
+             * reinit (triggered by TC6Error_SyncLost / LOFE) while in GM mode.
+             * The reinit clears all TX-Match registers written by PTP_GM_Init(),
+             * so they must be reprogrammed once the driver is READY again. */
+            bool lan865x_ready = DRV_LAN865X_IsReady(0u);
+            if (!lan865x_prev_ready && lan865x_ready &&
+                (PTP_Bridge_GetMode() == PTP_MASTER))
+            {
+                SYS_CONSOLE_PRINT("[PTP-GM] driver ready after reinit - re-applying TX-Match config\r\n");
+                PTP_GM_Init();
+            }
+            lan865x_prev_ready = lan865x_ready;
             break;
+        }
 
             /* The default state should never be executed. */
         default:
@@ -296,12 +331,33 @@ bool pktEth0Handler(TCPIP_NET_HANDLE hNet, struct _tag_TCPIP_MAC_PACKET* rxPkt, 
 
     packet_counter++;
 
+    /* NoIP raw test frame (EtherType 0x88B5): increment counter + print, free buffer */
+    if (frameType == NOIP_ETHERTYPE) {
+        noip_rx_cnt++;
+        const uint8_t *p = rxPkt->pMacLayer;
+        uint32_t seq = ((uint32_t)p[14] << 24) | ((uint32_t)p[15] << 16)
+                     | ((uint32_t)p[16] <<  8) |  (uint32_t)p[17];
+        SYS_CONSOLE_PRINT("[NoIP-RX] #%u seq=%u from %02X:%02X:%02X:%02X:%02X:%02X len=%d\r\n",
+            (unsigned)noip_rx_cnt, (unsigned)seq,
+            p[6], p[7], p[8], p[9], p[10], p[11],
+            rxPkt->pDSeg->segLen);
+        DumpMem((uint32_t)rxPkt->pMacLayer, rxPkt->pDSeg->segLen);
+        TCPIP_PKT_PacketAcknowledge(rxPkt, TCPIP_MAC_PKT_ACK_RX_OK);
+        return true;
+    }
+
     /* PTP frame (EtherType 0x88F7): feed into clock servo, do not forward to IP stack */
     if (frameType == 0x88F7u) {
         uint64_t rxTs = 0u;
         if (g_ptp_rx_ts.valid) {
             rxTs = g_ptp_rx_ts.rxTimestamp;
             g_ptp_rx_ts.valid = false;
+        }
+        if (ipdump_mode == 1u || ipdump_mode == 3u) {
+            SYS_CONSOLE_PRINT("E0:PTP[0x88F7] len=%u ts=%llu\r\n",
+                              (unsigned)rxPkt->pDSeg->segLen,
+                              (unsigned long long)rxTs);
+            DumpMem((uint32_t)rxPkt->pMacLayer, rxPkt->pDSeg->segLen);
         }
         PTP_Bridge_OnFrame(rxPkt->pMacLayer, (uint16_t)rxPkt->pDSeg->segLen, rxTs);
         return true;
@@ -480,27 +536,6 @@ static void lan_write(SYS_CMD_DEVICE_NODE* pCmdIO, int argc, char** argv) {
 }
 
 
-/* Reprogram PLCA node ID at runtime and re-enable PLCA.
- * Sequence: disable → set nodeId/nodeCount → re-enable.
- * nodeCount is kept from the build configuration (DRV_LAN865X_PLCA_NODE_COUNT_IDX0).
- *
- * The nodeId is also written persistently into the driver configuration struct
- * via DRV_LAN865X_SetPlcaNodeId() so that it survives an automatic driver
- * re-initialisation triggered by a "Loss of Framing Error" (STATUS0 bit 4).
- */
-static void plca_set_node(uint8_t nodeId)
-{
-    /* 0. Persist nodeId so driver re-init uses the correct value */
-    DRV_LAN865X_SetPlcaNodeId(0u, nodeId);
-    /* 1. Disable PLCA */
-    DRV_LAN865X_WriteRegister(0u, 0x0004CA01u /* PLCA_CONTROL_0 */, 0u, true, NULL, NULL);
-    /* 2. Write new nodeId + nodeCount */
-    uint32_t ctrl1 = ((uint32_t)DRV_LAN865X_PLCA_NODE_COUNT_IDX0 << 8u) | nodeId;
-    DRV_LAN865X_WriteRegister(0u, 0x0004CA02u /* PLCA_CONTROL_1 */, ctrl1, true, NULL, NULL);
-    /* 3. Re-enable PLCA */
-    DRV_LAN865X_WriteRegister(0u, 0x0004CA01u /* PLCA_CONTROL_0 */, (1u << 15u), true, NULL, NULL);
-}
-
 static void cmd_ptp_mode(SYS_CMD_DEVICE_NODE *pCmdIO, int argc, char **argv) {
     if (argc != 2) {
         SYS_CONSOLE_PRINT("Usage: ptp_mode [off|follower|master]\r\n");
@@ -510,14 +545,12 @@ static void cmd_ptp_mode(SYS_CMD_DEVICE_NODE *pCmdIO, int argc, char **argv) {
         PTP_Bridge_SetMode(PTP_DISABLED);
         SYS_CONSOLE_PRINT("[PTP] disabled\r\n");
     } else if (strcmp(argv[1], "follower") == 0) {
-        plca_set_node(1u);
         PTP_Bridge_SetMode(PTP_SLAVE);
-        SYS_CONSOLE_PRINT("[PTP] follower mode (PLCA node 1)\r\n");
+        SYS_CONSOLE_PRINT("[PTP] follower mode (PLCA node %u)\r\n", (unsigned)DRV_LAN865X_PLCA_NODE_ID_IDX0);
     } else if (strcmp(argv[1], "master") == 0) {
-        plca_set_node(0u);
         PTP_GM_Init();
         PTP_Bridge_SetMode(PTP_MASTER);
-        SYS_CONSOLE_PRINT("[PTP] grandmaster mode (PLCA node 0 / coordinator)\r\n");
+        SYS_CONSOLE_PRINT("[PTP] grandmaster mode (PLCA node 0)\r\n");
     } else {
         SYS_CONSOLE_PRINT("Unknown mode: %s\r\n", argv[1]);
     }
@@ -555,6 +588,67 @@ static void cmd_ptp_reset(SYS_CMD_DEVICE_NODE *pCmdIO, int argc, char **argv) {
     SYS_CONSOLE_PRINT("[PTP] follower servo reset to UNINIT\r\n");
 }
 
+uint8_t frame[60];
+
+/* noip_send <n> [gap_ms]  — send N raw Ethernet frames (EtherType 0x88B5) on eth0/T1S */
+static void cmd_noip_send(SYS_CMD_DEVICE_NODE *pCmdIO, int argc, char **argv)
+{
+    uint32_t count = 5u;
+    uint32_t gap_ms = 0u;
+    if (argc >= 2) { count = (uint32_t)strtoul(argv[1], NULL, 10); }
+    if (argc >= 3) { gap_ms = (uint32_t)strtoul(argv[2], NULL, 10); }
+    if (count == 0u || count > 100u) {
+        SYS_CONSOLE_PRINT("[NoIP] count must be 1..100\r\n");
+        return;
+    }
+    if (gap_ms > 1000u) {
+        SYS_CONSOLE_PRINT("[NoIP] gap_ms must be 0..1000\r\n");
+        return;
+    }
+
+    SYS_CONSOLE_PRINT("[NoIP-TX] start count=%u gap_ms=%u\r\n", (unsigned)count, (unsigned)gap_ms);
+
+    /* Get our MAC from the T1S interface (index 0 = eth0) */
+    TCPIP_NET_HANDLE netH = TCPIP_STACK_IndexToNet(0);
+    const uint8_t  *pMac  = TCPIP_STACK_NetAddressMac(netH);
+
+    
+    /* DST: Layer-2 broadcast */
+    frame[0]=0xFFu; frame[1]=0xFFu; frame[2]=0xFFu;
+    frame[3]=0xFFu; frame[4]=0xFFu; frame[5]=0xFFu;
+    /* SRC: our MAC */
+    if (pMac != NULL) { memcpy(&frame[6], pMac, 6u); }
+    else              { memset(&frame[6], 0u,   6u); }
+    /* EtherType 0x88B5 */
+    frame[12] = (uint8_t)((NOIP_ETHERTYPE >> 8u) & 0xFFu);
+    frame[13] = (uint8_t)( NOIP_ETHERTYPE        & 0xFFu);
+    /* Payload: 4-byte sequence + 42-byte fill to reach 60-byte min frame */
+    memset(&frame[14], 0xAAu, 46u);
+
+    uint32_t i;
+    for (i = 0u; i < count; i++) {
+        noip_tx_cnt++;
+        frame[14] = (uint8_t)((noip_tx_cnt >> 24u) & 0xFFu);
+        frame[15] = (uint8_t)((noip_tx_cnt >> 16u) & 0xFFu);
+        frame[16] = (uint8_t)((noip_tx_cnt >>  8u) & 0xFFu);
+        frame[17] = (uint8_t)( noip_tx_cnt          & 0xFFu);
+        if (!DRV_LAN865X_SendRawEthFrame(0u, frame, (uint16_t)sizeof(frame), 0x00u, NULL, NULL)) {
+            SYS_CONSOLE_PRINT("[NoIP-TX] send failed at seq=%u\r\n", (unsigned)noip_tx_cnt);
+            noip_tx_cnt--;
+            break;
+        }
+        SYS_CONSOLE_PRINT("[NoIP-TX] sent seq=%u\r\n", (unsigned)noip_tx_cnt);
+        if (gap_ms > 0u) {
+            app_wait_ms(gap_ms);
+        }
+    }
+}
+
+static void cmd_noip_stat(SYS_CMD_DEVICE_NODE *pCmdIO, int argc, char **argv)
+{
+    SYS_CONSOLE_PRINT("[NoIP] TX=%u  RX=%u\r\n", (unsigned)noip_tx_cnt, (unsigned)noip_rx_cnt);
+}
+
 const SYS_CMD_DESCRIPTOR msd_cmd_tbl[] = {
     {"help", (SYS_CMD_FNC) test_help, ": show Test group commands"},
     {"timestamp", (SYS_CMD_FNC) show_timestamp, ": show build timestamp"},
@@ -569,6 +663,8 @@ const SYS_CMD_DESCRIPTOR msd_cmd_tbl[] = {
     {"ptp_interval", (SYS_CMD_FNC) cmd_ptp_interval, ": set GM Sync interval in ms (default 125)"},
     {"ptp_offset",   (SYS_CMD_FNC) cmd_ptp_offset,   ": show follower time offset [ns]"},
     {"ptp_reset",    (SYS_CMD_FNC) cmd_ptp_reset,    ": reset PTP follower servo to UNINIT"},
+    {"noip_send",    (SYS_CMD_FNC) cmd_noip_send,    ": send N raw Ethernet frames bypassing TCP stack (noip_send <n> [gap_ms])"},
+    {"noip_stat",    (SYS_CMD_FNC) cmd_noip_stat,    ": show NoIP TX/RX counters"},
 };
 
 bool Command_Init(void) {

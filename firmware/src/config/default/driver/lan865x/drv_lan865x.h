@@ -822,6 +822,23 @@ bool DRV_LAN865X_SendRawEthFrame(uint8_t idx, const uint8_t *pBuf, uint16_t len,
  */
 void DRV_LAN865X_SetPlcaNodeId(uint8_t idx, uint8_t nodeId);
 
+/* Returns true when the LAN865x driver instance is fully initialised and ready
+ * to accept register access and frame TX/RX requests.  Returns false while a
+ * Loss-of-Framing–triggered re-initialisation is in progress.
+ *   idx - Driver instance index (0-based)
+ */
+bool DRV_LAN865X_IsReady(uint8_t idx);
+
+/* Returns the TX Timestamp Capture Available bits (STATUS0 bits 8-10) that were
+ * saved by the driver's status interrupt handler before it W1C-cleared STATUS0.
+ * Calling this function also clears the saved value (atomic read-and-clear).
+ * The GM state machine must poll this instead of reading STATUS0 directly to
+ * avoid the race where the driver clears TTSCAA before the GM reads it.
+ *   idx - Driver instance index (0-based)
+ * Returns: bit mask with GM_STS0_TTSCAA/B/C bits set, or 0 if nothing captured.
+ */
+uint32_t DRV_LAN865X_GetAndClearTsCapture(uint8_t idx);
+
 /* Updates the MAC address at runtime (both SW stack and LAN865x hardware).
  * Persists the address in the driver so Loss-of-Framing re-init writes the
  * correct MAC into SPEC_ADD2 instead of reverting to the firmware default.
