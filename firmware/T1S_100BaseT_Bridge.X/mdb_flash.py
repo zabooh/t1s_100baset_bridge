@@ -22,10 +22,12 @@ import sys
 import argparse
 import time
 import os
+import re
 
 MDB_DEFAULT  = r"C:\Program Files\Microchip\MPLABX\v6.25\mplab_platform\bin\mdb.bat"
 MCU_DEFAULT  = "ATSAME54P20A"
 TOOL_DEFAULT = "edbg"
+SWD_KHZ_DEFAULT = 2000
 
 
 def _wait_prompt(proc, timeout=60):
@@ -56,6 +58,36 @@ def _cmd(proc, cmd, label="", timeout=120):
     return output
 
 
+def _cmd_ok(output):
+    """Heuristic success check for MDB command output."""
+    return re.search(r"(error|failed|unknown|invalid)", output, re.IGNORECASE) is None
+
+
+def _set_swd_speed(proc, swd_khz, label=""):
+    """
+    Try known MDB property names for SWD frequency.
+    Returns True if one property appears accepted.
+    """
+    if swd_khz is None:
+        return True
+
+    attempts = [
+        f"set communication.speed {swd_khz}",
+        f"set communication.frequency {swd_khz}",
+        f"set communication.clock {swd_khz}",
+    ]
+
+    print(f"[{label}] INFO: Request SWD speed = {swd_khz} kHz")
+    for cmd in attempts:
+        out = _cmd(proc, cmd, label=label, timeout=15)
+        if _cmd_ok(out):
+            print(f"[{label}] INFO: SWD speed set via '{cmd}'")
+            return True
+
+    print(f"[{label}] WARNING: Could not set SWD speed via MDB properties; using tool default.")
+    return False
+
+
 def _find_tool_index(proc, hwtool, serial, label=""):
     """
     Run 'hwtool' (no args) to list all connected tools, then return
@@ -84,7 +116,7 @@ def _find_tool_index(proc, hwtool, serial, label=""):
 
 
 def flash(hex_file, serial, mdb_path=MDB_DEFAULT, mcu=MCU_DEFAULT,
-          hwtool=TOOL_DEFAULT, label=""):
+          hwtool=TOOL_DEFAULT, label="", swd_khz=SWD_KHZ_DEFAULT):
     """
     Program *hex_file* onto the device identified by *serial* and then
     issue 'reset' + 'run' so the MCU starts executing immediately.
@@ -101,6 +133,8 @@ def flash(hex_file, serial, mdb_path=MDB_DEFAULT, mcu=MCU_DEFAULT,
     print(f"\n{'='*60}")
     print(f"  Flash{' ' + label if label else ''}: {mcu}")
     print(f"  Tool: {hwtool}  SN={serial}")
+    if swd_khz is not None:
+        print(f"  SWD : requested {swd_khz} kHz")
     print(f"  HEX : {hex_file}")
     print(f"{'='*60}")
 
@@ -127,6 +161,10 @@ def flash(hex_file, serial, mdb_path=MDB_DEFAULT, mcu=MCU_DEFAULT,
         return 1
 
     _cmd(proc, f"hwtool {tool_type} -p {idx}", label=label, timeout=30)
+
+    # Optional flash speed tuning (supported property name depends on MDB/tool backend).
+    _set_swd_speed(proc, swd_khz, label=label)
+
     result = _cmd(proc, f'program "{hex_file}"', label=label, timeout=120)
 
     if any(kw in result for kw in ("Error", "error", "FAILED", "failed")):
@@ -158,5 +196,8 @@ if __name__ == "__main__":
     ap.add_argument("--mdb",     default=MDB_DEFAULT,   help="Path to mdb.bat")
     ap.add_argument("--mcu",     default=MCU_DEFAULT,   help="Target MCU")
     ap.add_argument("--hwtool",  default=TOOL_DEFAULT,  help="Programmer tool type")
+    ap.add_argument("--swd-khz", type=int, default=SWD_KHZ_DEFAULT,
+                    help="Requested SWD clock in kHz (best effort, default: 2000)")
     args = ap.parse_args()
-    sys.exit(flash(args.hex, args.serial, args.mdb, args.mcu, args.hwtool, args.label))
+    sys.exit(flash(args.hex, args.serial, args.mdb, args.mcu,
+                   args.hwtool, args.label, args.swd_khz))

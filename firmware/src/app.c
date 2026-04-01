@@ -360,6 +360,7 @@ bool pktEth0Handler(TCPIP_NET_HANDLE hNet, struct _tag_TCPIP_MAC_PACKET* rxPkt, 
             DumpMem((uint32_t)rxPkt->pMacLayer, rxPkt->pDSeg->segLen);
         }
         PTP_Bridge_OnFrame(rxPkt->pMacLayer, (uint16_t)rxPkt->pDSeg->segLen, rxTs);
+        TCPIP_PKT_PacketAcknowledge(rxPkt, TCPIP_MAC_PKT_ACK_RX_OK);
         return true;
     }
 
@@ -542,6 +543,7 @@ static void cmd_ptp_mode(SYS_CMD_DEVICE_NODE *pCmdIO, int argc, char **argv) {
         return;
     }
     if (strcmp(argv[1], "off") == 0) {
+        PTP_GM_Deinit();
         PTP_Bridge_SetMode(PTP_DISABLED);
         SYS_CONSOLE_PRINT("[PTP] disabled\r\n");
     } else if (strcmp(argv[1], "follower") == 0) {
@@ -573,6 +575,26 @@ static void cmd_ptp_interval(SYS_CMD_DEVICE_NODE *pCmdIO, int argc, char **argv)
     uint32_t ms = (uint32_t)strtoul(argv[1], NULL, 10);
     PTP_GM_SetSyncInterval(ms);
     SYS_CONSOLE_PRINT("[PTP-GM] sync interval set to %u ms\r\n", (unsigned)ms);
+}
+
+static void cmd_ptp_dst(SYS_CMD_DEVICE_NODE *pCmdIO, int argc, char **argv) {
+    if (argc != 2) {
+        ptp_gm_dst_mode_t mode = PTP_GM_GetDstMode();
+        SYS_CONSOLE_PRINT("Usage: ptp_dst [multicast|broadcast]\r\n");
+        SYS_CONSOLE_PRINT("[PTP-GM] dst=%s\r\n",
+                          (mode == PTP_GM_DST_BROADCAST) ? "broadcast" : "multicast");
+        return;
+    }
+
+    if (strcmp(argv[1], "multicast") == 0 || strcmp(argv[1], "mc") == 0) {
+        PTP_GM_SetDstMode(PTP_GM_DST_MULTICAST);
+        SYS_CONSOLE_PRINT("[PTP-GM] dst=multicast (01:80:C2:00:00:0E)\r\n");
+    } else if (strcmp(argv[1], "broadcast") == 0 || strcmp(argv[1], "bc") == 0) {
+        PTP_GM_SetDstMode(PTP_GM_DST_BROADCAST);
+        SYS_CONSOLE_PRINT("[PTP-GM] dst=broadcast (FF:FF:FF:FF:FF:FF)\r\n");
+    } else {
+        SYS_CONSOLE_PRINT("Unknown dst mode: %s\r\n", argv[1]);
+    }
 }
 
 static void cmd_ptp_offset(SYS_CMD_DEVICE_NODE *pCmdIO, int argc, char **argv) {
@@ -661,6 +683,7 @@ const SYS_CMD_DESCRIPTOR msd_cmd_tbl[] = {
     {"ptp_mode",     (SYS_CMD_FNC) cmd_ptp_mode,     ": set PTP mode (off|follower|master) — master=PLCA node 0, follower=PLCA node 1"},
     {"ptp_status",   (SYS_CMD_FNC) cmd_ptp_status,   ": show PTP mode, sync count, offset"},
     {"ptp_interval", (SYS_CMD_FNC) cmd_ptp_interval, ": set GM Sync interval in ms (default 125)"},
+    {"ptp_dst",      (SYS_CMD_FNC) cmd_ptp_dst,      ": set PTP DST MAC (multicast|broadcast)"},
     {"ptp_offset",   (SYS_CMD_FNC) cmd_ptp_offset,   ": show follower time offset [ns]"},
     {"ptp_reset",    (SYS_CMD_FNC) cmd_ptp_reset,    ": reset PTP follower servo to UNINIT"},
     {"noip_send",    (SYS_CMD_FNC) cmd_noip_send,    ": send N raw Ethernet frames bypassing TCP stack (noip_send <n> [gap_ms])"},
