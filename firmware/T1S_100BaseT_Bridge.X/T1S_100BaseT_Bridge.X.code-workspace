@@ -20,6 +20,10 @@
 			"gdb",
 			"mplab-core-da"
 		],
-		"mplab.clangd.path": "c:\\Program Files\\Microchip\\xc32\\v4.60\\bin\\xc32-clangd.exe"
+		"mplab.clangd.path": "c:\\Program Files\\Microchip\\xc32\\v4.60\\bin\\xc32-clangd.exe",
+		"chat.tools.terminal.autoApprove": {
+			".\\build_dual.bat": true,
+			"&": true
+		}
 	}
 }
