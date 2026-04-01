@@ -453,11 +453,51 @@ Application services (DNS, HTTP, etc.)
 
 ## Next Steps
 
+## Latest Validation Results (2026-03-31)
+
+### Test Setup
+
+- Script: [T1S_100BaseT_Bridge.X/ptp_frame_test.py](T1S_100BaseT_Bridge.X/ptp_frame_test.py)
+- Firmware: dual build + dual flash
+- Added runtime PTP destination switch via CLI:
+  - `ptp_dst broadcast`
+  - `ptp_dst multicast`
+
+### A/B Test: PTP Destination MAC (ipdump counter comparison)
+
+Measured on follower with `ipdump 1` during each 12 s capture window:
+
+| Variant | GM setting | Follower ipdump PTP hits | GM status |
+|---------|------------|---------------------------|-----------|
+| A | `ptp_dst broadcast` | `0` | `gmSyncs=171, gmState=1` |
+| B | `ptp_dst multicast` | `0` | `gmSyncs=171, gmState=1` |
+
+**Result:** No difference between broadcast and multicast (`A == B == 0`).
+
+### End-of-test NoIP Postcheck (bidirectional)
+
+After the PTP A/B run, a final NoIP connectivity check was executed in both directions with `ipdump` on the receiver:
+
+| Direction | Sender command | Receiver ipdump hits | Result |
+|-----------|----------------|----------------------|--------|
+| GM -> Follower | `noip_send 5 5` | `0` | FAIL |
+| Follower -> GM | `noip_send 5 5` | `5` | PASS |
+
+**Postcheck overall:** FAIL (asymmetric communication state at end of test).
+
+### Interpretation
+
+1. GM appears to keep running its PTP send loop (`gmSyncs` increases, `gmState=1`).
+2. PTP frame visibility on follower remains zero for both destination MAC modes.
+3. Final NoIP postcheck shows one-way degradation (`GM -> Follower` fails, reverse direction works), so link behavior is not fully symmetric after the full test sequence.
+4. Therefore, destination MAC mode (broadcast vs multicast) is likely not the primary root cause of the missing PTP captures.
+
 - [ ] Validate PTP slave offset convergence under load
 - [ ] Test NoIP frame throughput (bandwidth sweep)
 - [ ] Monitor LAN865X RX queue status during stress
 - [ ] Implement 1544 frame max payload test
 - [ ] Verify PLCA node arbitration under TX congestion
+- [ ] Re-run end-postcheck with retries and short re-init (`ptp_mode off`) before NoIP check
 
 ---
 
