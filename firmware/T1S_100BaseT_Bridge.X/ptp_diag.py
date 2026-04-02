@@ -24,6 +24,32 @@ import time
 import re
 import sys
 import argparse
+import threading
+import statistics
+from datetime import datetime
+
+
+class _Tee:
+    """Schreibt gleichzeitig auf stream (Konsole) und in eine UTF-8-Datei."""
+    def __init__(self, stream, filepath):
+        self._stream = stream
+        self._file = open(filepath, "w", encoding="utf-8")
+
+    def write(self, data):
+        self._stream.write(data)
+        self._stream.flush()
+        self._file.write(data)
+        self._file.flush()
+
+    def flush(self):
+        self._stream.flush()
+        self._file.flush()
+
+    def fileno(self):
+        return self._stream.fileno()
+
+    def close(self):
+        self._file.close()
 
 # ---------------------------------------------------------------------------
 # Konfiguration
@@ -33,8 +59,8 @@ GRANDMASTER_PORT = "COM10"
 BAUDRATE         = 115200
 SERIAL_TIMEOUT   = 3
 
-FOLLOWER_IP      = "192.168.0.20"
-GRANDMASTER_IP   = "192.168.0.30"
+FOLLOWER_IP      = "192.168.0.30"
+GRANDMASTER_IP   = "192.168.0.20"
 NETMASK          = "255.255.255.0"
 INTERFACE        = "eth0"
 
@@ -52,6 +78,13 @@ TXMCTL_ADDR      = "0x00040040"
 
 IPDUMP_SECS      = 5.0      # Lauschzeit auf PTP-Frames beim Follower
 MIN_PTP_FRAMES   = 2        # Mindestanzahl 0x88F7-Frames
+
+FOLLOWUP_LISTEN_S      = 30.0   # Lauschzeit GM FollowUp-Pfad (s)
+CONVERGENCE_TIMEOUT_S  = 120.0  # Max. Wartezeit auf FOL FINE-State (s)
+STABILITY_DURATION_S   = 60.0   # Dauer Offset-Stabilitätsmessung (s)
+POLL_INTERVAL_S        = 1.5    # Periodenzeit ptp_offset-Polling (s)
+CONVERGE_THRESHOLD_NS  = 100    # Offset-Schwellwert "konvergiert" (ns)
+CONVERGE_CONSECUTIVE   = 10     # N Messungen unter Schwellwert → stabil
 
 # Diagnose: gmState-Bedeutungen (aus ptp_gm_task.c-Enum)
 GM_STATE_NAMES = {
@@ -165,6 +198,33 @@ def capture_async(ser: serial.Serial, port_name: str, duration_s: float) -> str:
 def drain(ser: serial.Serial) -> None:
     time.sleep(0.2)
     ser.reset_input_buffer()
+
+
+def capture_dual(ser_a: serial.Serial, name_a: str,
+                 ser_b: serial.Serial, name_b: str,
+                 duration: float) -> tuple:
+    """Liest beide COM-Ports parallel fuer `duration` Sekunden mit (threading)."""
+    buf_a, buf_b = [], []
+    stop_evt = threading.Event()
+
+    def _reader(ser, name, buf_list):
+        while not stop_evt.is_set():
+            if ser.in_waiting:
+                chunk = ser.read(ser.in_waiting).decode("utf-8", errors="ignore")
+                buf_list.append(chunk)
+                for line in chunk.splitlines():
+                    if line.strip():
+                        print(f"  [{name}] {line}")
+            else:
+                time.sleep(0.02)
+
+    ta = threading.Thread(target=_reader, args=(ser_a, name_a, buf_a), daemon=True)
+    tb = threading.Thread(target=_reader, args=(ser_b, name_b, buf_b), daemon=True)
+    ta.start(); tb.start()
+    time.sleep(duration)
+    stop_evt.set()
+    ta.join(timeout=1.0); tb.join(timeout=1.0)
+    return "".join(buf_a), "".join(buf_b)
 
 
 # ---------------------------------------------------------------------------
@@ -581,6 +641,242 @@ def step5_follower_rx(ser_fl) -> bool:
 
 
 # ---------------------------------------------------------------------------
+# Schritt 6: GM FollowUp-Pfad — laeuft GM durch SEND_FOLLOWUP?
+# ---------------------------------------------------------------------------
+
+def step6_gm_followup_path(ser_gm, ser_fl) -> bool:
+    section("Schritt 6: GM FollowUp-Pfad prüfen (SEND_FOLLOWUP im State-Log?)")
+
+    print(f"\n  ptp_mode follower/master aktivieren ...")
+    send_cmd(ser_fl, FOLLOWER_PORT,    "ptp_mode follower", timeout=3.0)
+    time.sleep(0.3)
+    send_cmd(ser_gm, GRANDMASTER_PORT, "ptp_mode master",   timeout=3.0)
+
+    print(f"\n  Lausche {FOLLOWUP_LISTEN_S:.0f} s auf GM- und FOL-Ausgaben ...")
+    gm_buf, fol_buf = capture_dual(ser_gm, GRANDMASTER_PORT,
+                                   ser_fl, FOLLOWER_PORT,
+                                   FOLLOWUP_LISTEN_S)
+
+    # GM FollowUp-Pfad-States
+    path_states = [
+        "GM_STATE_READ_TXMCTL",
+        "GM_STATE_WAIT_TXMCTL",
+        "GM_STATE_WAIT_STATUS0",
+        "GM_STATE_READ_TTSCA_H",
+        "GM_STATE_READ_TTSCA_L",
+        "GM_STATE_WRITE_CLEAR",
+        "GM_STATE_SEND_FOLLOWUP",
+    ]
+    found = {s: s in gm_buf for s in path_states}
+    followup_n       = gm_buf.count("GM_STATE_SEND_FOLLOWUP")
+    txpmdet_timeouts = gm_buf.count("TXPMDET timeout")
+
+    # FOL-Empfang prüfen
+    fol_ptp_rx = fol_buf.count("0x88F7") + fol_buf.count("PTP_Bridge_OnFrame")
+
+    st = send_cmd(ser_gm, GRANDMASTER_PORT, "ptp_status", timeout=3.0)
+    m = re.search(r"gmSyncs=(\d+)", st)
+    gm_syncs = int(m.group(1)) if m else -1
+
+    print(f"\n  FollowUp State-Log-Prüfung:")
+    for s, v in found.items():
+        print(f"    {'✓' if v else '✗'} {s}")
+    print(f"\n  gmSyncs         : {gm_syncs}")
+    print(f"  SEND_FOLLOWUP×  : {followup_n}")
+    print(f"  TXPMDET timeouts: {txpmdet_timeouts}")
+    print(f"  FOL PTP-Empfang : {fol_ptp_rx}")
+
+    passed = found.get("GM_STATE_SEND_FOLLOWUP", False)
+
+    if passed:
+        ok("GM_STATE_SEND_FOLLOWUP im Log", f"{followup_n}× in {FOLLOWUP_LISTEN_S:.0f} s")
+    else:
+        fail("GM_STATE_SEND_FOLLOWUP NICHT gefunden")
+        if txpmdet_timeouts > 0:
+            hint(
+                f"{txpmdet_timeouts}× TXPMDET timeout — TX-Match-Hardware sieht keinen Sync-Frame.\n"
+                "  Prüfe TXMLOC/TXMPATH/TXMPATL-Konfiguration (--dump-txmatch)."
+            )
+        elif "GM_STATE_READ_TXMCTL" not in gm_buf:
+            hint(
+                "GM verbleibt in WAIT_PERIOD — SEND_SYNC wird nicht ausgeführt.\n"
+                "  Ist ptp_mode master korrekt initialisiert? Timer-Callback aktiv?"
+            )
+        elif "GM_STATE_WAIT_TXMCTL" in gm_buf and followup_n == 0:
+            hint(
+                "State-Machine erreicht READ/WAIT_TXMCTL aber nicht SEND_FOLLOWUP.\n"
+                "  Mögliche Ursache: STATUS0-Bit TTSCA nie gesetzt (kein Timestamp abgefangen).\n"
+                "  Prüfe TXMCTL-Arm-Logik in ptp_gm_task.c GM_STATE_SEND_SYNC."
+            )
+
+    # PTP wieder ausschalten (für nächste Schritte sauber)
+    send_cmd(ser_gm, GRANDMASTER_PORT, "ptp_mode off", timeout=3.0)
+    send_cmd(ser_fl, FOLLOWER_PORT,    "ptp_mode off", timeout=3.0)
+    time.sleep(0.5)
+    return passed
+
+
+# ---------------------------------------------------------------------------
+# Schritt 7: Follower-Konvergenz — UNINIT → MATCHFREQ → HARDSYNC → COARSE → FINE
+# ---------------------------------------------------------------------------
+
+def step7_fol_convergence(ser_gm, ser_fl) -> bool:
+    section("Schritt 7: Follower-Servo-Konvergenz  (bis FINE oder Timeout)")
+
+    send_cmd(ser_fl, FOLLOWER_PORT,    "ptp_mode follower", timeout=3.0)
+    time.sleep(0.3)
+    send_cmd(ser_gm, GRANDMASTER_PORT, "ptp_mode master",   timeout=3.0)
+
+    print(f"\n  Polling ptp_offset alle {POLL_INTERVAL_S:.1f} s, Timeout {CONVERGENCE_TIMEOUT_S:.0f} s ...")
+
+    fol_log, gm_log = [], []
+    stop_log = threading.Event()
+
+    def _log_reader(ser, name, buf):
+        while not stop_log.is_set():
+            if ser.in_waiting:
+                chunk = ser.read(ser.in_waiting).decode("utf-8", errors="ignore")
+                buf.append(chunk)
+                for line in chunk.splitlines():
+                    if line.strip() and any(kw in line for kw in
+                                            ["PTP", "MATCH", "COARSE", "FINE", "SYNC",
+                                             "offset", "STATE", "FOLLOW"]):
+                        print(f"  [{name}] {line}")
+            else:
+                time.sleep(0.02)
+
+    ta = threading.Thread(target=_log_reader, args=(ser_gm, GRANDMASTER_PORT, gm_log), daemon=True)
+    tb = threading.Thread(target=_log_reader, args=(ser_fl, FOLLOWER_PORT, fol_log), daemon=True)
+    ta.start(); tb.start()
+
+    start_ts       = time.time()
+    converge_time  = None
+    converged      = False
+
+    while time.time() - start_ts < CONVERGENCE_TIMEOUT_S:
+        time.sleep(POLL_INTERVAL_S)
+        elapsed = time.time() - start_ts
+        resp = send_cmd(ser_fl, FOLLOWER_PORT, "ptp_offset", timeout=3.0)
+        m = re.search(r"offset=(-?\d+)\s*ns\s+abs=(\d+)\s*ns", resp)
+        if m:
+            off_ns  = int(m.group(1))
+            abs_ns  = int(m.group(2))
+            fol_text = "".join(fol_log)
+            in_fine  = "PTP FINE" in fol_text
+            phase    = "FINE" if in_fine else ("COARSE" if "PTP COARSE" in fol_text else
+                       "MATCHFREQ" if "MATCHFREQ" in fol_text else "UNINIT")
+            print(f"  [{elapsed:5.1f}s] [{phase}] offset={off_ns:+10d} ns  abs={abs_ns} ns")
+            if in_fine and converge_time is None:
+                converge_time = elapsed
+                converged = True
+                print(f"\n  *** Servo erreicht FINE nach {elapsed:.1f} s ***")
+                break
+        else:
+            print(f"  [{elapsed:5.1f}s] ptp_offset: kein Wert  ({resp.strip()[:60]!r})")
+
+    stop_log.set()
+    ta.join(timeout=1.0); tb.join(timeout=1.0)
+
+    fol_text  = "".join(fol_log)
+    matchfreq = "MATCHFREQ" in fol_text
+    coarse    = "PTP COARSE" in fol_text
+
+    print(f"\n  Servo-Phasen beobachtet:")
+    print(f"    UNINIT→MATCHFREQ : {'✓' if matchfreq else '✗'}")
+    print(f"    HARDSYNC/COARSE  : {'✓' if coarse    else '✗'}")
+    print(f"    FINE             : {'✓' if converged else '✗'}")
+    print(f"    Konvergenzzeit   : {converge_time:.1f} s" if converge_time else
+          f"    Konvergenzzeit   : TIMEOUT ({CONVERGENCE_TIMEOUT_S:.0f} s)")
+
+    if converged:
+        ok("Servo konvergiert auf FINE", f"{converge_time:.1f} s")
+    else:
+        fail("FINE nicht erreicht innerhalb Timeout")
+        if not matchfreq:
+            hint(
+                "MATCHFREQ nie gesehen — FOL empfängt keine Sync/FollowUp-Frames.\n"
+                "  Schritt 6 (FollowUp-Pfad) bestanden? GM sendet FollowUp wirklich?"
+            )
+        elif not coarse:
+            hint(
+                "MATCHFREQ gesehen aber kein COARSE — Offset-Berechnung blockiert?\n"
+                "  FollowUp-Timestamps korrekt? MAC_TI/MAC_TISUBN-Register zugänglich?"
+            )
+        else:
+            hint(
+                "COARSE gesehen aber kein FINE — Regler konvergiert zu langsam / schwingt.\n"
+                "  Prüfe Servo-Parameter in ptp_bridge_task.c (PID-Koeffizienten)."
+            )
+
+    return converged
+
+
+# ---------------------------------------------------------------------------
+# Schritt 8: Offset-Stabilität — 60 s Messung nach Konvergenz
+# ---------------------------------------------------------------------------
+
+def step8_offset_stability(ser_fl, duration_s: float) -> bool:
+    section(f"Schritt 8: Offset-Stabilitätsmessung  ({duration_s:.0f} s)")
+
+    offsets     = []
+    start_ts    = time.time()
+    deadline    = start_ts + duration_s
+    consec_ok   = 0
+
+    while time.time() < deadline:
+        elapsed = time.time() - start_ts
+        resp = send_cmd(ser_fl, FOLLOWER_PORT, "ptp_offset", timeout=3.0)
+        m = re.search(r"offset=(-?\d+)\s*ns\s+abs=(\d+)\s*ns", resp)
+        if m:
+            off_ns = int(m.group(1))
+            offsets.append(off_ns)
+            under = abs(off_ns) < CONVERGE_THRESHOLD_NS
+            consec_ok = consec_ok + 1 if under else 0
+            print(f"  [{elapsed:5.1f}s] offset={off_ns:+10d} ns  "
+                  f"{'< ' + str(CONVERGE_THRESHOLD_NS) + ' ns ✓' if under else '> threshold'}"
+                  f"  (consec_ok={consec_ok})")
+        else:
+            print(f"  [{elapsed:5.1f}s] kein Wert")
+        time.sleep(POLL_INTERVAL_S)
+
+    if not offsets:
+        fail("Keine Offset-Messwerte empfangen")
+        return False
+
+    abs_offsets = [abs(o) for o in offsets]
+    mean_ns   = statistics.mean(offsets)
+    stdev_ns  = statistics.stdev(offsets) if len(offsets) > 1 else 0.0
+    min_ns    = min(offsets)
+    max_ns    = max(offsets)
+    abs_mean  = statistics.mean(abs_offsets)
+    n_under   = sum(1 for v in abs_offsets if v < CONVERGE_THRESHOLD_NS)
+    pct_under = 100.0 * n_under / len(offsets)
+
+    print(f"\n  Statistik ({len(offsets)} Messungen):")
+    print(f"    Mittelwert  : {mean_ns:+.1f} ns")
+    print(f"    Std-Abw     : {stdev_ns:.1f} ns")
+    print(f"    Min / Max   : {min_ns:+d} ns / {max_ns:+d} ns")
+    print(f"    |abs| mean  : {abs_mean:.1f} ns")
+    print(f"    < {CONVERGE_THRESHOLD_NS} ns    : {n_under}/{len(offsets)} = {pct_under:.0f}%")
+
+    passed = pct_under >= 80.0
+    if passed:
+        ok(f"Offset stabil: {pct_under:.0f}% der Messungen < {CONVERGE_THRESHOLD_NS} ns",
+           f"mean={mean_ns:+.1f} ns  stdev={stdev_ns:.1f} ns")
+    else:
+        fail(f"Offset instabil: nur {pct_under:.0f}% < {CONVERGE_THRESHOLD_NS} ns",
+             f"min={min_ns:+d}  max={max_ns:+d}  stdev={stdev_ns:.1f} ns")
+        hint(
+            "Servo ist nicht stabil — mögliche Ursachen:\n"
+            "  • Regler-Loop zu aggressiv (Integral-Term zu gross)\n"
+            "  • Verzögerungen im T1S-Link (PLCA-Kollisionen?)\n"
+            "  • clock_adjust Quantisierung (MAC_TISUBN Auflösung)\n"
+            "  • Sporadische OS-Scheduling-Jitter ( vTaskDelay-basierter Loop)"
+        )
+    return passed
+
+
+# ---------------------------------------------------------------------------
 # Zusätzliche TX-Match-Konfiguration auslesen (Debugging-Hilfe)
 # ---------------------------------------------------------------------------
 
@@ -623,7 +919,7 @@ def dump_txmatch_config(ser_gm) -> None:
 
 def main():
     parser = argparse.ArgumentParser(
-        description="T1S PTP Bridge — Bottom-Up Diagnosetest"
+        description="T1S PTP Bridge — Bottom-Up Diagnosetest + Konvergenztest"
     )
     parser.add_argument(
         "--no-reset",
@@ -633,7 +929,12 @@ def main():
     parser.add_argument(
         "--from-step", "-s",
         type=int, default=0, metavar="N",
-        help="Ab Schritt N starten (0=alles, 1=ab Ping, 2=ab PTP-Aktivierung, ...)"
+        help="Ab Schritt N starten (0=alles, 1=ab Ping, 6=ab FollowUp-Pfad, ...)"
+    )
+    parser.add_argument(
+        "--duration",
+        type=float, default=STABILITY_DURATION_S, metavar="S",
+        help=f"Dauer der Stabilitätsmessung in Sekunden (default {STABILITY_DURATION_S:.0f})"
     )
     parser.add_argument(
         "--dump-txmatch",
@@ -642,6 +943,20 @@ def main():
     )
     args = parser.parse_args()
 
+    # Ausgabe gleichzeitig auf Konsole und in Logdatei
+    log_path = f"ptp_diag_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
+    tee = _Tee(sys.stdout, log_path)
+    sys.stdout = tee
+    sys.stderr = tee
+    print(f"[LOG] Ausgabe wird gespeichert in: {log_path}")
+
+    try:
+        _main_run(args, log_path)
+    finally:
+        tee.close()
+
+
+def _main_run(args, log_path):
     try:
         ser_fl = open_port(FOLLOWER_PORT)
     except serial.SerialException as e:
@@ -720,6 +1035,39 @@ def main():
         if args.from_step <= 5:
             p = step5_follower_rx(ser_fl)
             results[5] = ("Follower PTP-RX", p)
+            # PTP nach Schritt 5 ausschalten (Schritt 6 startet ihn sauber neu)
+            send_cmd(ser_gm, GRANDMASTER_PORT, "ptp_mode off", timeout=3.0)
+            send_cmd(ser_fl, FOLLOWER_PORT,    "ptp_mode off", timeout=3.0)
+            time.sleep(1.0)
+
+        # -----------------------------------------------------------------------
+        # Schritt 6: GM FollowUp-Pfad
+        # -----------------------------------------------------------------------
+        if args.from_step <= 6:
+            p = step6_gm_followup_path(ser_gm, ser_fl)
+            results[6] = ("GM FollowUp-Pfad", p)
+
+        # -----------------------------------------------------------------------
+        # Schritt 7: Follower-Konvergenz
+        # -----------------------------------------------------------------------
+        if args.from_step <= 7:
+            p = step7_fol_convergence(ser_gm, ser_fl)
+            results[7] = ("FOL Servo Konvergenz FINE", p)
+            if not p:
+                print("\n  Schritt 8 übersprungen — Servo nicht konvergiert.")
+                results[8] = ("Offset Stabilität", False)
+                _print_summary(results)
+                # PTP ausschalten
+                send_cmd(ser_gm, GRANDMASTER_PORT, "ptp_mode off", timeout=3.0)
+                send_cmd(ser_fl, FOLLOWER_PORT,    "ptp_mode off", timeout=3.0)
+                return
+
+        # -----------------------------------------------------------------------
+        # Schritt 8: Offset-Stabilität (PTP bleibt jetzt aktiv von Schritt 7)
+        # -----------------------------------------------------------------------
+        if args.from_step <= 8:
+            p = step8_offset_stability(ser_fl, args.duration)
+            results[8] = ("Offset Stabilität", p)
 
         # -----------------------------------------------------------------------
         # Optional: TX-Match-Config-Dump
@@ -728,11 +1076,18 @@ def main():
             dump_txmatch_config(ser_gm)
 
     finally:
+        # Sauber aufräumen
+        try:
+            send_cmd(ser_gm, GRANDMASTER_PORT, "ptp_mode off", timeout=3.0)
+            send_cmd(ser_fl, FOLLOWER_PORT,    "ptp_mode off", timeout=3.0)
+        except Exception:
+            pass
         ser_fl.close()
         ser_gm.close()
         print("\nSerielle Verbindungen geschlossen.")
 
     _print_summary(results)
+    print(f"\n[LOG] Vollständige Ausgabe gespeichert in: {log_path}")
     all_ok = all(v for _, v in results.values())
     sys.exit(0 if all_ok else 1)
 
@@ -745,6 +1100,9 @@ def _print_summary(results: dict) -> None:
         3: "GM Sync-Zähler steigt",
         4: "TX-Match TXPMDET",
         5: "Follower PTP-RX",
+        6: "GM FollowUp-Pfad",
+        7: "FOL Servo Konvergenz FINE",
+        8: "Offset Stabilität (60 s)",
     }
     print("\n" + "=" * 60)
     print("DIAGNOSEERGEBNIS")

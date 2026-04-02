@@ -54,11 +54,11 @@ typedef enum {
  * driver APIs unless these macros are overridden to 1 at compile time.
  */
 #ifndef PTP_GM_USE_DRV_LAN865X_WRITEREGISTER
-#define PTP_GM_USE_DRV_LAN865X_WRITEREGISTER    0
+#define PTP_GM_USE_DRV_LAN865X_WRITEREGISTER    1
 #endif
 
 #ifndef PTP_GM_USE_DRV_LAN865X_READREGISTER
-#define PTP_GM_USE_DRV_LAN865X_READREGISTER     0
+#define PTP_GM_USE_DRV_LAN865X_READREGISTER     1
 #endif
 
 #ifndef PTP_GM_USE_DRV_LAN865X_SENDRAWETHFRAME
@@ -66,7 +66,7 @@ typedef enum {
 #endif
 
 #ifndef PTP_GM_USE_DRV_LAN865X_GETANDCLEARTSCAPTURE
-#define PTP_GM_USE_DRV_LAN865X_GETANDCLEARTSCAPTURE 0
+#define PTP_GM_USE_DRV_LAN865X_GETANDCLEARTSCAPTURE 1
 #endif
 
 /* Sync TX frame source mode:

@@ -104,12 +104,8 @@ static const char *gm_state_to_str(gmState_t state)
 
 static void gm_set_state(gmState_t nextState, uint32_t line)
 {
-    if (gm_state != nextState) {
-        gm_state = nextState;
-        SYS_CONSOLE_PRINT("[PTP-GM][STATE] %s @L%lu\r\n",
-                          gm_state_to_str(nextState),
-                          (unsigned long)line);
-    }
+    (void)line;
+    gm_state = nextState;
 }
 
 #define GM_SET_STATE(_nextState) gm_set_state((_nextState), (uint32_t)__LINE__)
@@ -151,7 +147,7 @@ static void gm_write(uint32_t addr, uint32_t value)
 static bool gm_read_register(uint32_t addr, bool useCallbackProtectedMode)
 {
 #if PTP_GM_USE_DRV_LAN865X_READREGISTER
-    return DRV_LAN865X_ReadRegister(0u, addr, useCallbackProtectedMode, gm_op_cb, NULL);
+    return TCPIP_MAC_RES_OK == DRV_LAN865X_ReadRegister(0u, addr, useCallbackProtectedMode, gm_op_cb, NULL);
 #else
     (void)addr;
     (void)useCallbackProtectedMode;
@@ -162,7 +158,7 @@ static bool gm_read_register(uint32_t addr, bool useCallbackProtectedMode)
 static bool gm_write_register(uint32_t addr, uint32_t value, bool useCallbackProtectedMode)
 {
 #if PTP_GM_USE_DRV_LAN865X_WRITEREGISTER
-    return DRV_LAN865X_WriteRegister(0u, addr, value, useCallbackProtectedMode, gm_op_cb, NULL);
+    return TCPIP_MAC_RES_OK == DRV_LAN865X_WriteRegister(0u, addr, value, useCallbackProtectedMode, gm_op_cb, NULL);
 #else
     (void)addr;
     (void)value;
@@ -324,7 +320,7 @@ void PTP_GM_Init(void)
     }
 
     /* --- TX Match registers: arm configured EtherType detection --- */
-    gm_write(GM_TXMLOC,    30u);         /* byte offset of EtherType in frame */
+    gm_write(GM_TXMLOC,    12u);         /* byte offset of EtherType in Ethernet frame (6+6=12) */
     gm_write(GM_TXMPATH,   (GM_PTP_ETHERTYPE >> 8u) & 0xFFu); /* pattern high byte */
     gm_write(GM_TXMPATL,   (((uint32_t)(GM_PTP_ETHERTYPE & 0xFFu)) << 8u) | 0x10u); /* low byte + tsmt */
     gm_write(GM_TXMMSKH,   0x00u);       /* no masking */
@@ -385,21 +381,34 @@ void PTP_GM_Service(void)
 #else
             build_sync();
 #endif
+            /* Re-arm TX Match pattern detector (TXMCTL) before each Sync TX.
+             * PLCA resets may clear the arm bit, so we set it explicitly here. */
+            gm_write(GM_TXMCTL, 0x0001u);
             gm_tx_busy   = true;
             gm_retry_cnt = 0u;
+            gm_op_done   = false;
 #if (PTP_GM_SYNC_TX_MODE == 1)
             if (!gm_send_raw_eth_frame(gm_noip_buf, sizeof(gm_noip_buf),
                                        0x00u, gm_tx_cb, NULL)) {
-#else
-            if (!gm_send_raw_eth_frame(gm_sync_buf, sizeof(gm_sync_buf),
-                                       0x00u, gm_tx_cb, NULL)) {
-#endif
                 gm_tx_busy = false;
                 GM_SET_STATE(GM_STATE_WAIT_PERIOD);
                 break;
             }
             gm_sync_cnt++;
             GM_SET_STATE(GM_STATE_WAIT_PERIOD);
+#else
+            if (!gm_send_raw_eth_frame(gm_sync_buf, sizeof(gm_sync_buf),
+                                       0x01u, gm_tx_cb, NULL)) {
+                /* TX failed — abort, skip FollowUp */
+                gm_tx_busy = false;
+                gm_write(GM_TXMCTL, 0x0000u);  /* disarm TX Match */
+                GM_SET_STATE(GM_STATE_WAIT_PERIOD);
+                break;
+            }
+            gm_sync_cnt++;
+            SYS_CONSOLE_PRINT("[PTP-GM] Sync #%u\r\n", (unsigned)gm_seq_id);
+            GM_SET_STATE(GM_STATE_READ_TXMCTL);
+#endif
             break;
 
         /* ---- Sent READ(TXMCTL); start in next state ---- */
@@ -427,6 +436,7 @@ void PTP_GM_Service(void)
                 /* Pattern detected: poll captured STATUS0 bits saved by _OnStatus0.
                  * Do NOT issue a ReadRegister(STATUS0) here — the driver's interrupt
                  * handler clears STATUS0 (W1C) before our read could complete. */
+                SYS_CONSOLE_PRINT("[PTP-GM] TXPMDET ok, Sync #%u\r\n", (unsigned)gm_seq_id);
                 gm_retry_cnt  = 0u;
                 gm_wait_ticks = 0u;
                 GM_SET_STATE(GM_STATE_WAIT_STATUS0);
@@ -570,6 +580,9 @@ void PTP_GM_Service(void)
             (void)gm_send_raw_eth_frame(gm_followup_buf,
                                         sizeof(gm_followup_buf),
                                         0x00u, NULL, NULL);
+            SYS_CONSOLE_PRINT("[PTP-GM] FU #%u t1=%lus %09luns\r\n",
+                              (unsigned)gm_seq_id,
+                              (unsigned long)sec, (unsigned long)nsec);
             gm_seq_id++;
             gm_sync_cnt++;
             GM_SET_STATE(GM_STATE_WAIT_PERIOD);
