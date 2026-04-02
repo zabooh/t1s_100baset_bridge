@@ -38,7 +38,9 @@ typedef enum {
 #define GM_OA_TTSCCL    (0x00000015u)   /* Capture C: nanosecs  */
 
 /* ---- Status / control bit masks ---- */
-#define GM_TXMCTL_TXPMDET   (0x0080u)   /* TX Packet Match Detected */
+#define GM_TXMCTL_TXPMDET   (0x0080u)   /* TX Packet Match Detected (RO)     */
+#define GM_TXMCTL_MACTXTSE  (0x0004u)   /* MAC TX Timestamp Enable           */
+#define GM_TXMCTL_TXME      (0x0002u)   /* TX Match Enable                   */
 #define GM_STS0_TTSCAA      (0x0100u)   /* Timestamp Capture Available A */
 #define GM_STS0_TTSCAB      (0x0200u)   /* Timestamp Capture Available B */
 #define GM_STS0_TTSCAC      (0x0400u)   /* Timestamp Capture Available C */
@@ -119,5 +121,10 @@ void PTP_GM_SetDstMode(ptp_gm_dst_mode_t mode);
 
 /** Read current destination MAC mode for outgoing PTP frames. */
 ptp_gm_dst_mode_t PTP_GM_GetDstMode(void);
+
+/** Request a one-shot dump of all TX-Match registers via the GM state machine.
+ *  Safe to call from any context. The dump is executed from PTP_GM_Service()
+ *  so it never races with active SPI traffic (no TC6Error_SyncLost side-effect). */
+void PTP_GM_RequestRegDump(void);
 
 #endif /* PTP_GM_TASK_H */

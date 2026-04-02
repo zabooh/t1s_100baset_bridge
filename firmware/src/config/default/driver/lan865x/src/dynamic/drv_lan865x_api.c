@@ -54,7 +54,7 @@ Microchip or any third party.
 #define RESET_LOW_TIME_MS       (1u)
 #define RESET_HIGH_TIME_MS      (7u)
 #define PLCA_TIMER_DELAY        (1000u)
-#define DELAY_UNLOCK_EXT        (100u)
+#define DELAY_UNLOCK_EXT        (5u)   /* reduced from 100ms: TTSCAA appears ~1ms after EXST; 100ms lock caused TTSCMA (missed) */
 #define CONTROL_PROTECTION      (true)
 
 #define GET_TICKS()             SYS_TIME_CountToMS(SYS_TIME_CounterGet())
@@ -1701,18 +1701,21 @@ static bool _InitMemMap(DRV_LAN865X_DriverInfo * pDrvInst)
     ******************************************************************************/
 
     static const MemoryMap_t TC6_MEMMAP[] = {
-        {  .address=0x00000004,  .value=0x000000E6,  .mask=0x00000000,  .op=MemOp_Write,  .secure=false }, /* CONFIG0: 0x26|0xC0 = ZARFE+TXPE+CSARFE + bits6-7 for TX timestamp */
+        {  .address=0x00000004,  .value=0x00000026,  .mask=0x00000000,  .op=MemOp_Write,  .secure=false }, /* CONFIG0: ZARFE+TXPE+CSARFE (0x26); bits 6-7 removed — testing if 0xC0 suppresses TX timestamps (FTSS) */
         {  .address=0x00010000,  .value=0x00000000,  .mask=0x00000000,  .op=MemOp_Write,  .secure=true  }, /* NETWORK_CONTROL */
         {  .address=0x00040091,  .value=0x00009660,  .mask=0x00000000,  .op=MemOp_Write,  .secure=true  },
         {  .address=0x00040081,  .value=0x00000080,  .mask=0x00000000,  .op=MemOp_Write,  .secure=true  },
         {  .address=0x00010077,  .value=0x00000028,  .mask=0x00000000,  .op=MemOp_Write,  .secure=true  },
-        {  .address=0x00040043,  .value=0x000000FF,  .mask=0x00000000,  .op=MemOp_Write,  .secure=true  },
-        {  .address=0x00040044,  .value=0x0000FFFF,  .mask=0x00000000,  .op=MemOp_Write,  .secure=true  },
-        {  .address=0x00040045,  .value=0x00000000,  .mask=0x00000000,  .op=MemOp_Write,  .secure=true  },
+        /* TX-Match pattern for PTP Sync detection (used by GM to capture TX timestamp) */
+        {  .address=0x00040041,  .value=0x00000088,  .mask=0x00000000,  .op=MemOp_Write,  .secure=true  }, /* TXMPATH:  EtherType high byte 0x88          */
+        {  .address=0x00040042,  .value=0x0000F710,  .mask=0x00000000,  .op=MemOp_Write,  .secure=true  }, /* TXMPATL:  EtherType low 0xF7 + PTP Sync 0x10 */
+        {  .address=0x00040043,  .value=0x00000000,  .mask=0x00000000,  .op=MemOp_Write,  .secure=true  }, /* TXMMSKH:  no masking (exact match)            */
+        {  .address=0x00040044,  .value=0x00000000,  .mask=0x00000000,  .op=MemOp_Write,  .secure=true  }, /* TXMMSKL:  no masking                          */
+        {  .address=0x00040045,  .value=0x0000000C,  .mask=0x00000000,  .op=MemOp_Write,  .secure=true  }, /* TXMLOC:   byte offset 12 = EtherType position in Ethernet frame (6 DA + 6 SA = 12) */
         {  .address=0x00040053,  .value=0x000000FF,  .mask=0x00000000,  .op=MemOp_Write,  .secure=true  },
         {  .address=0x00040054,  .value=0x0000FFFF,  .mask=0x00000000,  .op=MemOp_Write,  .secure=true  },
         {  .address=0x00040055,  .value=0x00000000,  .mask=0x00000000,  .op=MemOp_Write,  .secure=true  },
-        {  .address=0x00040040,  .value=0x00000002,  .mask=0x00000000,  .op=MemOp_Write,  .secure=true  },
+        {  .address=0x00040040,  .value=0x00000000,  .mask=0x00000000,  .op=MemOp_Write,  .secure=true  }, /* TXMCTL:   disabled at startup; armed per-Sync with MACTXTSE only */
         {  .address=0x00040050,  .value=0x00000002,  .mask=0x00000000,  .op=MemOp_Write,  .secure=true  },
         {  .address=0x000400E9,  .value=0x00009E50,  .mask=0x00000000,  .op=MemOp_Write,  .secure=true  },
         {  .address=0x000400F5,  .value=0x00001CF8,  .mask=0x00000000,  .op=MemOp_Write,  .secure=true  },
@@ -1732,7 +1735,7 @@ static bool _InitMemMap(DRV_LAN865X_DriverInfo * pDrvInst)
         {  .address=0x000400BA,  .value=0x00001C25,  .mask=0x00000000,  .op=MemOp_Write,  .secure=true  },
         {  .address=0x000400BB,  .value=0x0000002B,  .mask=0x00000000,  .op=MemOp_Write,  .secure=true  },
 
-        {  .address=0x0000000C,  .value=0x00000100,  .mask=0x00000000,  .op=MemOp_Write,  .secure=true  }, /* IMASK0 */
+        {  .address=0x0000000C,  .value=0x00000000,  .mask=0x00000000,  .op=MemOp_Write,  .secure=true  }, /* IMASK0: all unmasked, incl. bit 8 (TTSCAA) so TC6_CB_OnExtendedStatus fires on timestamp capture */
         {  .address=0x00040081,  .value=0x000000E0,  .mask=0x00000000,  .op=MemOp_Write,  .secure=true  }, /* DEEP_SLEEP_CTRL_1 */
     };
 
@@ -2072,8 +2075,10 @@ static bool _InitUserSettings(DRV_LAN865X_DriverInfo * pDrvInst)
             }
             break;
         case 8:
-            /* Cut Through / Store and Forward mode */
+            /* Cut Through / Store and Forward mode + Frame Timestamping */
             regVal = 0x9026u;
+            regVal |= 0x80u; /* FTSE: Frame Timestamp Enable (required for TTSCAA TX capture) */
+            regVal |= 0x40u; /* FTSS: 64-bit timestamps (TC6 driver strips 8 bytes on RTSA) */
             if (true == pDrvInst->drvCfg.txCutThrough) {
                 regVal |= 0x200u;
             }
@@ -2236,6 +2241,10 @@ static void _OnStatus1(TC6_t *pInst, bool success, uint32_t addr, uint32_t value
     (void)pGlobalTag;
     pDrvInst->extBlock = false;
     if (success) {
+        /* CHK-11: Raw STATUS1 value — NOT PRINT_LIMIT so every TTSCMA event is visible */
+        if (0u != value) {
+            SYS_CONSOLE_PRINT("[DBG] _OnStatus1: 0x%08lX\r\n", (unsigned long)value);
+        }
         uint8_t i;
         bool reinit = false;
         for (i = 0u; i < 32u; i++) {

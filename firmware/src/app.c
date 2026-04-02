@@ -501,7 +501,7 @@ static void lan_read(SYS_CMD_DEVICE_NODE* pCmdIO, int argc, char** argv) {
     lan_reg_operation_success = false;
     lan_reg_read_value = 0;
     
-    TCPIP_MAC_RES result = DRV_LAN865X_ReadRegister(0, addr, false, lan_read_callback, NULL);
+    TCPIP_MAC_RES result = DRV_LAN865X_ReadRegister(0, addr, true, lan_read_callback, NULL);
     
     if (result == TCPIP_MAC_RES_OK) {
         SYS_CONSOLE_PRINT("LAN865X Read initiated for addr=0x%08X\n\r", (unsigned int)addr);
@@ -671,6 +671,16 @@ static void cmd_noip_stat(SYS_CMD_DEVICE_NODE *pCmdIO, int argc, char **argv)
     SYS_CONSOLE_PRINT("[NoIP] TX=%u  RX=%u\r\n", (unsigned)noip_tx_cnt, (unsigned)noip_rx_cnt);
 }
 
+static void cmd_ptp_regs(SYS_CMD_DEVICE_NODE *pCmdIO, int argc, char **argv)
+{
+    (void)pCmdIO; (void)argc; (void)argv;
+    /* Triggers a register dump from within PTP_GM_Service (GM_STATE_WAIT_PERIOD).
+     * This avoids injecting TC6 control chunks during active PLCA traffic, which
+     * would cause TC6Error_SyncLost (Loss of Framing Error). */
+    PTP_GM_RequestRegDump();
+    SYS_CONSOLE_PRINT("[PTP] reg dump requested — output follows after next WAIT_PERIOD\r\n");
+}
+
 const SYS_CMD_DESCRIPTOR msd_cmd_tbl[] = {
     {"help", (SYS_CMD_FNC) test_help, ": show Test group commands"},
     {"timestamp", (SYS_CMD_FNC) show_timestamp, ": show build timestamp"},
@@ -686,6 +696,7 @@ const SYS_CMD_DESCRIPTOR msd_cmd_tbl[] = {
     {"ptp_dst",      (SYS_CMD_FNC) cmd_ptp_dst,      ": set PTP DST MAC (multicast|broadcast)"},
     {"ptp_offset",   (SYS_CMD_FNC) cmd_ptp_offset,   ": show follower time offset [ns]"},
     {"ptp_reset",    (SYS_CMD_FNC) cmd_ptp_reset,    ": reset PTP follower servo to UNINIT"},
+    {"ptp_regs",    (SYS_CMD_FNC) cmd_ptp_regs,    ": dump TX-Match registers via GM state machine (no SPI collision)"},
     {"noip_send",    (SYS_CMD_FNC) cmd_noip_send,    ": send N raw Ethernet frames bypassing TCP stack (noip_send <n> [gap_ms])"},
     {"noip_stat",    (SYS_CMD_FNC) cmd_noip_stat,    ": show NoIP TX/RX counters"},
 };

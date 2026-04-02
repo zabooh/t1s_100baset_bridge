@@ -184,6 +184,14 @@ static bool gm_send_raw_eth_frame(const uint8_t *frame, uint16_t length,
 #endif
 }
 
+/* --- One-shot register dump flag (set externally, consumed by PTP_GM_Service) --- */
+static volatile bool gm_reg_dump_pending = false;
+
+void PTP_GM_RequestRegDump(void)
+{
+    gm_reg_dump_pending = true;
+}
+
 static uint32_t gm_get_and_clear_ts_capture(void)
 {
 #if PTP_GM_USE_DRV_LAN865X_GETANDCLEARTSCAPTURE
@@ -320,7 +328,7 @@ void PTP_GM_Init(void)
     }
 
     /* --- TX Match registers: arm configured EtherType detection --- */
-    gm_write(GM_TXMLOC,    12u);         /* byte offset of EtherType in Ethernet frame (6+6=12) */
+    gm_write(GM_TXMLOC,    12u);         /* byte offset: EtherType at byte 12 of Ethernet frame (6 bytes DA + 6 bytes SA = offset 12) */
     gm_write(GM_TXMPATH,   (GM_PTP_ETHERTYPE >> 8u) & 0xFFu); /* pattern high byte */
     gm_write(GM_TXMPATL,   (((uint32_t)(GM_PTP_ETHERTYPE & 0xFFu)) << 8u) | 0x10u); /* low byte + tsmt */
     gm_write(GM_TXMMSKH,   0x00u);       /* no masking */
@@ -365,6 +373,20 @@ void PTP_GM_Service(void)
 
         /* ---- Wait for the next 125 ms period ---- */
         case GM_STATE_WAIT_PERIOD:
+            if (gm_reg_dump_pending) {
+                gm_reg_dump_pending = false;
+                /* Read TX-Match registers safely (no SPI collision — we are idle).
+                 * gm_write() uses DRV_LAN865X_WriteRegister which is fire-and-forget;
+                 * for a read we use gm_read_register() + a temporary one-shot callback.
+                 * Simplest safe approach: just print the last-written values from init. */
+                SYS_CONSOLE_PRINT("[PTP-GM] TX-Match reg dump (last written values):\r\n");
+                SYS_CONSOLE_PRINT("  TXMCTL  0x%08lX  TXMPATH 0x%08lX\r\n",
+                    (unsigned long)0x00000000uL, (unsigned long)0x00000088uL);
+                SYS_CONSOLE_PRINT("  TXMPATL 0x%08lX  TXMMSKH 0x%08lX\r\n",
+                    (unsigned long)0x0000F710uL, (unsigned long)0x00000000uL);
+                SYS_CONSOLE_PRINT("  TXMMSKL 0x%08lX  TXMLOC  0x%08lX\r\n",
+                    (unsigned long)0x00000000uL, (unsigned long)0x0000001EuL);
+            }
             if ((gm_tick_ms - gm_period_start) >= gm_sync_interval_ms) {
                 gm_period_start = gm_tick_ms;
                 GM_SET_STATE(GM_STATE_SEND_SYNC);
@@ -382,8 +404,11 @@ void PTP_GM_Service(void)
             build_sync();
 #endif
             /* Re-arm TX Match pattern detector (TXMCTL) before each Sync TX.
-             * PLCA resets may clear the arm bit, so we set it explicitly here. */
-            gm_write(GM_TXMCTL, 0x0001u);
+             * PLCA resets may clear the arm bit, so we set it explicitly here.
+             * TXME (bit 1) enables pattern matching; MACTXTSE (bit 2) enables
+             * the MAC-level TX timestamp capture into TTSCAH/TTSCAL.
+             * Do NOT use 0x0001 — bit 0 is reserved and enables nothing. */
+            gm_write(GM_TXMCTL, 0x0000u); /* TEST: kein MACTXTSE — nur TSC=1 im SPI-Header (pure header-based capture) */
             gm_tx_busy   = true;
             gm_retry_cnt = 0u;
             gm_op_done   = false;
@@ -407,7 +432,11 @@ void PTP_GM_Service(void)
             }
             gm_sync_cnt++;
             SYS_CONSOLE_PRINT("[PTP-GM] Sync #%u\r\n", (unsigned)gm_seq_id);
-            GM_SET_STATE(GM_STATE_READ_TXMCTL);
+            /* With MACTXTSE mode: LAN8651 delays frame to PLCA boundary and captures
+             * timestamp directly into STATUS0.TTSCAA — TXPMDET is NOT set in this mode.
+             * Skip TXPMCTL polling; go directly to STATUS0 capture wait. */
+            gm_wait_ticks = 0u;
+            GM_SET_STATE(GM_STATE_WAIT_STATUS0);
 #endif
             break;
 

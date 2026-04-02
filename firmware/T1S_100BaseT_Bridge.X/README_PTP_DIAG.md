@@ -2,7 +2,7 @@
 
 Datum: 2026-04-01  
 Uhrzeit: (Erstellung) 14:00 MESZ  
-Zuletzt aktualisiert: 2026-04-01 (Testlauf 4 — `ptp_diag_20260401_165641.log`)
+Zuletzt aktualisiert: 2026-04-02 (Log-Analyse TL4 abgeschlossen — RC#4 MemMap-Overwrite identifiziert)
 
 ---
 
@@ -117,50 +117,7 @@ PTP FINE    offset=... val=...
 
 ---
 
-## 3. Test-Ergebnisse — Testlauf 2026-04-01
-
-### Laufparameter
-- Firmware-Build: `build_dual.bat` → `=== BEIDE BUILDS ERFOLGREICH ===`
-- Flash: `flash_dual.py` → `FOLLOWER SUCCESS` + `GRANDMASTER SUCCESS`
-- Testskript: `ptp_diag.py` (Schritt 0–7, ohne `--no-reset`)
-
-### Schritt 1 (FollowUp-Pfad)  ✗ FAIL
-
-**Beobachtete GM-Ausgabe (Dauerschleife):**
-```
-[PTP-GM][STATE] GM_STATE_SEND_SYNC @L374
-[PTP-GM][STATE] GM_STATE_READ_TXMCTL @L413
-[PTP-GM][STATE] GM_STATE_WAIT_PERIOD @L421
-[PTP-GM][STATE] GM_STATE_SEND_SYNC @L374
-...
-```
-`WAIT_TXMCTL`, `WAIT_STATUS0`, `SEND_FOLLOWUP` — **nie erreicht**.
-
-### Schritt 2 (Follower-Konvergenz)  ✗ FAIL
-
-- `ptp_offset` auf FOL zeigt dauerhaft `offset=0 ns  abs=0 ns`
-- Kein `PTP UNINIT->MATCHFREQ` in FOL-Log
-- Servo bleibt in UNINIT (kein FollowUp empfangen)
-- `CONVERGENCE_TIMEOUT = 120 s` → abgelaufen
-
-### Schritt 3 (Stabilität) — übersprungen (kein Konvergenz)
-
-### Zusammenfassung Testlauf
-
-| Schritt | Ergebnis |
-|---|---|
-| 0 IP-Konfiguration | PASS |
-| 1 Ping beidseitig | PASS |
-| 2 PTP aktivieren | PASS |
-| 3 GM Sync-Zähler steigt | PASS (`gmSyncs` zählt hoch) |
-| 4 TX-Match TXPMDET | FAIL (TXPMDET nie gesetzt) |
-| 5 Follower PTP-RX | PASS (0x88F7-Frames empfangen — nur Sync, kein FollowUp) |
-| 6 GM FollowUp-Pfad | FAIL (`SEND_FOLLOWUP` nie erreicht) |
-| 7 FOL Servo Konvergenz | FAIL (FINE timeout) |
-
----
-
-## 4. Ursachenanalyse
+## 3. Ursachenanalyse
 
 ### Root Cause #2 — Falscher TXMLOC-Wert (Byte-Offset EtherType)
 
@@ -260,15 +217,140 @@ static bool gm_write_register(uint32_t addr, uint32_t value, bool useCallbackPro
 
 ---
 
-## 6. Test-Ergebnisse — Testlauf 2 (2026-04-01, Fix #1 + Fix #2)
+### Root Cause #3 — TX-Timestamp-Capture: STATUS0.TTSCAA/B/C nie gesetzt (analysiert, 2026-04-02)
 
-### Laufparameter
+**Symptom:** `TXPMDET ok, Sync #N` → `TTSCA not set after Sync #N`
+
+#### Log-Beweise (ptp_diag_20260401_165641.log)
+
+```
+Select-String "[DBG] _OnStatus0" → 0 Treffer
+Select-String "TTSCAA|TTSCAB|TTSCAC" → 0 Treffer
+```
+
+Der Debug-Print in `_OnStatus0` (drv_lan865x_api.c Zeile 2336) ist bedingt:
+```c
+if (0u != (value & 0x0F00u)) {  // Bits 8-11: TTSCAA/B/C + TXFCSE
+    SYS_CONSOLE_PRINT("[DBG] _OnStatus0: 0x%08lX\r\n", (unsigned long)value);
+}
+```
+→ **`_OnStatus0` wird definitiv aufgerufen** (Loss of Framing, Reset Complete Events im Log bestätigt)  
+→ **STATUS0 Bits 8–10 wurden nie gesetzt** — der LAN865x Hardware erfasst den TX-Timestamp überhaupt nicht
+
+#### Ereignis-Muster im Log
+
+```
+L76:  [PTP-GM] TXPMDET ok, Sync #0     ← vor erstem LOS, Config korrekt
+L77:  [PTP-GM] TTSCA not set after Sync #0
+---
+L420: Status0.Loss of Framing Error
+L426: Status0.Reset Complete           ← MemMap reinit läuft
+L427: [PTP-GM] TXPMDET ok, Sync #0    ← nach reinit, Config zerstört
+L428: [PTP-GM] TTSCA not set after Sync #0
+```
+
+Muster: **jedes TXPMDET ok erscheint unmittelbar nach Reset Complete** (6 von 7 Fällen).  
+Ausnahme: Zeile 76 — erster Sync, noch **vor** jedem LOS-Ereignis, trotzdem kein TTSCA.
+
+#### Zwei separate Bugs
+
+**Bug A — Zeile 76: Fundamentales TTSCA-Problem**  
+Bei Sync #0 war `PTP_GM_Init()` korrekt ausgeführt (TXMLOC=12, TXMMSKH=0, TXMMSKL=0), kein LOS.  
+Der Frame wird mit `tsc=1` im SPI-Data-Header gesendet (`TC6_SendRawEthernetPacket`) — dieser Pfad wurde im Code verifiziert (`SET_VAL(HDR_TSC, entry->tsc, tx_buf)`).  
+Trotzdem setzt der LAN865x STATUS0.TTSCAA nie. → **Hardware-Konfigurationsproblem**.
+
+Mögliche Ursachen:
+- `CONFIG0` (Adresse `0x00000004`) Bits für TX-Timestamp nicht korrekt gesetzt  
+- `PADCTRL` (Adresse `0x000400E0`) Wert `0x0000C100` könnte nicht ausreichen oder falsch sein  
+- LAN865x benötigt ggf. zusätzliches Aktivierungs-Register das nicht geschrieben wird
+
+**Bug B — Zeilen 427+: MemMap-Overwrite nach LOS** (→ Root Cause #4, siehe unten)
+
+**Status:** ⚠ AKTIV — Bug A erfordert Hardware-Register-Verifikation (Testlauf 6)
+
+---
+
+### Root Cause #4 — MemMap-Overwrite zerstört TX-Match-Konfiguration nach LOS (neu, 2026-04-02)
+
+**Symptom:** Nach jedem `Status0.Reset Complete` erscheint sofort `TXPMDET ok, Sync #0` — d.h. der Match feuert für **jeden** Frame.
+
+**Ursache:**  
+Nach jedem Loss-of-Framing-Fehler läuft `_InitMemMap()` in `drv_lan865x_api.c`. Die Memory-Map-Tabelle (Zeile 1704ff.) schreibt folgende Register zurück:
+
+```c
+/* drv_lan865x_api.c, TC6_MEMMAP[] */
+{ .address=0x00040043, .value=0x000000FF },  /* GM_TXMMSKH — war 0x00 (kein Mask) */
+{ .address=0x00040044, .value=0x0000FFFF },  /* GM_TXMMSKL — war 0x00 (kein Mask) */
+{ .address=0x00040045, .value=0x00000000 },  /* GM_TXMLOC  — war 12 (EtherType) */
+{ .address=0x00040040, .value=0x00000002 },  /* GM_TXMCTL  — war 0x0001 (Slot A) */
+```
+
+Zustand nach MemMap-Reinit:
+- `TXMLOC = 0` → Pattern-Vergleich beginnt bei Byte 0 (DST-MAC)
+- `TXMMSKH = 0xFF` → alle Bits des High-Pattern-Bytes ignoriert
+- `TXMMSKL = 0xFFFF` → alle Bits des Low-Pattern-Bytes ignoriert
+- Ergebnis: **TX-Match trifft auf jeden Frame** — TXPMDET wird beim nächsten beliebigen TX gesetzt
+
+GM re-armt TXMCTL per Sync auf `0x0001` (Slot A), aber TXMLOC und Masken bleiben zerstört.  
+PTP_GM_Init() wird nach LOS **nicht** erneut aufgerufen → Zustand bleibt inkorrekt.
+
+**Ethernet-Frame-Layout nach MemMap:**
+```
+Byte 0-5:   Dst-MAC   ← TXMLOC=0 → Pattern wird hier gesucht
+Byte 0-1:   Pattern=0x88 0xF7 mit Maske=0xFF → alle Bits ignoriert = immer MATCH
+```
+
+**Fix:** `PTP_GM_Init()` (oder zumindest die TX-Match-Registerwrites) nach jedem LOS Reset Complete erneut ausführen.
+
+Mögliche Implementierung: In `DRV_LAN865X_Tasks()` / `_InitMemMap` Callback oder über einen Notify-Mechanismus aus dem Treiber an die Applikationsebene.
+
+**Status:** ⚠ AKTIV — Fix in Testlauf 6 zu implementieren
+
+---
+
+## 4. Test-Ergebnisse
+
+### Testlauf 1 — Baseline (2026-04-01, vor Fixes)
+
+**Laufparameter:**
+- Firmware-Build: `build_dual.bat` → `=== BEIDE BUILDS ERFOLGREICH ===`
+- Flash: `flash_dual.py` → `FOLLOWER SUCCESS` + `GRANDMASTER SUCCESS`
+- Testskript: `ptp_diag.py` (Schritt 0–7, ohne `--no-reset`)
+
+**Beobachtete GM-Ausgabe (Dauerschleife):**
+```
+[PTP-GM][STATE] GM_STATE_SEND_SYNC @L374
+[PTP-GM][STATE] GM_STATE_READ_TXMCTL @L413
+[PTP-GM][STATE] GM_STATE_WAIT_PERIOD @L421
+[PTP-GM][STATE] GM_STATE_SEND_SYNC @L374
+...
+```
+`WAIT_TXMCTL`, `WAIT_STATUS0`, `SEND_FOLLOWUP` — **nie erreicht**.
+
+`ptp_offset` auf FOL: dauerhaft `offset=0 ns  abs=0 ns` — Servo bleibt in UNINIT (`CONVERGENCE_TIMEOUT = 120 s` → abgelaufen).
+
+| Schritt | Ergebnis |
+|---|---|
+| 0 IP-Konfiguration | PASS |
+| 1 Ping beidseitig | PASS |
+| 2 PTP aktivieren | PASS |
+| 3 GM Sync-Zähler steigt | PASS (`gmSyncs` zählt hoch) |
+| 4 TX-Match TXPMDET | FAIL (TXPMDET nie gesetzt) |
+| 5 Follower PTP-RX | PASS (0x88F7-Frames empfangen — nur Sync, kein FollowUp) |
+| 6 GM FollowUp-Pfad | FAIL (`SEND_FOLLOWUP` nie erreicht) |
+| 7 FOL Servo Konvergenz | FAIL (FINE timeout) |
+
+---
+
+### Testlauf 3 (2026-04-01, Fix #1 + Fix #2, `ptp_diag_20260401_163547.log`)
+
+**Laufparameter:**
 - Firmware-Build: `build_dual.bat`
 - Flash: `flash_dual.py`
 - Testskript: `ptp_diag.py`
 - Fixes: Root Cause #1 (`TCPIP_MAC_RES_OK == ...`) + Root Cause #2 (`TXMLOC=12`)
 
-### Ergebnisse — Testlauf 3 (2026-04-01, `ptp_diag_20260401_163547.log`)
+#### Ergebnisse
 
 | Schritt | Ergebnis | Notizen |
 |---|---|---|
@@ -291,16 +373,16 @@ static bool gm_write_register(uint32_t addr, uint32_t value, bool useCallbackPro
 
 ---
 
-## 6. Testlauf 4 (geplant)
+### Testlauf 4 (2026-04-01, Fix #3 — State-Spam, `ptp_diag_20260401_165641.log`)
 
-### Änderungen gegenüber Testlauf 3
+#### Änderungen gegenüber Testlauf 3
 
 | Änderung | Datei | Beschreibung |
 |---|---|---|
 | Fix #3 | `ptp_gm_task.c` | `gm_set_state()` gibt kein `SYS_CONSOLE_PRINT` mehr aus — State-Spam entfernt |
 | Fix #3 | `ptp_gm_task.c` | Neue Schlüsselereignis-Prints: `Sync #N`, `TXPMDET ok, Sync #N`, `FU #N t1=Xs.Yns` |
 
-### Erwartetes Verhalten (Normalfall)
+#### Erwartetes Verhalten (Normalfall)
 ```
 [PTP-GM] Init complete (MAC ...)
 [PTP-GM] Sync #0
@@ -310,7 +392,7 @@ static bool gm_write_register(uint32_t addr, uint32_t value, bool useCallbackPro
 ...
 ```
 
-### Erwartetes Verhalten (Fehlerfall TXPMDET)
+#### Erwartetes Verhalten (Fehlerfall TXPMDET)
 ```
 [PTP-GM] Sync #0
 [PTP-GM] TXPMDET timeout after Sync #0
@@ -318,7 +400,7 @@ static bool gm_write_register(uint32_t addr, uint32_t value, bool useCallbackPro
 ...
 ```
 
-### Ergebnisse — Testlauf 4 (2026-04-01, `ptp_diag_20260401_165641.log`)
+#### Ergebnisse
 
 | Schritt | Ergebnis | Notizen |
 |---|---|---|
@@ -345,9 +427,148 @@ static bool gm_write_register(uint32_t addr, uint32_t value, bool useCallbackPro
 
 ---
 
-## 5. Modifizierter Testplan
+### Testlauf 5 — Log-Analyse (2026-04-02, ptp_diag_20260401_165641.log)
 
-### Modifikation 1 — Fix #1 anwenden (sofort)
+Kein neuer Build/Flash — nur Analyse des vorhandenen Logs.
+
+#### Kernbefunde
+
+| Frage | Antwort |
+|---|---|
+| Wird `_OnStatus0` aufgerufen? | ✓ JA — Loss of Framing, Reset Complete bestätigt |
+| Werden STATUS0 Bits 8–10 jemals gesetzt? | ✗ NEIN — `[DBG] _OnStatus0` Print tritt nie auf |
+| Ist ein Muster erkennbar? | ✓ JA — TXPMDET ok immer nach Reset Complete |
+| Tritt TTSCA-Fehler auch ohne LOS auf? | ✓ JA — Zeile 76 (erster Sync, vor jedem LOS) |
+
+**Log-Statistik:**
+
+| Event | Anzahl |
+|---|---|
+| Loss of Framing | 6× |
+| Reset Complete | 6× |
+| TXPMDET ok | 7× (davon 6× nach Reset Complete, 1× initial) |
+| TTSCA not set | 7× |
+| `[DBG] _OnStatus0` mit Bits 8–10 | 0× |
+
+#### Schlussfolgerung
+
+Zwei separate Bugs identifiziert:
+- **RC#4 (Bug B):** MemMap-Overwrite nach LOS zerstört TX-Match-Konfiguration → TXPMDET feuert für jeden Frame
+- **RC#3 (Bug A):** Fundamentales TTSCA-Problem — LAN865x Hardware setzt STATUS0.TTSCAA nie, selbst bei korrekt konfiguriertem Init
+
+#### Ergebnisse — Testlauf 5
+[PASS] Analyse erfolgreich — 2 neue Root Causes identifiziert
+
+---
+
+### Testlauf 6 — Geplant (2026-04-02)
+
+#### Ziel
+RC#3 (TTSCA hardware-seitig) und RC#4 (MemMap-Overwrite) beheben.
+
+#### Fix A — RC#4: GM-Reinitialisierung nach LOS (in `drv_lan865x_api.c` oder `app.c`)
+
+Option 1 — Callback-Mechanismus: Treiber ruft Applikations-Callback nach Reset Complete auf.
+```c
+/* drv_lan865x_api.c — _OnStatus0, nach reinit: */
+if (reinit) {
+    pDrvInst->initState = DRV_LAN865X_INITSTATE_RESET;
+    pDrvInst->state = SYS_STATUS_UNINITIALIZED;
+    /* Notify application that reinit will happen */
+    if (pDrvInst->pfnLinkChange) { pDrvInst->pfnLinkChange(false); }
+}
+```
+
+Option 2 — Direkte Umgehung: TX-Match-Werte in `TC6_MEMMAP[]` gleich korrekt setzen:
+```c
+/* drv_lan865x_api.c, TC6_MEMMAP[] — korrekte Werte für GM: */
+{ .address=0x00040043, .value=0x00000000 },  /* GM_TXMMSKH = 0 (kein Mask) */
+{ .address=0x00040044, .value=0x00000000 },  /* GM_TXMMSKL = 0 (kein Mask) */
+{ .address=0x00040045, .value=0x0000000C },  /* GM_TXMLOC  = 12 (EtherType) */
+```
+⚠ Achtung: Diese Werte gelten nur für GM-Mode — im Follower-Mode ist TXMLOC irrelevant.
+
+#### Fix B — RC#3: TTSCA Hardware-Verifikation
+
+Schritt 1 — Register-Dump nach `ptp_mode master` (mit `lan_read`):
+```
+lan_read 0x00000004    → CONFIG0: erwartete Bits 1,2,5,6,7 gesetzt (0xE6)
+lan_read 0x000400E0    → PADCTRL: erwartet 0x0000C100
+lan_read 0x00040040    → TXMCTL:  nach GM-Init erwartet 0x????  (0x0001 wenn armed)
+```
+
+Schritt 2 — Manueller TTSCA-Test via CLI:
+```
+# GM-Mode aktiv, dann manuell arm + direkter Status-Read:
+lan_write 0x00040045 12       → TXMLOC = 12
+lan_write 0x00040041 0x88     → TXMPATH = 0x88 (EtherType High)
+lan_write 0x00040042 0xF710   → TXMPATL = 0xF710 (EtherType Low + tsmt)
+lan_write 0x00040043 0         → TXMMSKH = 0
+lan_write 0x00040044 0         → TXMMSKL = 0
+lan_write 0x00040040 1         → TXMCTL arm Slot A
+# Danach: GM sendet Sync → STATUS0 lesen:
+lan_read 0x00000008            → STATUS0: Bit 8 (0x100) erwartet
+```
+
+Schritt 3 — Falls STATUS0.TTSCAA auch nach manuellem Arm nie gesetzt:
+```
+# Prüfe ob TXPE in CONFIG0 wirklich gesetzt ist:
+lan_read 0x00000004   → bit 5 (0x20) muss 1 sein
+# Prüfe PADCTRL:
+lan_read 0x000400E0   → erwartet 0x0000C100
+# Lese LAN865x Application Note für TX Timestamp Activation sequence
+```
+
+#### Erwartetes Ergebnis nach beiden Fixes
+```
+[PTP-GM] Init complete (MAC ...)
+[PTP-GM] Sync #0
+[PTP-GM] TXPMDET ok, Sync #0
+[PTP-GM] FU #0 t1=1743600000s 007650000ns
+[PTP-GM] Sync #1
+[PTP-GM] TXPMDET ok, Sync #1
+[PTP-GM] FU #1 t1=1743600000s 133150000ns
+...
+[PTP-FOL] UNINIT->MATCHFREQ
+[PTP-FOL] COARSE offset=...
+[PTP-FOL] FINE   offset=...
+```
+
+#### Build/Flash/Test Kommandos
+```powershell
+cd "C:\work\ptp\AN1847\t1s_100baset_bridge\firmware\T1S_100BaseT_Bridge.X"
+cmd /c build_dual.bat 2>&1
+python flash_dual.py 2>&1
+python ptp_diag.py 2>&1
+```
+
+#### Ergebnisse — Testlauf 6
+*(ausstehend)*
+
+---
+
+## 5. Testplan (aktuell, Stand 2026-04-02)
+
+### Prioritäten-Übersicht
+
+```
+Priorität 1: RC#3 Bug A — TTSCA nie gesetzt (hardware-seitig)
+  → Schritt A1: Register-Dump CONFIG0 + PADCTRL via lan_read
+  → Schritt A2: Manueller TTSCA-Test via CLI
+  → Schritt A3: Fix implementieren basierend auf Befund
+
+Priorität 2: RC#4 Bug B — MemMap-Overwrite nach LOS
+  → Schritt B1: TC6_MEMMAP[] Werte für TXMLOC/MSK korrigieren
+  → Schritt B2: Alternativ: PTP_GM_Init() nach LOS-Callback aufrufen
+
+Danach: build_dual.bat → flash_dual.py → ptp_diag.py
+  → Erwartet: FU #N t1=... in Log
+  → Folge: Follower-Konvergenz MATCHFREQ → COARSE → FINE
+```
+
+---
+
+### Modifikation 1 — Fix #1 anwenden (bereits erledigt)
 
 **Aktion in `ptp_gm_task.c`:**
 ```c
@@ -372,7 +593,7 @@ static bool gm_write_register(uint32_t addr, uint32_t value, bool useCallbackPro
 }
 ```
 
-**Danach:** Build → Flash → `ptp_diag.py --from-step 6`
+**Status:** ✓ BEREITS ANGEWENDET (2026-04-01)
 
 ---
 
@@ -395,30 +616,23 @@ static bool gm_write_register(uint32_t addr, uint32_t value, bool useCallbackPro
 
 ---
 
-### Modifizierter Schritt M2 — TTSCA-Capture prüfen (nach Fix #1 + M1 PASS)
+### Modifizierter Schritt M2 — TTSCA-Capture prüfen (nach RC#3 + RC#4 Fix)
 
-**Ziel:** Prüfen ob `DRV_LAN865X_GetAndClearTsCapture()` einen Wert ≠ 0 zurückgibt.
+**Ziel:** Bestätigen dass STATUS0.TTSCAA nach Fix gesetzt wird.
 
-**Erweiterung in `ptp_gm_task.c`** (temporär diagnostisch):
-```c
-case GM_STATE_WAIT_STATUS0:
-    uint32_t tsCapture = gm_get_and_clear_ts_capture();
-    SYS_CONSOLE_PRINT("[PTP-GM][DIAG] tsCapture=0x%08X\r\n", (unsigned)tsCapture);
-    ...
-```
-**Erwartetes Ergebnis:** `tsCapture=0x00000100` (TTSCAA) oder TTSCAB/C  
-**Fail-Muster:** `tsCapture=0x00000000` dauerhaft → Ursache #3 (Interrupt-Handler löscht W1C zu früh)
+**Erwartetes Ergebnis:** `[PTP-GM] FU #N t1=...s ...ns` erscheint im Log  
+**Fail-Muster:** `TTSCA not set after Sync #N` → RC#3 Bug A noch offen → Schritt B in Testlauf 6
 
 ---
 
-### Modifizierter Schritt M3 — Follower-Konvergenz-Volltest (nach M1 + M2 PASS)
+### Modifizierter Schritt M3 — Follower-Konvergenz-Volltest (nach RC#3 + RC#4 Fix)
 
-Entspricht originalem **Schritt 2** — läuft durch `ptp_diag.py --from-step 7`
+Läuft durch `ptp_diag.py --from-step 7`
 
 **Erweiterte Konvergenzdiagnose:**
-- Wenn MATCHFREQ gesehen, aber kein COARSE → Ursache #6 (t1-Extraktion)
-- Wenn COARSE, aber kein FINE → Ursache #8 (Servo-Parameter)
-- Wenn FINE gesehen, aber `ptp_offset` > 1 μs → Ursache #7 (Filterung) oder #4 (Timestamp-Offset)
+- Wenn MATCHFREQ gesehen aber kein COARSE → Ursache #6 (t1-Extraktion)
+- Wenn COARSE aber kein FINE → Ursache #8 (Servo-Parameter)
+- Wenn FINE gesehen aber `ptp_offset` > 1 μs → Ursache #7 (Filterung) oder #4 (Timestamp-Offset)
 
 ---
 
@@ -427,18 +641,3 @@ Entspricht originalem **Schritt 2** — läuft durch `ptp_diag.py --from-step 7`
 Identisch zu originalem **Schritt 3**. Kriterien:  
 - PASS: ≥ 80 % der Messungen `|offset| < 100 ns`  
 - Ziel Langzeit: `|offset| < 50 ns`, `stdev < 20 ns`
-
----
-
-### Prioritäten-Übersicht (modifizierter Plan)
-
-```
-Jetzt:   Fix #1 → build_dual.bat → flash_dual.py → ptp_diag.py --from-step 6
-         → Schritt M1: Erscheint WAIT_TXMCTL?
-           JA  → Schritt M2: tsCapture ≠ 0?
-             JA  → Schritt M3: FOL FINE?
-               JA  → Schritt M4: 60 s Stabilität
-             NEIN → Ursache #3 analysieren (W1C Race)
-           NEIN → Ursache #2 analysieren (TXPMDET)
-         → Schritt M1 FAIL auch nach Fix: TXMLOC/TXMPATH prüfen (--dump-txmatch)
-```
