@@ -672,7 +672,7 @@ def step6_gm_followup_path(ser_gm, ser_fl) -> bool:
     txpmdet_timeouts = gm_buf.count("TXPMDET timeout")
 
     # FOL-Empfang prüfen
-    fol_ptp_rx = fol_buf.count("0x88F7") + fol_buf.count("PTP_Bridge_OnFrame")
+    fol_ptp_rx = fol_buf.count("0x88F7") + fol_buf.count("PTP_FOL_OnFrame")
 
     st = send_cmd(ser_gm, GRANDMASTER_PORT, "ptp_status", timeout=3.0)
     m = re.search(r"gmSyncs=(\d+)", st)
@@ -805,7 +805,7 @@ def step7_fol_convergence(ser_gm, ser_fl) -> bool:
         else:
             hint(
                 "COARSE gesehen aber kein FINE — Regler konvergiert zu langsam / schwingt.\n"
-                "  Prüfe Servo-Parameter in ptp_bridge_task.c (PID-Koeffizienten)."
+                "  Prüfe Servo-Parameter in PTP_FOL_task.c (PID-Koeffizienten)."
             )
 
     return converged

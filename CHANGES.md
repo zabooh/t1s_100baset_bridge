@@ -42,16 +42,16 @@ auch die PLCA-Node-ID zur Laufzeit umprogrammiert werden.
 | `ptp_offset` | Zeigt den Follower-Zeitversatz (signed + absolut) in Nanosekunden |
 | `ptp_reset` | Setzt den Follower-Servo auf den Zustand `UNINIT` zurück |
 
-### firmware/src/ptp_bridge_task.c
-- `PTP_Bridge_GetMode()` — gibt aktuellen `ptpMode_t`-Wert zurück.
-- `PTP_Bridge_SetMode(mode)` — setzt den PTP-Modus; bei `PTP_SLAVE` wird der Servo automatisch zurückgesetzt.
-- `PTP_Bridge_GetOffset(pOffset, pOffsetAbs)` — liefert signierten und absoluten Offset in Nanosekunden.
-- `PTP_Bridge_Reset()` — ruft `resetSlaveNode()` auf (Wrapper).
-- `PTP_Bridge_OnFrame()` — früher Return-Guard eingebaut: Frames werden ignoriert, wenn `ptpMode != PTP_SLAVE`.
+### firmware/src/PTP_FOL_task.c
+- `PTP_FOL_GetMode()` — gibt aktuellen `ptpMode_t`-Wert zurück.
+- `PTP_FOL_SetMode(mode)` — setzt den PTP-Modus; bei `PTP_SLAVE` wird der Servo automatisch zurückgesetzt.
+- `PTP_FOL_GetOffset(pOffset, pOffsetAbs)` — liefert signierten und absoluten Offset in Nanosekunden.
+- `PTP_FOL_Reset()` — ruft `resetSlaveNode()` auf (Wrapper).
+- `PTP_FOL_OnFrame()` — früher Return-Guard eingebaut: Frames werden ignoriert, wenn `ptpMode != PTP_SLAVE`.
 
-### firmware/src/ptp_bridge_task.h
-- Neue öffentliche Deklarationen: `PTP_Bridge_GetMode()`, `PTP_Bridge_SetMode()`, `PTP_Bridge_GetOffset()`, `PTP_Bridge_Reset()`.
-- Doku-Kommentar zu `PTP_Bridge_OnFrame()` aktualisiert (Hinweis auf Mode-Guard).
+### firmware/src/PTP_FOL_task.h
+- Neue öffentliche Deklarationen: `PTP_FOL_GetMode()`, `PTP_FOL_SetMode()`, `PTP_FOL_GetOffset()`, `PTP_FOL_Reset()`.
+- Doku-Kommentar zu `PTP_FOL_OnFrame()` aktualisiert (Hinweis auf Mode-Guard).
 
 ### firmware/src/config/default/driver/lan865x/drv_lan865x.h
 - Neuer Callback-Typ `DRV_LAN865X_RawTxCallback_t` — TX-Done-Callback für Rohrahmen.
@@ -150,7 +150,7 @@ Grafische Architektur-Übersicht der PTP-Bridge (Grandmaster + Follower) als Gra
 | Kategorie | Details |
 |---|---|
 | **Neue Quelldateien** | `ptp_gm_task.c`, `ptp_gm_task.h` |
-| **Erweiterte Quelldateien** | `app.c`, `ptp_bridge_task.c`, `ptp_bridge_task.h`, `drv_lan865x.h`, `drv_lan865x_api.c` |
+| **Erweiterte Quelldateien** | `app.c`, `PTP_FOL_task.c`, `PTP_FOL_task.h`, `drv_lan865x.h`, `drv_lan865x_api.c` |
 | **Neue Funktionalität** | PTP Grandmaster (non-blocking State Machine), CLI-Befehle für PTP-Steuerung |
 | **Neue Treiber-API** | `DRV_LAN865X_SendRawEthFrame()` mit TSC-Flag |
 | **Dokumentation** | `README_PTP_GRANDMASTER.md`, `README_PTP_TCP.md`, Architekturdiagramme |
