@@ -306,6 +306,7 @@ void APP_Tasks(void) {
         {
             /* === GM Service: call PTP_GM_Service() every 1 ms === */
             static uint64_t last_gm_tick  = 0u;
+            static uint64_t last_fol_tick = 0u;
             static uint64_t ticks_per_ms  = 0u;
             if (ticks_per_ms == 0u) {
                 ticks_per_ms = (uint64_t)SYS_TIME_FrequencyGet() / 1000ULL;
@@ -316,6 +317,13 @@ void APP_Tasks(void) {
                 if ((current_tick - last_gm_tick) >= ticks_per_ms) {
                     PTP_GM_Service();
                     last_gm_tick = current_tick;
+                }
+            }
+
+            if (PTP_FOL_GetMode() == PTP_SLAVE) {
+                if ((current_tick - last_fol_tick) >= ticks_per_ms) {
+                    PTP_FOL_Service();
+                    last_fol_tick = current_tick;
                 }
             }
 
