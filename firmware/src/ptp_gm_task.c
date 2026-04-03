@@ -48,6 +48,7 @@ typedef enum {
     GM_STATE_WRITE_CLEAR,
     GM_STATE_WAIT_CLEAR,
     GM_STATE_SEND_FOLLOWUP,
+    GM_STATE_WAIT_FOLLOWUP_TX_DONE,
     GM_STATE_INIT_WRITE,
     GM_STATE_WAIT_INIT_WRITE,
     GM_STATE_WRITE_TXMCTL,
@@ -106,6 +107,7 @@ static const char *gm_state_to_str(gmState_t state)
         case GM_STATE_WRITE_CLEAR:   return "GM_STATE_WRITE_CLEAR";
         case GM_STATE_WAIT_CLEAR:    return "GM_STATE_WAIT_CLEAR";
         case GM_STATE_SEND_FOLLOWUP: return "GM_STATE_SEND_FOLLOWUP";
+        case GM_STATE_WAIT_FOLLOWUP_TX_DONE: return "GM_STATE_WAIT_FOLLOWUP_TX_DONE";
         case GM_STATE_INIT_WRITE:        return "GM_STATE_INIT_WRITE";
         case GM_STATE_WAIT_INIT_WRITE:   return "GM_STATE_WAIT_INIT_WRITE";
         case GM_STATE_WRITE_TXMCTL:      return "GM_STATE_WRITE_TXMCTL";
@@ -507,7 +509,7 @@ void PTP_GM_Service(void)
             if      (gm_status0 & GM_STS0_TTSCAB) { secReg = GM_OA_TTSCBH; }
             else if (gm_status0 & GM_STS0_TTSCAC) { secReg = GM_OA_TTSCCH; }
             gm_op_done = false;
-            if (!gm_read_register(secReg, false)) {
+            if (!gm_read_register(secReg, true)) {
                 GM_SET_STATE(GM_STATE_WAIT_PERIOD);
                 break;
             }
@@ -537,7 +539,7 @@ void PTP_GM_Service(void)
             if      (gm_status0 & GM_STS0_TTSCAB) { nsecReg = GM_OA_TTSCBL; }
             else if (gm_status0 & GM_STS0_TTSCAC) { nsecReg = GM_OA_TTSCCL; }
             gm_op_done = false;
-            if (!gm_read_register(nsecReg, false)) {
+            if (!gm_read_register(nsecReg, true)) {
                 GM_SET_STATE(GM_STATE_WAIT_PERIOD);
                 break;
             }
@@ -563,7 +565,7 @@ void PTP_GM_Service(void)
         /* ---- Write back OA_STATUS0 to clear capture flags (W1C) ---- */
         case GM_STATE_WRITE_CLEAR:
             gm_op_done = false;
-            if (!gm_write_register(GM_OA_STATUS0, gm_status0, false)) {
+            if (!gm_write_register(GM_OA_STATUS0, gm_status0, true)) {
                 GM_SET_STATE(GM_STATE_WAIT_PERIOD);
                 break;
             }
@@ -595,18 +597,41 @@ void PTP_GM_Service(void)
                 sec++;
             }
             build_followup(sec, nsec);
-            /* Send FollowUp without TSC (tsc=0) */
-            (void)gm_send_raw_eth_frame(gm_followup_buf,
+            /* Send FollowUp without TSC (tsc=0), wait for TX callback */
+            gm_tx_busy = true;
+            if (!gm_send_raw_eth_frame(gm_followup_buf,
                                         sizeof(gm_followup_buf),
-                                        0x00u, NULL, NULL);
+                                        0x00u, gm_tx_cb, NULL)) {
+                gm_tx_busy = false;
+                GM_SET_STATE(GM_STATE_WAIT_PERIOD);
+                break;
+            }
             SYS_CONSOLE_PRINT("[PTP-GM] FU #%u t1=%lus %09luns\r\n",
                               (unsigned)gm_seq_id,
                               (unsigned long)sec, (unsigned long)nsec);
+            gm_wait_ticks = 0u;
+            GM_SET_STATE(GM_STATE_WAIT_FOLLOWUP_TX_DONE);
+            break;
+        }
+
+        /* ---- Wait for FollowUp TX callback confirmation ---- */
+        case GM_STATE_WAIT_FOLLOWUP_TX_DONE:
+            if (gm_tx_busy) {
+                if (++gm_wait_ticks >= 500u) {  /* 500 ms timeout (1 tick == 1 ms) */
+                    SYS_CONSOLE_PRINT("[PTP-GM] WAIT_FOLLOWUP_TX_DONE timeout after FU #%u\r\n",
+                                      (unsigned)gm_seq_id);
+                    gm_tx_busy = false;
+                    gm_wait_ticks = 0u;
+                    GM_SET_STATE(GM_STATE_WAIT_PERIOD);
+                }
+                break;
+            }
+            /* gm_tx_busy == false: Callback was invoked, transmission confirmed */
+            gm_wait_ticks = 0u;
             gm_seq_id++;
             gm_sync_cnt++;
             GM_SET_STATE(GM_STATE_WAIT_PERIOD);
             break;
-        }
 
         /* ---- Issue next register write in the init sequence ---- */
         case GM_STATE_INIT_WRITE:
@@ -676,7 +701,7 @@ void PTP_GM_Service(void)
                 break;
             }
             gm_sync_cnt++;
-            GM_SET_STATE(GM_STATE_WAIT_PERIOD);
+            GM_SET_STATE(GM_STATE_WAIT_SYNC_TX_DONE);
 #else
             if (!gm_send_raw_eth_frame(gm_sync_buf, sizeof(gm_sync_buf),
                                        0x01u, gm_tx_cb, NULL)) {
