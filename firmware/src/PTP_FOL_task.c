@@ -9,8 +9,8 @@ Key differences vs. the noIP version:
   - TC6_Service() blocking loops removed (the Harmony driver handles service internally).
   - get_macPhy_inst() / TC6_t* macPhy removed (use driver index 0 instead).
   - printf replaced with SYS_CONSOLE_PRINT.
-  - ptpTask() renamed to PTP_Bridge_Init().
-  - PTP_Bridge_OnFrame() added as the entry point from pktEth0Handler().
+  - ptpTask() renamed to PTP_FOL_Init().
+  - PTP_FOL_OnFrame() added as the entry point from pktEth0Handler().
 */
 //DOM-IGNORE-END
 
@@ -18,7 +18,7 @@ Key differences vs. the noIP version:
 #include <string.h>
 #include <math.h>
 #include <stdlib.h>
-#include "ptp_bridge_task.h"
+#include "PTP_FOL_task.h"
 #include "filters.h"
 #include "config/default/driver/lan865x/drv_lan865x.h"
 #include "config/default/system/console/sys_console.h"
@@ -115,7 +115,7 @@ static void resetSlaveNode(void)
         firLowPassFilterF(1.0, &rateRatiolpfState);
     }
 
-    PTP_Bridge_Init();
+    PTP_FOL_Init();
 }
 
 /* -------------------------------------------------------------------------
@@ -345,7 +345,7 @@ void handlePtp(uint8_t *pData, uint32_t size, uint32_t sec, uint32_t nsec)
  * Public API
  * ---------------------------------------------------------------------- */
 
-void PTP_Bridge_Init(void)
+void PTP_FOL_Init(void)
 {
     /* Set up PPS output (stopped; PPSCTL=0x02 = pulse-width / period preset) */
     DRV_LAN865X_WriteRegister(0u, PPSCTL,   0x00000002u,       true, NULL, NULL);
@@ -362,15 +362,15 @@ void PTP_Bridge_Init(void)
     offsetCoarseState.buffer     = &offsetCoarseValue[0];
     offsetCoarseState.filterSize = sizeof(offsetCoarseValue) / sizeof(offsetCoarseValue[0]);
 
-    PTP_LOG("PTP_Bridge_Init: HW init done, PTP mode=%d (not activated)\r\n", (int)ptpMode);
+    PTP_LOG("PTP_FOL_Init: HW init done, PTP mode=%d (not activated)\r\n", (int)ptpMode);
 }
 
-ptpMode_t PTP_Bridge_GetMode(void)
+ptpMode_t PTP_FOL_GetMode(void)
 {
     return ptpMode;
 }
 
-void PTP_Bridge_SetMode(ptpMode_t mode)
+void PTP_FOL_SetMode(ptpMode_t mode)
 {
     ptpMode = mode;
     if (mode == PTP_SLAVE) {
@@ -378,18 +378,18 @@ void PTP_Bridge_SetMode(ptpMode_t mode)
     }
 }
 
-void PTP_Bridge_GetOffset(int64_t *pOffset, uint64_t *pOffsetAbs)
+void PTP_FOL_GetOffset(int64_t *pOffset, uint64_t *pOffsetAbs)
 {
     if (pOffset)    *pOffset    = offset;
     if (pOffsetAbs) *pOffsetAbs = offset_abs;
 }
 
-void PTP_Bridge_Reset(void)
+void PTP_FOL_Reset(void)
 {
     resetSlaveNode();
 }
 
-void PTP_Bridge_OnFrame(const uint8_t *pData, uint16_t len, uint64_t rxTimestamp)
+void PTP_FOL_OnFrame(const uint8_t *pData, uint16_t len, uint64_t rxTimestamp)
 {
     if (ptpMode != PTP_SLAVE) {
         return;

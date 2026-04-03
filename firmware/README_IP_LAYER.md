@@ -184,7 +184,7 @@ if (frameType == 0x88F7u) {  // PTP frame?
             rxPkt->pDSeg->segLen, rxTs);
     }
     
-    PTP_Bridge_OnFrame(rxPkt->pMacLayer, rxPkt->pDSeg->segLen, rxTs);
+    PTP_FOL_OnFrame(rxPkt->pMacLayer, rxPkt->pDSeg->segLen, rxTs);
     return true;  // ABSORBED
 }
 ```

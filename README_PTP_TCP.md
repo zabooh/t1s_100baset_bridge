@@ -275,7 +275,7 @@ DRV_LAN865X_ReadRegister(0, 0x00000004 /*OA_CONFIG0*/, false, config0_cb, NULL);
                     │              SAM E54 (Bridge-Projekt)               │
                     │                                                      │
                     │  ┌─────────────┐      ┌──────────────────────────┐  │
-                    │  │  app.c      │      │  ptp_bridge_task.c (neu) │  │
+                    │  │  app.c      │      │  PTP_FOL_task.c (neu) │  │
                     │  │             │      │                          │  │
                     │  │ pktEth0 ────┼──────┼►  PTP_Task_OnSync()     │  │
                     │  │ Handler     │ PTP  │  PTP_Task_OnFollowUp()  │  │
@@ -344,7 +344,7 @@ Harmony TCP/IP Stack: pktEth0Handler() aufgerufen
   │  g_ptp_rx_ts.valid → rxTs = g_ptp_rx_ts.rxTimestamp
   │  return true  (kein Forwarding an IP-Stack)
   ▼
-ptp_bridge_task.c: PTP_Task_OnSyncReceived(rxPkt, rxTs)
+PTP_FOL_task.c: PTP_Task_OnSyncReceived(rxPkt, rxTs)
   │  Extrahiere correctionField, sequenceId aus PTP-Payload
   │  Warte auf Follow_Up für exakten t2=preciseOriginTimestamp
   │  Berechne: offset = t2 - rxTs
@@ -435,7 +435,7 @@ Schaltet den PTP-Betriebsmodus der Bridge um.
 |---|---|
 | `off` | PTP deaktivieren (`PTP_DISABLED`); Sync-Frames werden ignoriert |
 | `follower` | Follower-Modus aktivieren (`PTP_SLAVE`); Servo synchronisiert lokalen Takt auf eingehende Sync-Nachrichten |
-| `master` | Grandmaster-Modus aktivieren: ruft zuerst `PTP_GM_Init()` (Initialisiert LAN865x TX-Timestamp-Engine, PPS-Ausgang, MAC-Zeitgeber) dann `PTP_Bridge_SetMode(PTP_MASTER)` |
+| `master` | Grandmaster-Modus aktivieren: ruft zuerst `PTP_GM_Init()` (Initialisiert LAN865x TX-Timestamp-Engine, PPS-Ausgang, MAC-Zeitgeber) dann `PTP_FOL_SetMode(PTP_MASTER)` |
 
 Ausgabe-Beispiele:
 ```
@@ -522,7 +522,7 @@ Setzt den Follower-Servo auf den Anfangszustand zurück.
 [PTP] follower servo reset to UNINIT
 ```
 
-Ruft `PTP_Bridge_Reset()` auf, das den internen Servo-Zustand auf `UNINIT` zurücksetzt,
+Ruft `PTP_FOL_Reset()` auf, das den internen Servo-Zustand auf `UNINIT` zurücksetzt,
 ohne den PTP-Modus selbst zu ändern.  
 Der Servo beginnt direkt im nächsten Task-Zyklus neu einzuschwingen.
 
@@ -562,15 +562,15 @@ telnet 192.168.0.200 23
 
 ---
 
-#### Öffentliche API (`ptp_bridge_task.h`)
+#### Öffentliche API (`PTP_FOL_task.h`)
 
 ```c
-void      PTP_Bridge_Init(void);
-ptpMode_t PTP_Bridge_GetMode(void);
-void      PTP_Bridge_SetMode(ptpMode_t mode);
-void      PTP_Bridge_OnFrame(const uint8_t *pData, uint16_t len, NET_IF_t iface);
-void      PTP_Bridge_GetOffset(int64_t *pOffset, uint64_t *pOffsetAbs);
-void      PTP_Bridge_Reset(void);
+void      PTP_FOL_Init(void);
+ptpMode_t PTP_FOL_GetMode(void);
+void      PTP_FOL_SetMode(ptpMode_t mode);
+void      PTP_FOL_OnFrame(const uint8_t *pData, uint16_t len, NET_IF_t iface);
+void      PTP_FOL_GetOffset(int64_t *pOffset, uint64_t *pOffsetAbs);
+void      PTP_FOL_Reset(void);
 ```
 
 ---
@@ -632,13 +632,13 @@ eignet sich **ptpd** (als Bibliothek einbindbar) oder das
 |---|---|---|
 | `firmware/src/ptp_ts_ipc.h` | IPC-Struct `PTP_RxTimestampEntry_t` + `extern volatile g_ptp_rx_ts` | ✅ neu erstellt |
 | `firmware/src/filters.h` + `filters.c` | FIR/IIR-Filterbibliothek — direkt aus noIP portiert | ✅ neu erstellt |
-| `firmware/src/ptp_bridge_task.h` | Alle PTP-Typen, Register-Adressen, State-Machine-Konstanten, API | ✅ neu erstellt |
-| `firmware/src/ptp_bridge_task.c` | Vollständiger Clock-Servo: UNINIT→MATCHFREQ→HARDSYNC→COARSE→FINE | ✅ neu erstellt |
+| `firmware/src/PTP_FOL_task.h` | Alle PTP-Typen, Register-Adressen, State-Machine-Konstanten, API | ✅ neu erstellt |
+| `firmware/src/PTP_FOL_task.c` | Vollständiger Clock-Servo: UNINIT→MATCHFREQ→HARDSYNC→COARSE→FINE | ✅ neu erstellt |
 | `drv_lan865x_api.c` | `(void)rxTimestamp` ersetzt durch Capture in `g_ptp_rx_ts` | ✅ gepatcht |
-| `firmware/src/app.c` | `#include ptp_ts_ipc.h / ptp_bridge_task.h`, `PTP_Bridge_Init()`, 0x88F7-Filter | ✅ gepatcht |
-| `nbproject/configurations.xml` | `filters.c` + `ptp_bridge_task.c` als `<itemPath>` eingetragen | ✅ aktualisiert |
+| `firmware/src/app.c` | `#include ptp_ts_ipc.h / PTP_FOL_task.h`, `PTP_FOL_Init()`, 0x88F7-Filter | ✅ gepatcht |
+| `nbproject/configurations.xml` | `filters.c` + `PTP_FOL_task.c` als `<itemPath>` eingetragen | ✅ aktualisiert |
 | `nbproject/Makefile-default.mk` | 5 Variablen-Listen + 4 Compile-Rules (DEBUG + non-DEBUG) ergänzt | ✅ aktualisiert |
-| `cmake/.generated/file.cmake` | `filters.c` + `ptp_bridge_task.c` in CMake-Quelldateiliste ergänzt | ✅ aktualisiert |
+| `cmake/.generated/file.cmake` | `filters.c` + `PTP_FOL_task.c` in CMake-Quelldateiliste ergänzt | ✅ aktualisiert |
 
 ### Abweichungen vom ursprünglichen Plan
 
@@ -646,12 +646,12 @@ Die ursprüngliche Planung sah `PTP_Task_OnSyncReceived()` als Einstiegspunkt vo
 Da der gesamte Clock-Servo aus `ptp_task.c` portiert wurde, lautet die tatsächliche API:
 
 ```c
-void PTP_Bridge_Init(void);                                      // Initialisierung
-void PTP_Bridge_OnFrame(const uint8_t *pData, uint16_t len,     // Einstiegspunkt
+void PTP_FOL_Init(void);                                      // Initialisierung
+void PTP_FOL_OnFrame(const uint8_t *pData, uint16_t len,     // Einstiegspunkt
                         uint64_t rxTimestamp);                   // aus pktEth0Handler
 ```
 
-`PTP_Bridge_OnFrame()` übernimmt intern die Sync/Follow_Up-Erkennung und ruft
+`PTP_FOL_OnFrame()` übernimmt intern die Sync/Follow_Up-Erkennung und ruft
 `processSync()` / `processFollowUp()` auf — entspricht dem Ablauf in `ptp_task.c`.
 
 ### Wesentliche Portierungs-Unterschiede gegenüber noIP

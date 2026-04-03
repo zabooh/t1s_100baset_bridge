@@ -298,7 +298,7 @@ Das Problem ist vollständig isoliert: Es handelt sich um einen persistenten Fol
 
 5. ~~**OA_CONFIG0-Register auf Follower lesen**~~ (nicht erforderlich — Bug gefunden und gefixt)
 
-6. ~~**Follower-Firmware `ptp_bridge_task.c` analysieren**~~ (durchgeführt — Root Cause in `app.c` gefunden)
+6. ~~**Follower-Firmware `PTP_FOL_task.c` analysieren**~~ (durchgeführt — Root Cause in `app.c` gefunden)
 
 ---
 
@@ -316,7 +316,7 @@ TCPIP_PKT_PacketAcknowledge(rxPkt, TCPIP_MAC_PKT_ACK_RX_OK);  // ← Buffer frei
 return true;
 
 // EtherType 0x88F7 (PTP) — BUG:
-PTP_Bridge_OnFrame(rxPkt->pMacLayer, (uint16_t)rxPkt->pDSeg->segLen, rxTs);
+PTP_FOL_OnFrame(rxPkt->pMacLayer, (uint16_t)rxPkt->pDSeg->segLen, rxTs);
 return true;  // ← KEIN PacketAcknowledge → RX-Puffer wird NIE freigegeben!
 ```
 
@@ -334,7 +334,7 @@ return true;  // ← KEIN PacketAcknowledge → RX-Puffer wird NIE freigegeben!
 
 ```c
 // src/app.c — pktEth0Handler(), 0x88F7-Block:
-PTP_Bridge_OnFrame(rxPkt->pMacLayer, (uint16_t)rxPkt->pDSeg->segLen, rxTs);
+PTP_FOL_OnFrame(rxPkt->pMacLayer, (uint16_t)rxPkt->pDSeg->segLen, rxTs);
 TCPIP_PKT_PacketAcknowledge(rxPkt, TCPIP_MAC_PKT_ACK_RX_OK);  // ← HINZUGEFÜGT
 return true;
 ```
@@ -354,4 +354,4 @@ Build → Flash → `ptp_frame_test.py` (ohne Reset-Flags):
 
 ### Schlussfolgerung — Issue geschlossen
 
-Das PTP-Frame-Problem ist vollständig gelöst. Die 0x88F7-Frames wurden immer korrekt empfangen und an `PTP_Bridge_OnFrame()` weitergereicht — aber der fehlende `PacketAcknowledge`-Aufruf führte über die gesamte PTP-Phase zu einem Speicherleck im TCPIP-RX-Paketpool, das nach ~342 Frames (171×Sync + 171×FollowUp) den Pool erschöpfte und damit alle nachfolgenden Empfangsvorgänge blockierte.
+Das PTP-Frame-Problem ist vollständig gelöst. Die 0x88F7-Frames wurden immer korrekt empfangen und an `PTP_FOL_OnFrame()` weitergereicht — aber der fehlende `PacketAcknowledge`-Aufruf führte über die gesamte PTP-Phase zu einem Speicherleck im TCPIP-RX-Paketpool, das nach ~342 Frames (171×Sync + 171×FollowUp) den Pool erschöpfte und damit alle nachfolgenden Empfangsvorgänge blockierte.

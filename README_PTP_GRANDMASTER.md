@@ -17,7 +17,7 @@ that is selectable at runtime via CLI.  After this change the firmware can opera
 | `PTP_SLAVE` | `follower` | Clock Follower — already implemented |
 | `PTP_MASTER` | `master` | **Clock Grandmaster — new** |
 
-The `ptpMode_t` enum and the `ptpMode` variable already exist in `ptp_bridge_task.c`; only
+The `ptpMode_t` enum and the `ptpMode` variable already exist in `PTP_FOL_task.c`; only
 `PTP_MASTER` behaviour needs to be wired up.
 
 ---
@@ -163,7 +163,7 @@ msg.preciseOriginTimestamp.nanoseconds = invert_uint32(nsec);
 
 ### 2.7 PTP Frame Formats
 
-Both `syncMsg_t` and `followUpMsg_t` structs are already defined in `ptp_bridge_task.h`
+Both `syncMsg_t` and `followUpMsg_t` structs are already defined in `PTP_FOL_task.h`
 (identical to the GM reference `ptp.h`).  The Ethernet header is 14 bytes:
 
 ```
@@ -237,7 +237,7 @@ Harmony non-blocking pattern.
 
 ```c
 #include "ptp_gm_task.h"
-#include "ptp_bridge_task.h"
+#include "PTP_FOL_task.h"
 #include "config/default/driver/lan865x/drv_lan865x.h"
 #include "config/default/system/console/sys_console.h"
 #include "config/default/library/tcpip/tcpip.h"
@@ -286,7 +286,7 @@ void PTP_GM_Init(void) {
     gm_write(GM_TXMMSKH,   0x00u);
     gm_write(GM_TXMMSKL,   0x00u);
     gm_write(GM_TXMCTL,    0x02u);
-    gm_write(MAC_TI,       40u);          /* MAC_TI already defined in ptp_bridge_task.h */
+    gm_write(MAC_TI,       40u);          /* MAC_TI already defined in PTP_FOL_task.h */
     /* RMW: OA_CONFIG0 |= 0xC0 */
     DRV_LAN865X_ReadModifyWriteRegister(0u, GM_OA_CONFIG0, 0xC0u, 0xC0u, true, NULL, NULL);
     /* RMW: PADCTRL = (PADCTRL & ~0x300) | 0x100 */
@@ -307,7 +307,7 @@ void PTP_GM_Service(void) {
 
 > The complete `PTP_GM_Service()` implementation follows the 7-state flow described in
 > section 2.2.  Each state checks `gm_rd_done` (set by `gm_read_cb`) before advancing,
-> mirroring the pattern already used in `ptp_bridge_task.c` for the Follower servo.
+> mirroring the pattern already used in `PTP_FOL_task.c` for the Follower servo.
 
 ### 3.3 Key Challenge: TSC=1 in the Harmony TX Path  ✅ Solved
 
@@ -349,19 +349,19 @@ DRV_LAN865X_SendRawEthFrame(0, gm_sync_buf,    58, 0x01u, gm_tx_cb, NULL); /* Sy
 DRV_LAN865X_SendRawEthFrame(0, gm_followup_buf, 90, 0x00u, gm_tx_cb, NULL); /* FollowUp */
 ```
 
-### 3.4 Patch: `firmware/src/ptp_bridge_task.c` / `.h`
+### 3.4 Patch: `firmware/src/PTP_FOL_task.c` / `.h`
 
 Add two accessors so `app.c` and `ptp_gm_task.c` can read/write the mode variable
 without exposing the static:
 
 ```c
-/* ptp_bridge_task.h — add */
-ptpMode_t PTP_Bridge_GetMode(void);
-void      PTP_Bridge_SetMode(ptpMode_t mode);
+/* PTP_FOL_task.h — add */
+ptpMode_t PTP_FOL_GetMode(void);
+void      PTP_FOL_SetMode(ptpMode_t mode);
 
-/* ptp_bridge_task.c — add */
-ptpMode_t PTP_Bridge_GetMode(void) { return ptpMode; }
-void      PTP_Bridge_SetMode(ptpMode_t mode) {
+/* PTP_FOL_task.c — add */
+ptpMode_t PTP_FOL_GetMode(void) { return ptpMode; }
+void      PTP_FOL_SetMode(ptpMode_t mode) {
     ptpMode = mode;
     if (mode == PTP_SLAVE) {
         /* reset follower state */
@@ -370,7 +370,7 @@ void      PTP_Bridge_SetMode(ptpMode_t mode) {
 }
 ```
 
-`PTP_Bridge_OnFrame()` already works correctly when `ptpMode != PTP_SLAVE` (it just
+`PTP_FOL_OnFrame()` already works correctly when `ptpMode != PTP_SLAVE` (it just
 processes every frame type unconditionally).  After adding the getter/setter, gate
 Sync/FollowUp processing on `ptpMode == PTP_SLAVE`.
 
@@ -395,14 +395,14 @@ static void cmd_ptp_mode(SYS_CMD_DEVICE_NODE *pCmdIO, int argc, char **argv) {
         return;
     }
     if (strcmp(argv[1], "off") == 0) {
-        PTP_Bridge_SetMode(PTP_DISABLED);
+        PTP_FOL_SetMode(PTP_DISABLED);
         SYS_CONSOLE_PRINT("[PTP] disabled\r\n");
     } else if (strcmp(argv[1], "follower") == 0) {
-        PTP_Bridge_SetMode(PTP_SLAVE);
+        PTP_FOL_SetMode(PTP_SLAVE);
         SYS_CONSOLE_PRINT("[PTP] follower mode\r\n");
     } else if (strcmp(argv[1], "master") == 0) {
         PTP_GM_Init();
-        PTP_Bridge_SetMode(PTP_MASTER);
+        PTP_FOL_SetMode(PTP_MASTER);
         SYS_CONSOLE_PRINT("[PTP] grandmaster mode\r\n");
     } else {
         SYS_CONSOLE_PRINT("Unknown mode: %s\r\n", argv[1]);
@@ -414,7 +414,7 @@ static void cmd_ptp_status(SYS_CMD_DEVICE_NODE *pCmdIO, int argc, char **argv) {
     uint32_t cnt, state;
     PTP_GM_GetStatus(&cnt, &state);
     SYS_CONSOLE_PRINT("[PTP] mode=%s gmSyncs=%u gmState=%u\r\n",
-                       modeStr[PTP_Bridge_GetMode()], (unsigned)cnt, (unsigned)state);
+                       modeStr[PTP_FOL_GetMode()], (unsigned)cnt, (unsigned)state);
 }
 ```
 
@@ -426,7 +426,7 @@ Add a 1 ms periodic timer for the GM state machine (existing timer is 1000 ms �
 static SYS_TIME_HANDLE gmTimerHandle = SYS_TIME_HANDLE_INVALID;
 
 static void GM_TimerCallback(uintptr_t context) {
-    if (PTP_Bridge_GetMode() == PTP_MASTER) {
+    if (PTP_FOL_GetMode() == PTP_MASTER) {
         PTP_GM_Service();
     }
 }
@@ -455,7 +455,7 @@ In Harmony, every register access is asynchronous with a callback.  The same sta
 machine step is split across two states:
 
 ```c
-/* Harmony — non-blocking pattern (same as ptp_bridge_task.c) */
+/* Harmony — non-blocking pattern (same as PTP_FOL_task.c) */
 case GM_STATE_READ_STATUS0:
     gm_rd_done = false;
     DRV_LAN865X_ReadRegister(0u, GM_OA_STATUS0, false, gm_read_cb, NULL);
@@ -475,7 +475,7 @@ case GM_STATE_WAIT_STATUS0:
     break;
 ```
 
-This is identical in structure to how `PTP_Bridge_OnFrame()` feeds register writes
+This is identical in structure to how `PTP_FOL_OnFrame()` feeds register writes
 asynchronously for the clock servo.
 
 ---
@@ -486,8 +486,8 @@ asynchronously for the clock servo.
 |------|------------|--------|---------|
 | `firmware/src/ptp_gm_task.h` | **NEW** | ✅ Done | GM register defines, 14-state enum, public API |
 | `firmware/src/ptp_gm_task.c` | **NEW** | ✅ Done | Full 14-state non-blocking GM state machine |
-| `firmware/src/ptp_bridge_task.h` | **PATCH** | ✅ Done | Added `PTP_Bridge_GetMode()` / `PTP_Bridge_SetMode()` declarations |
-| `firmware/src/ptp_bridge_task.c` | **PATCH** | ✅ Done | Implemented `GetMode`/`SetMode`; `OnFrame` gated on `ptpMode == PTP_SLAVE` |
+| `firmware/src/PTP_FOL_task.h` | **PATCH** | ✅ Done | Added `PTP_FOL_GetMode()` / `PTP_FOL_SetMode()` declarations |
+| `firmware/src/PTP_FOL_task.c` | **PATCH** | ✅ Done | Implemented `GetMode`/`SetMode`; `OnFrame` gated on `ptpMode == PTP_SLAVE` |
 | `firmware/src/app.c` | **PATCH** | ✅ Done | Added `cmd_ptp_mode`, `cmd_ptp_status`, `cmd_ptp_interval`; 1 ms GM timer |
 | `firmware/src/config/default/driver/lan865x/src/dynamic/drv_lan865x_api.c` | **PATCH** | ✅ Done | Added `DRV_LAN865X_SendRawEthFrame()` (generic TSC param) |
 | `firmware/src/config/default/driver/lan865x/drv_lan865x.h` | **PATCH** | ✅ Done | Added `DRV_LAN865X_RawTxCallback_t` typedef + `SendRawEthFrame` declaration |
@@ -502,7 +502,7 @@ asynchronously for the clock servo.
 1. **Define registers & API** → Created `ptp_gm_task.h` ✅
 2. **Driver patch** → Added `DRV_LAN865X_SendRawEthFrame()` to `drv_lan865x_api.c` / `.h` ✅
 3. **GM init** → Implemented `PTP_GM_Init()` (port of `TC6_ptp_master_init` from `tc6-noip.c`) ✅
-4. **Read accessors** → Added `PTP_Bridge_GetMode()` / `PTP_Bridge_SetMode()` to `ptp_bridge_task.c` ✅
+4. **Read accessors** → Added `PTP_FOL_GetMode()` / `PTP_FOL_SetMode()` to `PTP_FOL_task.c` ✅
 5. **GM state machine** → Implemented `PTP_GM_Service()` as 14-state non-blocking machine ✅
 6. **Timer** → Added 1 ms periodic timer for `PTP_GM_Service()` in `APP_Initialize()` ✅
 7. **CLI** → Added `ptp_mode`, `ptp_status`, `ptp_interval` commands to `app.c` ✅
@@ -614,7 +614,7 @@ MPLAB make build and the VS Code CMake build work.
 | **OA_TTSCAH value** | Notes had wrong value 0x11 | ✅ Confirmed: `OA_TTSCAH=0x10`, `OA_TTSCAL=0x11` |
 | **Harmony read callback latency** | Async reads span multiple SPI cycles | ✅ Handled: READ/WAIT state pairs |
 | **Source MAC** | Hardcoded in reference | ✅ Read via `TCPIP_STACK_NetAddressMac()` |
-| **GM + Follower simultaneously** | TX–RX race on EtherType 0x88F7 | ✅ Gated: `PTP_Bridge_OnFrame()` skips when `ptpMode == PTP_MASTER` |
+| **GM + Follower simultaneously** | TX–RX race on EtherType 0x88F7 | ✅ Gated: `PTP_FOL_OnFrame()` skips when `ptpMode == PTP_MASTER` |
 | **PPSCTL side-effects** | Writes `0x7D`, enables PPS output pin | ⚠️ Open: verify PPS pin is free on board |
 | **Sequence ID on reinit** | After `ptp_mode off` → `master`, seq_id resets | ✅ Intended; Follower re-syncs |
 | **`TCPIP_STACK_NetAddressMac` signature** | Two-arg form assumed in plan | ✅ Fixed: returns `const uint8_t*` |
@@ -630,7 +630,7 @@ MPLAB make build and the VS Code CMake build work.
 | `DRV_LAN865X_SendRawEthFrame()` driver patch | ~45 min | ✅ Done |
 | `PTP_GM_Init()` — register writes | ~30 min | ✅ Done |
 | `PTP_GM_Service()` — full 14-state machine | ~3–4 h | ✅ Done |
-| `PTP_Bridge_GetMode/SetMode` + `OnFrame` gate | ~30 min | ✅ Done |
+| `PTP_FOL_GetMode/SetMode` + `OnFrame` gate | ~30 min | ✅ Done |
 | CLI commands in `app.c` | ~45 min | ✅ Done |
 | Build plumbing (Makefile, configs.xml, cmake) | ~20 min | ✅ Done (cmake fix needed) |
 | Build error fix (`NetAddressMac` signature) | — | ✅ 5 min |
@@ -645,8 +645,8 @@ MPLAB make build and the VS Code CMake build work.
 | [README_PTP_TCP.md](README_PTP_TCP.md) | PTP Follower implementation — already done |
 | `firmware/src/ptp_gm_task.h` | GM register defines, public API |
 | `firmware/src/ptp_gm_task.c` | GM 14-state non-blocking state machine |
-| `firmware/src/ptp_bridge_task.c` | Follower clock servo + `ptpMode` variable |
-| `firmware/src/ptp_bridge_task.h` | Follower types, addresses, mode API |
+| `firmware/src/PTP_FOL_task.c` | Follower clock servo + `ptpMode` variable |
+| `firmware/src/PTP_FOL_task.h` | Follower types, addresses, mode API |
 | `firmware/src/app.c` | CLI commands + GM 1 ms timer |
 | `firmware/src/config/default/driver/lan865x/drv_lan865x.h` | `DRV_LAN865X_SendRawEthFrame` declaration |
 | `firmware/src/config/default/driver/lan865x/src/dynamic/drv_lan865x_api.c` | `DRV_LAN865X_SendRawEthFrame` implementation |

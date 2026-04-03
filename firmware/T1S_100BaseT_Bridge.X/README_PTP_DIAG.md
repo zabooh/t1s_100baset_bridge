@@ -32,20 +32,20 @@ Zuletzt aktualisiert: 2026-04-02 (Log-Analyse TL4 abgeschlossen — RC#4 MemMap-
 
 ---
 
-### Follower (`ptp_bridge_task.c`)
+### Follower (`PTP_FOL_task.c`)
 
 | Funktion | Status |
 |---|---|
-| `PTP_Bridge_Init()` | PPSCTL=0x02 (Puls-Preset), SEVINTEN (PPSDONE-Interrupt) |
-| `PTP_Bridge_OnFrame()` | Einstiegspunkt für EtherType 0x88F7 aus `pktEth0Handler()` |
+| `PTP_FOL_Init()` | PPSCTL=0x02 (Puls-Preset), SEVINTEN (PPSDONE-Interrupt) |
+| `PTP_FOL_OnFrame()` | Einstiegspunkt für EtherType 0x88F7 aus `pktEth0Handler()` |
 | Sync-Frame verarbeiten | `processSync()`: SequenzID-Tracking und Empfangsbestätigung |
 | FollowUp verarbeiten | `processFollowUp()`: t1 aus PTP-Header extrahieren, t2 aus HW-RX-Timestamp |
 | Rate-Ratio-Schätzung | FIR-Tiefpassfilter über `diffLocal`/`diffRemote` |
 | Servo-State-Machine | UNINIT → MATCHFREQ → HARDSYNC → COARSE → FINE |
 | Uhranpassung | `MAC_TISUBN` + `MAC_TI` (Rate), `MAC_TA` (Offset), `MAC_TSL`/`MAC_TN` (Hard-Sync) |
 | 1PPS aktivieren | PPSCTL=0x7D nach erstem Sync (einmalig) |
-| `PTP_Bridge_GetOffset()` | Liest aktuellen Offset + Absolutwert aus |
-| **Buffer-Leak-Fix** | `TCPIP_PKT_PacketAcknowledge()` nach `PTP_Bridge_OnFrame()` ✓ (2026-04-01) |
+| `PTP_FOL_GetOffset()` | Liest aktuellen Offset + Absolutwert aus |
+| **Buffer-Leak-Fix** | `TCPIP_PKT_PacketAcknowledge()` nach `PTP_FOL_OnFrame()` ✓ (2026-04-01) |
 
 **LAN865x-API-Nutzung FOL (immer direkt aktiv, kein Makro-Schutz):**
 - `DRV_LAN865X_WriteRegister` — MAC_TSL, MAC_TN, MAC_TI, MAC_TISUBN, MAC_TA, PPSCTL ✓
@@ -56,11 +56,11 @@ Zuletzt aktualisiert: 2026-04-02 (Log-Analyse TL4 abgeschlossen — RC#4 MemMap-
 
 | Funktion | Status |
 |---|---|
-| `pktEth0Handler()` | EtherType 0x88F7 → `PTP_Bridge_OnFrame()` + `PacketAcknowledge()` |
-| RX-Timestamp IPC | `g_ptp_rx_ts` (aus TC6-Callback) → an `PTP_Bridge_OnFrame()` übergeben |
-| `ptp_mode follower` | `PTP_Bridge_SetMode(PTP_SLAVE)` + `resetSlaveNode()` |
-| `ptp_mode master` | `PTP_GM_Init()` + `PTP_Bridge_SetMode(PTP_MASTER)` |
-| `ptp_mode off` | `PTP_GM_Deinit()` + `PTP_Bridge_SetMode(PTP_DISABLED)` |
+| `pktEth0Handler()` | EtherType 0x88F7 → `PTP_FOL_OnFrame()` + `PacketAcknowledge()` |
+| RX-Timestamp IPC | `g_ptp_rx_ts` (aus TC6-Callback) → an `PTP_FOL_OnFrame()` übergeben |
+| `ptp_mode follower` | `PTP_FOL_SetMode(PTP_SLAVE)` + `resetSlaveNode()` |
+| `ptp_mode master` | `PTP_GM_Init()` + `PTP_FOL_SetMode(PTP_MASTER)` |
+| `ptp_mode off` | `PTP_GM_Deinit()` + `PTP_FOL_SetMode(PTP_DISABLED)` |
 
 ---
 

@@ -1,4 +1,4 @@
-digraph PTP_Bridge_Architecture {
+digraph PTP_FOL_Architecture {
     graph [
         label = "PTP Gesamtarchitektur — T1S 100BaseT Bridge (SAM E54)"
         labelloc = t
@@ -135,8 +135,8 @@ digraph PTP_Bridge_Architecture {
                 color = "#cc4400"
             ]
 
-            ptp_bridge [
-                label = "ptp_bridge_task.c\nPTP_Task_OnSyncReceived()\nPTP_Task_OnFollowUpReceived()\noffset = t2 − rxTs\nClock-Servo (Filter, Trim)\nPTP_Bridge_GetMode()\nPTP_Bridge_SetMode()"
+            PTP_FOL [
+                label = "PTP_FOL_task.c\nPTP_Task_OnSyncReceived()\nPTP_Task_OnFollowUpReceived()\noffset = t2 − rxTs\nClock-Servo (Filter, Trim)\nPTP_FOL_GetMode()\nPTP_FOL_SetMode()"
                 fillcolor = "#fce5cd"
                 color = "#cc4400"
             ]
@@ -190,12 +190,12 @@ digraph PTP_Bridge_Architecture {
     ts_store -> app [label="rxTs lesen" color="#b8860b" style=dashed]
 
     /* App → PTP tasks */
-    app -> ptp_bridge [label="PTP_Task_OnSync()\nPTP_Task_OnFollowUp()\nrxTs übergeben" color="#cc4400"]
+    app -> PTP_FOL [label="PTP_Task_OnSync()\nPTP_Task_OnFollowUp()\nrxTs übergeben" color="#cc4400"]
     app -> ptp_gm [label="PTP_GM_Service()\n(1 ms Timer-CB)" color="#880044"]
 
     /* Servo output */
-    ptp_bridge -> reg_ta [label="WriteRegister()\nPhase" color="#b8860b" style=dashed]
-    ptp_bridge -> reg_ti [label="WriteRegister()\nFreq" color="#b8860b" style=dashed]
+    PTP_FOL -> reg_ta [label="WriteRegister()\nPhase" color="#b8860b" style=dashed]
+    PTP_FOL -> reg_ti [label="WriteRegister()\nFreq" color="#b8860b" style=dashed]
     reg_ta -> drv_api [style=invis]
     reg_ti -> drv_api [style=invis]
 
@@ -204,7 +204,7 @@ digraph PTP_Bridge_Architecture {
     drv_api -> lan865x_phy [label="SPI TX\n(Sync / FollowUp)" color="#880044"]
 
     /* Mode control */
-    cli -> ptp_bridge [label="SetMode()\nGetMode()" color="#cc4400" style=dashed]
+    cli -> PTP_FOL [label="SetMode()\nGetMode()" color="#cc4400" style=dashed]
     cli -> ptp_gm [label="Init()\nSetSyncInterval()" color="#880044" style=dashed]
 
     /* Bridge forwarding */

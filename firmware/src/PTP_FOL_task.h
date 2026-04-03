@@ -5,8 +5,8 @@ Adapted from noIP-SAM-E54-Curiosity-PTP-Follower/ptp_task.h for Harmony TCP/IP b
 */
 //DOM-IGNORE-END
 
-#ifndef PTP_BRIDGE_TASK_H
-#define PTP_BRIDGE_TASK_H
+#ifndef PTP_FOL_TASK_H
+#define PTP_FOL_TASK_H
 
 #pragma once
 
@@ -231,14 +231,14 @@ typedef struct
  * Public API
  */
 
-/** Initialise the PTP bridge follower (call once after the TCPIP stack is up). */
-void PTP_Bridge_Init(void);
+/** Initialise the PTP FOL follower (call once after the TCPIP stack is up). */
+void PTP_FOL_Init(void);
 
 /** Get current PTP operating mode. */
-ptpMode_t PTP_Bridge_GetMode(void);
+ptpMode_t PTP_FOL_GetMode(void);
 
 /** Set PTP operating mode.  Setting PTP_SLAVE also resets the follower servo. */
-void PTP_Bridge_SetMode(ptpMode_t mode);
+void PTP_FOL_SetMode(ptpMode_t mode);
 
 /**
  * Feed a received Ethernet frame into the PTP engine.
@@ -249,7 +249,7 @@ void PTP_Bridge_SetMode(ptpMode_t mode);
  * rxTimestamp  - 64-bit hardware timestamp from g_ptp_rx_ts (0 if not available).
  *                Format: Bit[63:32] = seconds, Bit[31:0] = nanoseconds.
  */
-void PTP_Bridge_OnFrame(const uint8_t *pData, uint16_t len, uint64_t rxTimestamp);
+void PTP_FOL_OnFrame(const uint8_t *pData, uint16_t len, uint64_t rxTimestamp);
 
 /* Internal helpers kept visible for debugging */
 uint64_t tsToInternal(const timeStamp_t *ts);
@@ -259,9 +259,9 @@ void     handlePtp(uint8_t *pData, uint32_t size, uint32_t sec, uint32_t nsec);
  *  pOffset    - receives signed offset in nanoseconds (may be NULL).
  *  pOffsetAbs - receives absolute offset in nanoseconds (may be NULL).
  */
-void PTP_Bridge_GetOffset(int64_t *pOffset, uint64_t *pOffsetAbs);
+void PTP_FOL_GetOffset(int64_t *pOffset, uint64_t *pOffsetAbs);
 
 /** Reset follower servo to UNINIT state (same effect as SetMode(PTP_SLAVE)). */
-void PTP_Bridge_Reset(void);
+void PTP_FOL_Reset(void);
 
-#endif /* PTP_BRIDGE_TASK_H */
+#endif /* PTP_FOL_TASK_H */

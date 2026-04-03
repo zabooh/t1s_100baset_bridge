@@ -18,7 +18,7 @@ TSC=1 korrekt im SPI-Header gesetzt wird und der TSU läuft.
 | CONFIG0.FTSE aktivieren | Bit 7 setzen | 0x90E6 (FTSE=1, FTSS=1) ✓ |
 | CONFIG0.FTSS = 1 (64-bit) | Bit 6 setzen | 0x90E6 ✓ |
 | MAC_TI = 40 ns | 40 ns pro 25-MHz-Takt | `gm_write(MAC_TI, 40)` ✓ |
-| MAC_TSH / MAC_TSL / MAC_TN | Wall-Clock-Register | ptp_bridge_task.h ✓ |
+| MAC_TSH / MAC_TSL / MAC_TN | Wall-Clock-Register | PTP_FOL_task.h ✓ |
 | TSC-Feld im SPI-Header | 01=Slot A | `TC6_SendRawEthernetPacket(..., tsc=1, ...)` ✓ |
 | TTSCAH/TTSCAL auslesen nach TTSCAA | OA-Reg 0x10/0x11 | GM_OA_TTSCAH/L ✓ |
 | NETWORK_CONTROL TX/RX enable | TXEN+RXEN = 0x0C | `_InitUserSettings` case 9 → 0x0C ✓ |

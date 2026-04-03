@@ -30,7 +30,7 @@
 #include "app.h"
 #include <string.h>
 #include "ptp_ts_ipc.h"
-#include "ptp_bridge_task.h"
+#include "PTP_FOL_task.h"
 #include "ptp_gm_task.h"
 #include "config/default/system/console/sys_console.h"
 #include "config/default/library/tcpip/tcpip.h"
@@ -126,7 +126,7 @@ void BRIDGE_TimerCallback(uintptr_t context) {
 }
 
 static void GM_TimerCallback(uintptr_t context) {
-    if (PTP_Bridge_GetMode() == PTP_MASTER) {
+    if (PTP_FOL_GetMode() == PTP_MASTER) {
         PTP_GM_Service();
     }
 }
@@ -291,7 +291,7 @@ void APP_Tasks(void) {
             TCPIP_STACK_PacketHandlerRegister(eth0_net_hd, pktEth0Handler, MyEth0HandlerParam);
             TCPIP_NET_HANDLE eth1_net_hd = TCPIP_STACK_IndexToNet(1);
             TCPIP_STACK_PacketHandlerRegister(eth1_net_hd, pktEth1Handler, MyEth1HandlerParam);
-            PTP_Bridge_Init();
+            PTP_FOL_Init();
             appData.state = APP_STATE_IDLE;
             break;
         }
@@ -305,7 +305,7 @@ void APP_Tasks(void) {
              * so they must be reprogrammed once the driver is READY again. */
             bool lan865x_ready = DRV_LAN865X_IsReady(0u);
             if (!lan865x_prev_ready && lan865x_ready &&
-                (PTP_Bridge_GetMode() == PTP_MASTER))
+                (PTP_FOL_GetMode() == PTP_MASTER))
             {
                 SYS_CONSOLE_PRINT("[PTP-GM] driver ready after reinit - re-applying TX-Match config\r\n");
                 PTP_GM_Init();
@@ -359,7 +359,7 @@ bool pktEth0Handler(TCPIP_NET_HANDLE hNet, struct _tag_TCPIP_MAC_PACKET* rxPkt, 
                               (unsigned long long)rxTs);
             DumpMem((uint32_t)rxPkt->pMacLayer, rxPkt->pDSeg->segLen);
         }
-        PTP_Bridge_OnFrame(rxPkt->pMacLayer, (uint16_t)rxPkt->pDSeg->segLen, rxTs);
+        PTP_FOL_OnFrame(rxPkt->pMacLayer, (uint16_t)rxPkt->pDSeg->segLen, rxTs);
         TCPIP_PKT_PacketAcknowledge(rxPkt, TCPIP_MAC_PKT_ACK_RX_OK);
         return true;
     }
@@ -544,14 +544,14 @@ static void cmd_ptp_mode(SYS_CMD_DEVICE_NODE *pCmdIO, int argc, char **argv) {
     }
     if (strcmp(argv[1], "off") == 0) {
         PTP_GM_Deinit();
-        PTP_Bridge_SetMode(PTP_DISABLED);
+        PTP_FOL_SetMode(PTP_DISABLED);
         SYS_CONSOLE_PRINT("[PTP] disabled\r\n");
     } else if (strcmp(argv[1], "follower") == 0) {
-        PTP_Bridge_SetMode(PTP_SLAVE);
+        PTP_FOL_SetMode(PTP_SLAVE);
         SYS_CONSOLE_PRINT("[PTP] follower mode (PLCA node %u)\r\n", (unsigned)DRV_LAN865X_PLCA_NODE_ID_IDX0);
     } else if (strcmp(argv[1], "master") == 0) {
         PTP_GM_Init();
-        PTP_Bridge_SetMode(PTP_MASTER);
+        PTP_FOL_SetMode(PTP_MASTER);
         SYS_CONSOLE_PRINT("[PTP] grandmaster mode (PLCA node 0)\r\n");
     } else {
         SYS_CONSOLE_PRINT("Unknown mode: %s\r\n", argv[1]);
@@ -563,7 +563,7 @@ static void cmd_ptp_status(SYS_CMD_DEVICE_NODE *pCmdIO, int argc, char **argv) {
     uint32_t cnt = 0u, state = 0u;
     PTP_GM_GetStatus(&cnt, &state);
     SYS_CONSOLE_PRINT("[PTP] mode=%s gmSyncs=%u gmState=%u\r\n",
-                       modeStr[PTP_Bridge_GetMode()],
+                       modeStr[PTP_FOL_GetMode()],
                        (unsigned)cnt, (unsigned)state);
 }
 
@@ -600,13 +600,13 @@ static void cmd_ptp_dst(SYS_CMD_DEVICE_NODE *pCmdIO, int argc, char **argv) {
 static void cmd_ptp_offset(SYS_CMD_DEVICE_NODE *pCmdIO, int argc, char **argv) {
     int64_t  off     = 0;
     uint64_t off_abs = 0;
-    PTP_Bridge_GetOffset(&off, &off_abs);
+    PTP_FOL_GetOffset(&off, &off_abs);
     SYS_CONSOLE_PRINT("[PTP] offset=%lld ns  abs=%llu ns\r\n",
                       (long long)off, (unsigned long long)off_abs);
 }
 
 static void cmd_ptp_reset(SYS_CMD_DEVICE_NODE *pCmdIO, int argc, char **argv) {
-    PTP_Bridge_Reset();
+    PTP_FOL_Reset();
     SYS_CONSOLE_PRINT("[PTP] follower servo reset to UNINIT\r\n");
 }
 
