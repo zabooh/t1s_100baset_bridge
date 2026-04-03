@@ -264,4 +264,11 @@ void PTP_FOL_GetOffset(int64_t *pOffset, uint64_t *pOffsetAbs);
 /** Reset follower servo to UNINIT state (same effect as SetMode(PTP_SLAVE)). */
 void PTP_FOL_Reset(void);
 
+/**
+ * Service function for PTP Follower - must be called periodically (e.g., every 1ms).
+ * Handles sequential register writes to LAN865x with proper synchronization.
+ * Only active when mode == PTP_SLAVE.
+ */
+void PTP_FOL_Service(void);
+
 #endif /* PTP_FOL_TASK_H */

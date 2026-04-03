@@ -26,6 +26,49 @@ Key differences vs. the noIP version:
 #define PTP_LOG SYS_CONSOLE_PRINT
 
 /* -------------------------------------------------------------------------
+ * State machine for sequential register writes
+ * ---------------------------------------------------------------------- */
+
+typedef enum {
+    FOL_REG_IDLE,
+    FOL_REG_WRITE_TSL,
+    FOL_REG_WAIT_TSL,
+    FOL_REG_WRITE_TN,
+    FOL_REG_WAIT_TN,
+    FOL_REG_WRITE_PPSCTL,
+    FOL_REG_WAIT_PPSCTL,
+    FOL_REG_WRITE_TISUBN,
+    FOL_REG_WAIT_TISUBN,
+    FOL_REG_WRITE_TI,
+    FOL_REG_WAIT_TI,
+    FOL_REG_WRITE_TA,
+    FOL_REG_WAIT_TA,
+    FOL_REG_DONE
+} fol_reg_state_t;
+
+typedef enum {
+    FOL_ACTION_NONE,
+    FOL_ACTION_HARD_SYNC,
+    FOL_ACTION_ENABLE_PPS,
+    FOL_ACTION_SET_CLOCK_INC,
+    FOL_ACTION_ADJUST_OFFSET
+} fol_action_t;
+
+typedef struct {
+    uint32_t tsl_value;
+    uint32_t tn_value;
+    uint32_t tisubn_value;
+    uint32_t ti_value;
+    uint32_t ta_value;
+} fol_reg_values_t;
+
+static fol_reg_state_t  fol_reg_state         = FOL_REG_IDLE;
+static fol_action_t     fol_pending_action    = FOL_ACTION_NONE;
+static fol_reg_values_t fol_reg_values        = {0u, 0u, 0u, 0u, 0u};
+static volatile bool    fol_reg_write_complete = false;
+static uint32_t         fol_reg_timeout       = 0u;
+
+/* -------------------------------------------------------------------------
  * Globals (mirror of ptp_task.c)
  * ---------------------------------------------------------------------- */
 
@@ -66,6 +109,176 @@ static int32_t  diff        = 0;
 static int32_t  filteredDiff= 0;
 long double corrNs          = 0.0;
 long double corrNsFlt       = 0.0;
+
+/* -------------------------------------------------------------------------
+ * Register-write callback and service function
+ * ---------------------------------------------------------------------- */
+
+static void fol_reg_write_callback(void *reserved1, bool success, uint32_t addr,
+                                   uint32_t value, void *pTag, void *reserved2)
+{
+    (void)reserved1; (void)addr; (void)value; (void)pTag; (void)reserved2;
+    if (success) {
+        fol_reg_write_complete = true;
+    } else {
+        PTP_LOG("[FOL] Register write failed: addr=0x%08X\r\n", (unsigned int)addr);
+        fol_reg_state      = FOL_REG_IDLE;
+        fol_pending_action = FOL_ACTION_NONE;
+    }
+}
+
+#define FOL_REG_TIMEOUT_MS 100u
+
+void PTP_FOL_Service(void)
+{
+    if (ptpMode != PTP_SLAVE) {
+        return;
+    }
+
+    switch (fol_reg_state) {
+        case FOL_REG_IDLE:
+            if (fol_pending_action != FOL_ACTION_NONE) {
+                fol_reg_timeout = FOL_REG_TIMEOUT_MS;
+                fol_reg_state   = FOL_REG_WRITE_TSL;
+            }
+            break;
+
+        case FOL_REG_WRITE_TSL:
+            if (fol_pending_action == FOL_ACTION_HARD_SYNC) {
+                fol_reg_write_complete = false;
+                (void)DRV_LAN865X_WriteRegister(0u, MAC_TSL, fol_reg_values.tsl_value,
+                                                true, fol_reg_write_callback, NULL);
+                fol_reg_state = FOL_REG_WAIT_TSL;
+            } else {
+                fol_reg_state = FOL_REG_WRITE_PPSCTL;
+            }
+            break;
+
+        case FOL_REG_WAIT_TSL:
+            if (fol_reg_write_complete) {
+                fol_reg_timeout = FOL_REG_TIMEOUT_MS;
+                fol_reg_state   = FOL_REG_WRITE_TN;
+            } else if (--fol_reg_timeout == 0u) {
+                PTP_LOG("[FOL] Timeout waiting for MAC_TSL write\r\n");
+                fol_reg_state      = FOL_REG_IDLE;
+                fol_pending_action = FOL_ACTION_NONE;
+            }
+            break;
+
+        case FOL_REG_WRITE_TN:
+            fol_reg_write_complete = false;
+            fol_reg_timeout = FOL_REG_TIMEOUT_MS;
+            (void)DRV_LAN865X_WriteRegister(0u, MAC_TN, fol_reg_values.tn_value,
+                                            true, fol_reg_write_callback, NULL);
+            fol_reg_state = FOL_REG_WAIT_TN;
+            break;
+
+        case FOL_REG_WAIT_TN:
+            if (fol_reg_write_complete) {
+                PTP_LOG("[FOL] Hard sync completed\r\n");
+                fol_reg_state = FOL_REG_DONE;
+            } else if (--fol_reg_timeout == 0u) {
+                PTP_LOG("[FOL] Timeout waiting for MAC_TN write\r\n");
+                fol_reg_state      = FOL_REG_IDLE;
+                fol_pending_action = FOL_ACTION_NONE;
+            }
+            break;
+
+        case FOL_REG_WRITE_PPSCTL:
+            if (fol_pending_action == FOL_ACTION_ENABLE_PPS) {
+                fol_reg_write_complete = false;
+                fol_reg_timeout = FOL_REG_TIMEOUT_MS;
+                (void)DRV_LAN865X_WriteRegister(0u, PPSCTL, 0x000007Du,
+                                                true, fol_reg_write_callback, NULL);
+                fol_reg_state = FOL_REG_WAIT_PPSCTL;
+            } else {
+                fol_reg_state = FOL_REG_WRITE_TISUBN;
+            }
+            break;
+
+        case FOL_REG_WAIT_PPSCTL:
+            if (fol_reg_write_complete) {
+                PTP_LOG("[FOL] 1PPS output enabled\r\n");
+                fol_reg_state = FOL_REG_DONE;
+            } else if (--fol_reg_timeout == 0u) {
+                PTP_LOG("[FOL] Timeout waiting for PPSCTL write\r\n");
+                fol_reg_state      = FOL_REG_IDLE;
+                fol_pending_action = FOL_ACTION_NONE;
+            }
+            break;
+
+        case FOL_REG_WRITE_TISUBN:
+            if (fol_pending_action == FOL_ACTION_SET_CLOCK_INC) {
+                fol_reg_write_complete = false;
+                fol_reg_timeout = FOL_REG_TIMEOUT_MS;
+                (void)DRV_LAN865X_WriteRegister(0u, MAC_TISUBN, fol_reg_values.tisubn_value,
+                                                true, fol_reg_write_callback, NULL);
+                fol_reg_state = FOL_REG_WAIT_TISUBN;
+            } else {
+                fol_reg_state = FOL_REG_WRITE_TA;
+            }
+            break;
+
+        case FOL_REG_WAIT_TISUBN:
+            if (fol_reg_write_complete) {
+                fol_reg_timeout = FOL_REG_TIMEOUT_MS;
+                fol_reg_state   = FOL_REG_WRITE_TI;
+            } else if (--fol_reg_timeout == 0u) {
+                PTP_LOG("[FOL] Timeout waiting for MAC_TISUBN write\r\n");
+                fol_reg_state      = FOL_REG_IDLE;
+                fol_pending_action = FOL_ACTION_NONE;
+            }
+            break;
+
+        case FOL_REG_WRITE_TI:
+            fol_reg_write_complete = false;
+            fol_reg_timeout = FOL_REG_TIMEOUT_MS;
+            (void)DRV_LAN865X_WriteRegister(0u, MAC_TI, fol_reg_values.ti_value,
+                                            true, fol_reg_write_callback, NULL);
+            fol_reg_state = FOL_REG_WAIT_TI;
+            break;
+
+        case FOL_REG_WAIT_TI:
+            if (fol_reg_write_complete) {
+                PTP_LOG("[FOL] Clock increment set: TI=%u TISUBN=0x%08X\r\n",
+                        (unsigned int)fol_reg_values.ti_value,
+                        (unsigned int)fol_reg_values.tisubn_value);
+                fol_reg_state = FOL_REG_DONE;
+            } else if (--fol_reg_timeout == 0u) {
+                PTP_LOG("[FOL] Timeout waiting for MAC_TI write\r\n");
+                fol_reg_state      = FOL_REG_IDLE;
+                fol_pending_action = FOL_ACTION_NONE;
+            }
+            break;
+
+        case FOL_REG_WRITE_TA:
+            if (fol_pending_action == FOL_ACTION_ADJUST_OFFSET) {
+                fol_reg_write_complete = false;
+                fol_reg_timeout = FOL_REG_TIMEOUT_MS;
+                (void)DRV_LAN865X_WriteRegister(0u, MAC_TA, fol_reg_values.ta_value,
+                                                true, fol_reg_write_callback, NULL);
+                fol_reg_state = FOL_REG_WAIT_TA;
+            } else {
+                fol_reg_state = FOL_REG_DONE;
+            }
+            break;
+
+        case FOL_REG_WAIT_TA:
+            if (fol_reg_write_complete) {
+                fol_reg_state = FOL_REG_DONE;
+            } else if (--fol_reg_timeout == 0u) {
+                PTP_LOG("[FOL] Timeout waiting for MAC_TA write\r\n");
+                fol_reg_state      = FOL_REG_IDLE;
+                fol_pending_action = FOL_ACTION_NONE;
+            }
+            break;
+
+        case FOL_REG_DONE:
+            fol_reg_state      = FOL_REG_IDLE;
+            fol_pending_action = FOL_ACTION_NONE;
+            break;
+    }
+}
 
 /* -------------------------------------------------------------------------
  * Internal helpers
@@ -177,15 +390,16 @@ static void processFollowUp(followUpMsg_t *ptpPkt)
 
     /* Hard sync: set the local wall clock directly to the GM timestamp */
     if (hardResync) {
-        DRV_LAN865X_WriteRegister(0u, MAC_TSL, TS_SYNC.origin.secondsLsb, true, NULL, NULL);
-        DRV_LAN865X_WriteRegister(0u, MAC_TN,  TS_SYNC.origin.nanoseconds, true, NULL, NULL);
-        PTP_LOG("Large offset, doing hard sync\r\n");
+        fol_reg_values.tsl_value = TS_SYNC.origin.secondsLsb;
+        fol_reg_values.tn_value  = TS_SYNC.origin.nanoseconds;
+        fol_pending_action = FOL_ACTION_HARD_SYNC;
+        PTP_LOG("Large offset, scheduling hard sync\r\n");
         hardResync = 0;
     }
 
     /* Enable 1PPS output once the clock is synced */
     if (ptpSynced && !wallClockSet) {
-        DRV_LAN865X_WriteRegister(0u, PPSCTL, 0x000007Du, true, NULL, NULL);
+        fol_pending_action = FOL_ACTION_ENABLE_PPS;
         wallClockSet = true;
     }
 
@@ -242,9 +456,10 @@ static void processFollowUp(followUpMsg_t *ptpPkt)
             calcSubInc_uint = ((calcSubInc_uint >> 8) & 0xFFFFu)
                             | ((calcSubInc_uint & 0xFFu) << 24);
 
-            DRV_LAN865X_WriteRegister(0u, MAC_TISUBN, calcSubInc_uint, true, NULL, NULL);
-            DRV_LAN865X_WriteRegister(0u, MAC_TI, (uint32_t)mac_ti, true, NULL, NULL);
-            PTP_LOG("PTP UNINIT->MATCHFREQ  MAC_TI=%u TISUBN=0x%08X\r\n",
+            fol_reg_values.tisubn_value = calcSubInc_uint;
+            fol_reg_values.ti_value     = (uint32_t)mac_ti;
+            fol_pending_action = FOL_ACTION_SET_CLOCK_INC;
+            PTP_LOG("PTP UNINIT->MATCHFREQ  scheduling TI=%u TISUBN=0x%08X\r\n",
                     (unsigned int)mac_ti, (unsigned int)calcSubInc_uint);
 
             syncStatus = MATCHFREQ;
@@ -273,8 +488,8 @@ static void processFollowUp(followUpMsg_t *ptpPkt)
 
         } else if (offset_abs > HARDSYNC_THRESHOLD) {
             offset_abs = HARDSYNC_THRESHOLD;
-            DRV_LAN865X_WriteRegister(0u, MAC_TA,
-                ((neg & 1u) << 31) | (uint32_t)offset_abs, true, NULL, NULL);
+            fol_reg_values.ta_value = ((neg & 1u) << 31) | (uint32_t)offset_abs;
+            fol_pending_action = FOL_ACTION_ADJUST_OFFSET;
             syncStatus = HARDSYNC;
 
         } else if (offset_abs > HARDSYNC_COARSE_THRESHOLD) {
@@ -284,8 +499,8 @@ static void processFollowUp(followUpMsg_t *ptpPkt)
                 offsetCoarseState.filled = 0;
                 offsetState.filled       = 0;
             }
-            DRV_LAN865X_WriteRegister(0u, MAC_TA,
-                ((neg & 1u) << 31) | (uint32_t)offset_abs, true, NULL, NULL);
+            fol_reg_values.ta_value = ((neg & 1u) << 31) | (uint32_t)offset_abs;
+            fol_pending_action = FOL_ACTION_ADJUST_OFFSET;
             syncStatus = HARDSYNC;
 
         } else if (offset_abs > HARDSYNC_FINE_THRESHOLD) {
@@ -298,8 +513,8 @@ static void processFollowUp(followUpMsg_t *ptpPkt)
             int32_t write_val = (int32_t)offsetFIR;
             if (!neg) write_val = write_val * (-1);
 
-            DRV_LAN865X_WriteRegister(0u, MAC_TA,
-                ((neg & 1u) << 31) | (uint32_t)write_val, true, NULL, NULL);
+            fol_reg_values.ta_value = ((neg & 1u) << 31) | (uint32_t)write_val;
+            fol_pending_action = FOL_ACTION_ADJUST_OFFSET;
             syncStatus = COARSE;
             PTP_LOG("PTP COARSE  offset=%d val=%d\r\n",
                     (int)offset, (int)write_val);
@@ -310,8 +525,8 @@ static void processFollowUp(followUpMsg_t *ptpPkt)
             int32_t write_val = (int32_t)offsetFIR;
             if (!neg) write_val = write_val * (-1);
 
-            DRV_LAN865X_WriteRegister(0u, MAC_TA,
-                ((neg & 1u) << 31) | (uint32_t)write_val, true, NULL, NULL);
+            fol_reg_values.ta_value = ((neg & 1u) << 31) | (uint32_t)write_val;
+            fol_pending_action = FOL_ACTION_ADJUST_OFFSET;
             syncStatus = FINE;
             PTP_LOG("PTP FINE    offset=%d val=%d\r\n",
                     (int)offset, (int)write_val);
