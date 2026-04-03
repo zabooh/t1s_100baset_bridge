@@ -17,12 +17,7 @@ Key differences vs. the noIP reference:
 #include <stdint.h>
 #include "ptp_gm_task.h"
 #include "ptp_bridge_task.h"
-#if PTP_GM_USE_DRV_LAN865X_WRITEREGISTER || \
-    PTP_GM_USE_DRV_LAN865X_READREGISTER || \
-    PTP_GM_USE_DRV_LAN865X_SENDRAWETHFRAME || \
-    PTP_GM_USE_DRV_LAN865X_GETANDCLEARTSCAPTURE
 #include "config/default/driver/lan865x/drv_lan865x.h"
-#endif
 #include "config/default/system/console/sys_console.h"
 #include "config/default/library/tcpip/tcpip.h"
 
@@ -161,7 +156,6 @@ static const uint32_t gm_deinit_vals[GM_DEINIT_WRITE_COUNT] = {
  * ---------------------------------------------------------------------- */
 
 /* Generic read/write callback — sets the done flag and stores the read value */
-#if PTP_GM_USE_DRV_LAN865X_WRITEREGISTER || PTP_GM_USE_DRV_LAN865X_READREGISTER
 static void gm_op_cb(void *r1, bool ok, uint32_t addr,
                      uint32_t value, void *tag, void *r2)
 {
@@ -169,7 +163,6 @@ static void gm_op_cb(void *r1, bool ok, uint32_t addr,
     gm_op_val  = value;
     gm_op_done = true;
 }
-#endif
 
 /* TX-done callback for raw Sync / FollowUp frames */
 static void gm_tx_cb(void *pInst, const uint8_t *pTx,
@@ -181,25 +174,12 @@ static void gm_tx_cb(void *pInst, const uint8_t *pTx,
 
 static bool gm_read_register(uint32_t addr, bool useCallbackProtectedMode)
 {
-#if PTP_GM_USE_DRV_LAN865X_READREGISTER
     return TCPIP_MAC_RES_OK == DRV_LAN865X_ReadRegister(0u, addr, useCallbackProtectedMode, gm_op_cb, NULL);
-#else
-    (void)addr;
-    (void)useCallbackProtectedMode;
-    return false;
-#endif
 }
 
 static bool gm_write_register(uint32_t addr, uint32_t value, bool useCallbackProtectedMode)
 {
-#if PTP_GM_USE_DRV_LAN865X_WRITEREGISTER
     return TCPIP_MAC_RES_OK == DRV_LAN865X_WriteRegister(0u, addr, value, useCallbackProtectedMode, gm_op_cb, NULL);
-#else
-    (void)addr;
-    (void)value;
-    (void)useCallbackProtectedMode;
-    return false;
-#endif
 }
 
 static bool gm_send_raw_eth_frame(const uint8_t *frame, uint16_t length,
@@ -207,16 +187,7 @@ static bool gm_send_raw_eth_frame(const uint8_t *frame, uint16_t length,
                                   void (*callback)(void *, const uint8_t *, uint16_t, void *, void *),
                                   void *tag)
 {
-#if PTP_GM_USE_DRV_LAN865X_SENDRAWETHFRAME
     return DRV_LAN865X_SendRawEthFrame(0u, frame, length, tsc, callback, tag);
-#else
-    (void)frame;
-    (void)length;
-    (void)tsc;
-    (void)callback;
-    (void)tag;
-    return false;
-#endif
 }
 
 /* --- One-shot register dump flag (set externally, consumed by PTP_GM_Service) --- */
@@ -229,11 +200,7 @@ void PTP_GM_RequestRegDump(void)
 
 static uint32_t gm_get_and_clear_ts_capture(void)
 {
-#if PTP_GM_USE_DRV_LAN865X_GETANDCLEARTSCAPTURE
     return DRV_LAN865X_GetAndClearTsCapture(0u);
-#else
-    return 0u;
-#endif
 }
 
 /* Build PTP multicast Ethernet header at dst (14 bytes) */
