@@ -127,12 +127,7 @@ static PTP_FRAME_BUFFER ptp_rx_buffer = {0};
 #if ENABLE_DEFERRED_LOGGING
 
 #define PKT_LOG_BUF_SIZE    64u   /* ring buffer capacity; must be a power of 2 */
-#define PKT_LOG_DATA_BYTES  32u   /* first N frame bytes captured (header-only mode) */
-
-/* Two-stage full-frame capture:
- *   1 = full frame stored in shared pool (up to PKT_LOG_MAX_FRAME_SIZE bytes each)
- *   0 = header-only (original 32-byte inline behaviour)                           */
-#define PKT_LOG_FULL_FRAMES    1u
+/* Full-frame capture: frame stored in shared pool (up to PKT_LOG_MAX_FRAME_SIZE bytes each) */
 #define PKT_LOG_MAX_FRAMES     16u    /* number of full-size frames bufferable in pool */
 #define PKT_LOG_MAX_FRAME_SIZE 1518u  /* max bytes per frame (standard Ethernet MTU)  */
 
@@ -143,7 +138,6 @@ typedef enum {
     PKT_LOG_ETH1 = 3,  /* generic frame from eth1        */
 } pkt_log_type_t;
 
-#if PKT_LOG_FULL_FRAMES
 typedef struct {
     uint64_t       timestamp;    /* SYS_TIME_Counter64Get()                    */
     uint32_t       pkt_counter;  /* per-handler packet counter                 */
@@ -158,21 +152,6 @@ typedef struct {
     pkt_log_type_t log_type;     /* entry classification                       */
     uint8_t        mac_src[6];   /* source MAC (extracted separately)          */
 } PKT_LOG_ENTRY;
-#else
-typedef struct {
-    uint64_t       timestamp;                /* SYS_TIME_Counter64Get()           */
-    uint32_t       pkt_counter;              /* per-handler packet counter        */
-    uint64_t       ptp_ts;                   /* hardware PTP RX timestamp         */
-    uint32_t       noip_seq;                 /* NoIP sequence number              */
-    uint16_t       frame_type;               /* EtherType                         */
-    uint16_t       length;                   /* frame length in bytes             */
-    uint8_t        iface;                    /* 0 = eth0, 1 = eth1               */
-    pkt_log_type_t log_type;                 /* entry classification              */
-    uint8_t        mac_src[6];               /* source MAC address                */
-    uint8_t        data[PKT_LOG_DATA_BYTES]; /* first bytes of frame              */
-    uint16_t       data_len;                 /* bytes stored in data[]            */
-} PKT_LOG_ENTRY;
-#endif /* PKT_LOG_FULL_FRAMES */
 
 typedef struct {
     PKT_LOG_ENTRY     entries[PKT_LOG_BUF_SIZE];
@@ -184,7 +163,6 @@ typedef struct {
 
 static PKT_LOG_BUF pkt_log = {0};
 
-#if PKT_LOG_FULL_FRAMES
 /* Shared circular pool for storing complete frame bytes.
  * Holds up to PKT_LOG_MAX_FRAMES full-size Ethernet frames.
  * Aligned to 4 bytes for efficient ARM word-aligned access. */
@@ -196,26 +174,19 @@ typedef struct {
 } FRAME_DATA_POOL;
 
 static FRAME_DATA_POOL frame_data_pool __attribute__((aligned(4))) = {0};
-#endif /* PKT_LOG_FULL_FRAMES */
 
 /* Lock-free single-producer/single-consumer ring buffer write.
  * On ARM Cortex-M, 32-bit aligned stores are single-instruction atomic.
  * write_idx is committed last so the reader never observes a partial entry.
  * Newest entries are dropped when the buffer is full.
  *
- * Full-frame mode (PKT_LOG_FULL_FRAMES == 1):
- *   frame_data/frame_len provide the complete frame bytes to copy into the
- *   shared pool.  The pool write_offset is advanced after the copy.
- *   Wraparound safety: if the frame does not fit at the current write_offset
- *   the function attempts to wrap to offset 0.  It only wraps if no pending
- *   log entry references data in [0, copy_len), otherwise the frame is
- *   truncated to the remaining bytes at the end of the pool.
- *
- * Header-only mode (PKT_LOG_FULL_FRAMES == 0):
- *   frame_data / frame_len are ignored; data[] in the entry is already
- *   filled by the caller.
+ * frame_data/frame_len provide the complete frame bytes to copy into the
+ * shared pool.  The pool write_offset is advanced after the copy.
+ * Wraparound safety: if the frame does not fit at the current write_offset
+ * the function attempts to wrap to offset 0.  It only wraps if no pending
+ * log entry references data in [0, copy_len), otherwise the frame is
+ * truncated to the remaining bytes at the end of the pool.
  */
-#if PKT_LOG_FULL_FRAMES
 static void PktLog_Write(PKT_LOG_ENTRY *entry,
                          const uint8_t *frame_data, uint16_t frame_len)
 {
@@ -270,19 +241,6 @@ static void PktLog_Write(PKT_LOG_ENTRY *entry,
     pkt_log.total_logged++;
     pkt_log.write_idx = next; /* commit – must be the last store */
 }
-#else /* PKT_LOG_FULL_FRAMES == 0 */
-static void PktLog_Write(const PKT_LOG_ENTRY *entry)
-{
-    uint32_t next = (pkt_log.write_idx + 1u) & (PKT_LOG_BUF_SIZE - 1u);
-    if (next == pkt_log.read_idx) {
-        pkt_log.overflow_cnt++;
-        return; /* buffer full – drop newest entry */
-    }
-    pkt_log.entries[pkt_log.write_idx] = *entry;
-    pkt_log.total_logged++;
-    pkt_log.write_idx = next; /* commit – must be the last store */
-}
-#endif /* PKT_LOG_FULL_FRAMES */
 
 /* Read one entry from the ring buffer; returns false if empty. */
 static bool PktLog_Read(PKT_LOG_ENTRY *entry)
@@ -624,62 +582,34 @@ void APP_Tasks(void) {
                                 log_e.mac_src[3], log_e.mac_src[4], log_e.mac_src[5],
                                 (int)log_e.length, (unsigned long long)ts_ms);
                             if (log_e.data_len > 0u) {
-#if PKT_LOG_FULL_FRAMES
                                 DumpMem((uint32_t)&frame_data_pool.pool[log_e.data_offset], log_e.data_len);
-#else
-                                DumpMem((uint32_t)log_e.data, log_e.data_len);
-#endif
                             }
                             break;
                         case PKT_LOG_PTP:
                             SYS_CONSOLE_PRINT("E0:PTP[0x88F7] len=%u ts=%llu%s\r\n",
                                 (unsigned)log_e.length,
                                 (unsigned long long)log_e.ptp_ts,
-#if PKT_LOG_FULL_FRAMES
                                 log_e.truncated ? " [TRUNC]" : "");
-#else
-                                "");
-#endif
                             if (log_e.data_len > 0u) {
-#if PKT_LOG_FULL_FRAMES
                                 DumpMem((uint32_t)&frame_data_pool.pool[log_e.data_offset], log_e.data_len);
-#else
-                                DumpMem((uint32_t)log_e.data, log_e.data_len);
-#endif
                             }
                             break;
                         case PKT_LOG_ETH0:
                             SYS_CONSOLE_PRINT("E0:%u len=%u ts=%llu ms%s\r\n",
                                 (unsigned)log_e.pkt_counter, (unsigned)log_e.length,
                                 (unsigned long long)ts_ms,
-#if PKT_LOG_FULL_FRAMES
                                 log_e.truncated ? " [TRUNC]" : "");
-#else
-                                "");
-#endif
                             if (log_e.data_len > 0u) {
-#if PKT_LOG_FULL_FRAMES
                                 DumpMem((uint32_t)&frame_data_pool.pool[log_e.data_offset], log_e.data_len);
-#else
-                                DumpMem((uint32_t)log_e.data, log_e.data_len);
-#endif
                             }
                             break;
                         case PKT_LOG_ETH1:
                             SYS_CONSOLE_PRINT("E1:%u len=%u ts=%llu ms%s\r\n",
                                 (unsigned)log_e.pkt_counter, (unsigned)log_e.length,
                                 (unsigned long long)ts_ms,
-#if PKT_LOG_FULL_FRAMES
                                 log_e.truncated ? " [TRUNC]" : "");
-#else
-                                "");
-#endif
                             if (log_e.data_len > 0u) {
-#if PKT_LOG_FULL_FRAMES
                                 DumpMem((uint32_t)&frame_data_pool.pool[log_e.data_offset], log_e.data_len);
-#else
-                                DumpMem((uint32_t)log_e.data, log_e.data_len);
-#endif
                             }
                             break;
                         default:
@@ -722,13 +652,7 @@ bool pktEth0Handler(TCPIP_NET_HANDLE hNet, struct _tag_TCPIP_MAC_PACKET* rxPkt, 
         log_e.iface       = 0u;
         log_e.log_type    = PKT_LOG_NOIP;
         memcpy(log_e.mac_src, &p[6], 6u);
-#if PKT_LOG_FULL_FRAMES
         PktLog_Write(&log_e, rxPkt->pMacLayer, rxPkt->pDSeg->segLen);
-#else
-        log_e.data_len = (log_e.length < (uint16_t)PKT_LOG_DATA_BYTES) ? log_e.length : (uint16_t)PKT_LOG_DATA_BYTES;
-        memcpy(log_e.data, rxPkt->pMacLayer, log_e.data_len);
-        PktLog_Write(&log_e);
-#endif
 #else
         SYS_CONSOLE_PRINT("[NoIP-RX] #%u seq=%u from %02X:%02X:%02X:%02X:%02X:%02X len=%d\r\n",
             (unsigned)noip_rx_cnt, (unsigned)seq,
@@ -758,13 +682,7 @@ bool pktEth0Handler(TCPIP_NET_HANDLE hNet, struct _tag_TCPIP_MAC_PACKET* rxPkt, 
             log_e.iface       = 0u;
             log_e.log_type    = PKT_LOG_PTP;
             memcpy(log_e.mac_src, &rxPkt->pMacLayer[6], 6u);
-#if PKT_LOG_FULL_FRAMES
             PktLog_Write(&log_e, rxPkt->pMacLayer, rxPkt->pDSeg->segLen);
-#else
-            log_e.data_len = (log_e.length < (uint16_t)PKT_LOG_DATA_BYTES) ? log_e.length : (uint16_t)PKT_LOG_DATA_BYTES;
-            memcpy(log_e.data, rxPkt->pMacLayer, log_e.data_len);
-            PktLog_Write(&log_e);
-#endif
 #else
             SYS_CONSOLE_PRINT("E0:PTP[0x88F7] len=%u ts=%llu\r\n",
                               (unsigned)rxPkt->pDSeg->segLen,
@@ -797,13 +715,7 @@ bool pktEth0Handler(TCPIP_NET_HANDLE hNet, struct _tag_TCPIP_MAC_PACKET* rxPkt, 
         log_e.iface       = 0u;
         log_e.log_type    = PKT_LOG_ETH0;
         memcpy(log_e.mac_src, &rxPkt->pMacLayer[6], 6u);
-#if PKT_LOG_FULL_FRAMES
         PktLog_Write(&log_e, rxPkt->pMacLayer, rxPkt->pDSeg->segLen);
-#else
-        log_e.data_len = (log_e.length < (uint16_t)PKT_LOG_DATA_BYTES) ? log_e.length : (uint16_t)PKT_LOG_DATA_BYTES;
-        memcpy(log_e.data, rxPkt->pMacLayer, log_e.data_len);
-        PktLog_Write(&log_e);
-#endif
 #else
         SYS_CONSOLE_PRINT("E0:%d\n\r", packet_counter);
         uint8_t *puc_s = rxPkt->pMacLayer;
@@ -838,13 +750,7 @@ bool pktEth1Handler(TCPIP_NET_HANDLE hNet, struct _tag_TCPIP_MAC_PACKET* rxPkt, 
         log_e.iface       = 1u;
         log_e.log_type    = PKT_LOG_ETH1;
         memcpy(log_e.mac_src, &rxPkt->pDSeg->segLoad[6], 6u);
-#if PKT_LOG_FULL_FRAMES
         PktLog_Write(&log_e, rxPkt->pDSeg->segLoad, rxPkt->pDSeg->segLen);
-#else
-        log_e.data_len = (log_e.length < (uint16_t)PKT_LOG_DATA_BYTES) ? log_e.length : (uint16_t)PKT_LOG_DATA_BYTES;
-        memcpy(log_e.data, rxPkt->pDSeg->segLoad, log_e.data_len);
-        PktLog_Write(&log_e);
-#endif
 #else
         SYS_CONSOLE_PRINT("E1:%d\n\r", packet_counter);
         uint8_t *puc_s = rxPkt->pDSeg->segLoad;
@@ -898,9 +804,7 @@ static void cmd_logclear(SYS_CMD_DEVICE_NODE *pCmdIO, int argc, char **argv) {
     pkt_log.read_idx     = pkt_log.write_idx; /* drain pending entries */
     pkt_log.overflow_cnt = 0u;
     pkt_log.total_logged = 0u;
-#if PKT_LOG_FULL_FRAMES
     frame_data_pool.write_offset = 0u;
-#endif
     SYS_CONSOLE_PRINT("[LOG] ring buffer cleared\r\n");
 }
 
@@ -911,16 +815,11 @@ static void cmd_logstat(SYS_CMD_DEVICE_NODE *pCmdIO, int argc, char **argv) {
     SYS_CONSOLE_PRINT("[LOG] total=%u pending=%u overflows=%u bufsize=%u\r\n",
         (unsigned)pkt_log.total_logged, (unsigned)pending,
         (unsigned)pkt_log.overflow_cnt, (unsigned)PKT_LOG_BUF_SIZE);
-#if PKT_LOG_FULL_FRAMES
     SYS_CONSOLE_PRINT("[LOG] pool_offset=%u pool_size=%u (%u frames x %u bytes)\r\n",
         (unsigned)frame_data_pool.write_offset,
         (unsigned)FRAME_DATA_POOL_SIZE,
         (unsigned)PKT_LOG_MAX_FRAMES,
         (unsigned)PKT_LOG_MAX_FRAME_SIZE);
-#else
-    SYS_CONSOLE_PRINT("[LOG] mode=header-only data_bytes=%u\r\n",
-        (unsigned)PKT_LOG_DATA_BYTES);
-#endif
 }
 #endif /* ENABLE_DEFERRED_LOGGING */
 
