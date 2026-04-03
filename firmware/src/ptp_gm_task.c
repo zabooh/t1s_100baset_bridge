@@ -52,6 +52,7 @@ typedef enum {
     GM_STATE_WAIT_INIT_WRITE,
     GM_STATE_WRITE_TXMCTL,
     GM_STATE_WAIT_WRITE_TXMCTL,
+    GM_STATE_WAIT_SYNC_TX_DONE,
     GM_STATE_DEINIT_WRITE,
     GM_STATE_WAIT_DEINIT_WRITE
 } gmState_t;
@@ -109,6 +110,7 @@ static const char *gm_state_to_str(gmState_t state)
         case GM_STATE_WAIT_INIT_WRITE:   return "GM_STATE_WAIT_INIT_WRITE";
         case GM_STATE_WRITE_TXMCTL:      return "GM_STATE_WRITE_TXMCTL";
         case GM_STATE_WAIT_WRITE_TXMCTL: return "GM_STATE_WAIT_WRITE_TXMCTL";
+        case GM_STATE_WAIT_SYNC_TX_DONE: return "GM_STATE_WAIT_SYNC_TX_DONE";
         case GM_STATE_DEINIT_WRITE:      return "GM_STATE_DEINIT_WRITE";
         case GM_STATE_WAIT_DEINIT_WRITE: return "GM_STATE_WAIT_DEINIT_WRITE";
         default:                     return "GM_STATE_UNKNOWN";
@@ -685,12 +687,31 @@ void PTP_GM_Service(void)
                 break;
             }
             gm_sync_cnt++;
-            SYS_CONSOLE_PRINT("[PTP-GM] Sync #%u\r\n", (unsigned)gm_seq_id);
+            SYS_CONSOLE_PRINT("[PTP-GM] Sync #%u sent, waiting for TX done...\r\n", (unsigned)gm_seq_id);
             /* With pure header-based TSC capture: skip TXPMDET polling;
              * go directly to STATUS0 capture wait. */
             gm_wait_ticks = 0u;
-            GM_SET_STATE(GM_STATE_WAIT_STATUS0);
+            GM_SET_STATE(GM_STATE_WAIT_SYNC_TX_DONE);
 #endif
+            break;
+
+        /* ---- Wait for TX callback confirmation before proceeding ---- */
+        case GM_STATE_WAIT_SYNC_TX_DONE:
+            if (gm_tx_busy) {
+                /* Frame is still being transmitted */
+                if (++gm_wait_ticks >= 500u) {  /* 500 ms timeout (1 tick == 1 ms) */
+                    SYS_CONSOLE_PRINT("[PTP-GM] WAIT_SYNC_TX_DONE timeout after Sync #%u\r\n",
+                                      (unsigned)gm_seq_id);
+                    gm_tx_busy = false;
+                    gm_wait_ticks = 0u;
+                    GM_SET_STATE(GM_STATE_WAIT_PERIOD);
+                }
+                break;
+            }
+            /* gm_tx_busy == false: Callback was invoked, transmission confirmed */
+            gm_wait_ticks = 0u;
+            SYS_CONSOLE_PRINT("[PTP-GM] Sync #%u TX confirmed\r\n", (unsigned)gm_seq_id);
+            GM_SET_STATE(GM_STATE_WAIT_STATUS0);
             break;
 
         /* ---- Issue next register write in the deinit sequence ---- */
