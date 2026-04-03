@@ -120,11 +120,7 @@ static PTP_FRAME_BUFFER ptp_rx_buffer = {0};
  * =========================================================
  * Packet handlers store metadata into a ring buffer instead
  * of calling SYS_CONSOLE_PRINT()/DumpMem() directly.
- * APP_Tasks() drains the buffer (max 10 entries per call).
- * Compile-time guard: set to 0 to revert to inline logging. */
-#define ENABLE_DEFERRED_LOGGING 1
-
-#if ENABLE_DEFERRED_LOGGING
+ * APP_Tasks() drains the buffer (max 10 entries per call). */
 
 #define PKT_LOG_BUF_SIZE    64u   /* ring buffer capacity; must be a power of 2 */
 /* Full-frame capture: frame stored in shared pool (up to PKT_LOG_MAX_FRAME_SIZE bytes each) */
@@ -252,8 +248,6 @@ static bool PktLog_Read(PKT_LOG_ENTRY *entry)
     pkt_log.read_idx = (pkt_log.read_idx + 1u) & (PKT_LOG_BUF_SIZE - 1u);
     return true;
 }
-
-#endif /* ENABLE_DEFERRED_LOGGING */
 
 static void app_wait_ms(uint32_t ms)
 {
@@ -567,7 +561,6 @@ void APP_Tasks(void) {
             }
             lan865x_prev_ready = lan865x_ready;
 
-#if ENABLE_DEFERRED_LOGGING
             /* === Deferred packet log output (max 10 entries per APP_Tasks iteration) === */
             if (ticks_per_ms > 0u) {
                 PKT_LOG_ENTRY log_e;
@@ -617,7 +610,6 @@ void APP_Tasks(void) {
                     }
                 }
             }
-#endif /* ENABLE_DEFERRED_LOGGING */
             break;
         }
 
@@ -642,7 +634,6 @@ bool pktEth0Handler(TCPIP_NET_HANDLE hNet, struct _tag_TCPIP_MAC_PACKET* rxPkt, 
         const uint8_t *p = rxPkt->pMacLayer;
         uint32_t seq = ((uint32_t)p[14] << 24) | ((uint32_t)p[15] << 16)
                      | ((uint32_t)p[16] <<  8) |  (uint32_t)p[17];
-#if ENABLE_DEFERRED_LOGGING
         PKT_LOG_ENTRY log_e = {0};
         log_e.timestamp   = SYS_TIME_Counter64Get();
         log_e.pkt_counter = noip_rx_cnt;
@@ -653,13 +644,6 @@ bool pktEth0Handler(TCPIP_NET_HANDLE hNet, struct _tag_TCPIP_MAC_PACKET* rxPkt, 
         log_e.log_type    = PKT_LOG_NOIP;
         memcpy(log_e.mac_src, &p[6], 6u);
         PktLog_Write(&log_e, rxPkt->pMacLayer, rxPkt->pDSeg->segLen);
-#else
-        SYS_CONSOLE_PRINT("[NoIP-RX] #%u seq=%u from %02X:%02X:%02X:%02X:%02X:%02X len=%d\r\n",
-            (unsigned)noip_rx_cnt, (unsigned)seq,
-            p[6], p[7], p[8], p[9], p[10], p[11],
-            rxPkt->pDSeg->segLen);
-        DumpMem((uint32_t)rxPkt->pMacLayer, rxPkt->pDSeg->segLen);
-#endif
         TCPIP_PKT_PacketAcknowledge(rxPkt, TCPIP_MAC_PKT_ACK_RX_OK);
         return true;
     }
@@ -672,7 +656,6 @@ bool pktEth0Handler(TCPIP_NET_HANDLE hNet, struct _tag_TCPIP_MAC_PACKET* rxPkt, 
             g_ptp_rx_ts.valid = false;
         }
         if (ipdump_mode == 1u || ipdump_mode == 3u) {
-#if ENABLE_DEFERRED_LOGGING
             PKT_LOG_ENTRY log_e = {0};
             log_e.timestamp   = SYS_TIME_Counter64Get();
             log_e.pkt_counter = packet_counter;
@@ -683,12 +666,6 @@ bool pktEth0Handler(TCPIP_NET_HANDLE hNet, struct _tag_TCPIP_MAC_PACKET* rxPkt, 
             log_e.log_type    = PKT_LOG_PTP;
             memcpy(log_e.mac_src, &rxPkt->pMacLayer[6], 6u);
             PktLog_Write(&log_e, rxPkt->pMacLayer, rxPkt->pDSeg->segLen);
-#else
-            SYS_CONSOLE_PRINT("E0:PTP[0x88F7] len=%u ts=%llu\r\n",
-                              (unsigned)rxPkt->pDSeg->segLen,
-                              (unsigned long long)rxTs);
-            DumpMem((uint32_t)rxPkt->pMacLayer, rxPkt->pDSeg->segLen);
-#endif
         }
         /* Store the frame for later processing in APP_Tasks().
          * If a frame is already pending, the older (stale) frame is overwritten
@@ -706,7 +683,6 @@ bool pktEth0Handler(TCPIP_NET_HANDLE hNet, struct _tag_TCPIP_MAC_PACKET* rxPkt, 
     }
 
     if (ipdump_mode == 1 || ipdump_mode == 3) {
-#if ENABLE_DEFERRED_LOGGING
         PKT_LOG_ENTRY log_e = {0};
         log_e.timestamp   = SYS_TIME_Counter64Get();
         log_e.pkt_counter = packet_counter;
@@ -716,12 +692,6 @@ bool pktEth0Handler(TCPIP_NET_HANDLE hNet, struct _tag_TCPIP_MAC_PACKET* rxPkt, 
         log_e.log_type    = PKT_LOG_ETH0;
         memcpy(log_e.mac_src, &rxPkt->pMacLayer[6], 6u);
         PktLog_Write(&log_e, rxPkt->pMacLayer, rxPkt->pDSeg->segLen);
-#else
-        SYS_CONSOLE_PRINT("E0:%d\n\r", packet_counter);
-        uint8_t *puc_s = rxPkt->pMacLayer;
-        uint32_t data_len = rxPkt->pDSeg->segLen;
-        DumpMem((uint32_t) puc_s, data_len);
-#endif
     }
 
     if ( fwd_mode == 1) {
@@ -741,7 +711,6 @@ bool pktEth1Handler(TCPIP_NET_HANDLE hNet, struct _tag_TCPIP_MAC_PACKET* rxPkt, 
     packet_counter++;
 
     if (ipdump_mode == 2 || ipdump_mode == 3) {
-#if ENABLE_DEFERRED_LOGGING
         PKT_LOG_ENTRY log_e = {0};
         log_e.timestamp   = SYS_TIME_Counter64Get();
         log_e.pkt_counter = packet_counter;
@@ -751,12 +720,6 @@ bool pktEth1Handler(TCPIP_NET_HANDLE hNet, struct _tag_TCPIP_MAC_PACKET* rxPkt, 
         log_e.log_type    = PKT_LOG_ETH1;
         memcpy(log_e.mac_src, &rxPkt->pDSeg->segLoad[6], 6u);
         PktLog_Write(&log_e, rxPkt->pDSeg->segLoad, rxPkt->pDSeg->segLen);
-#else
-        SYS_CONSOLE_PRINT("E1:%d\n\r", packet_counter);
-        uint8_t *puc_s = rxPkt->pDSeg->segLoad;
-        uint32_t data_len = rxPkt->pDSeg->segLen;
-        DumpMem((uint32_t) puc_s, data_len);
-#endif
     }
     return false;
 }
@@ -798,7 +761,6 @@ void DumpMem(uint32_t addr, uint32_t count) {
     SYS_CONSOLE_PRINT("\n\r");
 }
 
-#if ENABLE_DEFERRED_LOGGING
 static void cmd_logclear(SYS_CMD_DEVICE_NODE *pCmdIO, int argc, char **argv) {
     (void)pCmdIO; (void)argc; (void)argv;
     pkt_log.read_idx     = pkt_log.write_idx; /* drain pending entries */
@@ -821,7 +783,6 @@ static void cmd_logstat(SYS_CMD_DEVICE_NODE *pCmdIO, int argc, char **argv) {
         (unsigned)PKT_LOG_MAX_FRAMES,
         (unsigned)PKT_LOG_MAX_FRAME_SIZE);
 }
-#endif /* ENABLE_DEFERRED_LOGGING */
 
 static void my_dump(SYS_CMD_DEVICE_NODE* pCmdIO, int argc, char** argv) {
     //const void* cmdIoParam = pCmdIO->cmdIoParam;
@@ -1077,10 +1038,8 @@ const SYS_CMD_DESCRIPTOR msd_cmd_tbl[] = {
     {"ptp_regs",    (SYS_CMD_FNC) cmd_ptp_regs,    ": dump TX-Match registers via GM state machine (no SPI collision)"},
     {"noip_send",    (SYS_CMD_FNC) cmd_noip_send,    ": send N raw Ethernet frames bypassing TCP stack (noip_send <n> [gap_ms])"},
     {"noip_stat",    (SYS_CMD_FNC) cmd_noip_stat,    ": show NoIP TX/RX counters"},
-#if ENABLE_DEFERRED_LOGGING
     {"logclear",     (SYS_CMD_FNC) cmd_logclear,     ": clear deferred packet log buffer"},
     {"logstat",      (SYS_CMD_FNC) cmd_logstat,      ": show deferred log statistics (total, pending, overflows)"},
-#endif
 };
 
 bool Command_Init(void) {
