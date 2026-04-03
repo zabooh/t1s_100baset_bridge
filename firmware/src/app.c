@@ -127,7 +127,7 @@ void BRIDGE_TimerCallback(uintptr_t context) {
 
 static void GM_TimerCallback(uintptr_t context) {
     if (PTP_FOL_GetMode() == PTP_MASTER) {
-        PTP_GM_Service();
+        PTP_GM_TickISR();
     }
 }
 
@@ -311,6 +311,16 @@ void APP_Tasks(void) {
                 PTP_GM_Init();
             }
             lan865x_prev_ready = lan865x_ready;
+
+            /* Run PTP GM state machine in main loop context.
+             * Called every loop iteration (not gated on a new tick) so that
+             * async-callback WAIT states (e.g. GM_STATE_WAIT_TXMCTL) are polled
+             * as quickly as possible.  Time-gated states use gm_tick_ms
+             * internally to enforce the correct intervals. */
+            if (PTP_FOL_GetMode() == PTP_MASTER) {
+                PTP_GM_Service();
+            }
+
             break;
         }
 

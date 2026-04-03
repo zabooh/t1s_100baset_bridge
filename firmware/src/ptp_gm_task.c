@@ -63,7 +63,7 @@ static volatile uint32_t gm_op_val          = 0u;      /* value from last read c
 static uint32_t         gm_status0          = 0u;      /* OA_STATUS0 snapshot */
 static uint32_t         gm_ts_sec           = 0u;      /* TX timestamp: seconds */
 static uint32_t         gm_ts_nsec          = 0u;      /* TX timestamp: nanoseconds */
-static uint32_t         gm_tick_ms          = 0u;      /* ms counter, incremented per Service() call */
+static volatile uint32_t gm_tick_ms          = 0u;      /* ms counter, incremented by PTP_GM_TickISR() */
 static uint32_t         gm_period_start     = 0u;      /* tick at start of current period */
 static uint16_t         gm_seq_id           = 0u;
 static uint32_t         gm_sync_cnt         = 0u;
@@ -351,10 +351,13 @@ void PTP_GM_Init(void)
                        gm_src_mac[3], gm_src_mac[4], gm_src_mac[5]);
 }
 
-void PTP_GM_Service(void)
+void PTP_GM_TickISR(void)
 {
     gm_tick_ms++;
+}
 
+void PTP_GM_Service(void)
+{
     switch (gm_state) {
 
         /* ---- IDLE: never re-entered after Init ---- */
