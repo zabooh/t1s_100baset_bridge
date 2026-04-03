@@ -115,6 +115,80 @@ typedef struct {
 
 static PTP_FRAME_BUFFER ptp_rx_buffer = {0};
 
+/* =========================================================
+ * Deferred Packet Logging
+ * =========================================================
+ * Packet handlers store metadata into a ring buffer instead
+ * of calling SYS_CONSOLE_PRINT()/DumpMem() directly.
+ * APP_Tasks() drains the buffer (max 10 entries per call).
+ * Compile-time guard: set to 0 to revert to inline logging. */
+#define ENABLE_DEFERRED_LOGGING 1
+
+#if ENABLE_DEFERRED_LOGGING
+
+#define PKT_LOG_BUF_SIZE    64u   /* ring buffer capacity; must be a power of 2 */
+#define PKT_LOG_DATA_BYTES  32u   /* first N frame bytes captured per log entry  */
+
+typedef enum {
+    PKT_LOG_NOIP = 0,  /* NoIP (0x88B5) frame from eth0 */
+    PKT_LOG_PTP  = 1,  /* PTP  (0x88F7) frame from eth0 */
+    PKT_LOG_ETH0 = 2,  /* generic frame from eth0        */
+    PKT_LOG_ETH1 = 3,  /* generic frame from eth1        */
+} pkt_log_type_t;
+
+typedef struct {
+    uint64_t       timestamp;                /* SYS_TIME_Counter64Get()           */
+    uint32_t       pkt_counter;              /* per-handler packet counter        */
+    uint64_t       ptp_ts;                   /* hardware PTP RX timestamp         */
+    uint32_t       noip_seq;                 /* NoIP sequence number              */
+    uint16_t       frame_type;               /* EtherType                         */
+    uint16_t       length;                   /* frame length in bytes             */
+    uint8_t        iface;                    /* 0 = eth0, 1 = eth1               */
+    pkt_log_type_t log_type;                 /* entry classification              */
+    uint8_t        mac_src[6];               /* source MAC address                */
+    uint8_t        data[PKT_LOG_DATA_BYTES]; /* first bytes of frame              */
+    uint16_t       data_len;                 /* bytes stored in data[]            */
+} PKT_LOG_ENTRY;
+
+typedef struct {
+    PKT_LOG_ENTRY     entries[PKT_LOG_BUF_SIZE];
+    volatile uint32_t write_idx;     /* updated only by packet handlers  */
+    volatile uint32_t read_idx;      /* updated only by APP_Tasks        */
+    volatile uint32_t overflow_cnt;
+    volatile uint32_t total_logged;
+} PKT_LOG_BUF;
+
+static PKT_LOG_BUF pkt_log = {0};
+
+/* Lock-free single-producer/single-consumer ring buffer write.
+ * On ARM Cortex-M, 32-bit aligned stores are single-instruction atomic.
+ * write_idx is committed last so the reader never observes a partial entry.
+ * Newest entries are dropped when the buffer is full. */
+static void PktLog_Write(const PKT_LOG_ENTRY *entry)
+{
+    uint32_t next = (pkt_log.write_idx + 1u) & (PKT_LOG_BUF_SIZE - 1u);
+    if (next == pkt_log.read_idx) {
+        pkt_log.overflow_cnt++;
+        return; /* buffer full – drop newest entry */
+    }
+    pkt_log.entries[pkt_log.write_idx] = *entry;
+    pkt_log.total_logged++;
+    pkt_log.write_idx = next; /* commit – must be the last store */
+}
+
+/* Read one entry from the ring buffer; returns false if empty. */
+static bool PktLog_Read(PKT_LOG_ENTRY *entry)
+{
+    if (pkt_log.read_idx == pkt_log.write_idx) {
+        return false; /* buffer empty */
+    }
+    *entry = pkt_log.entries[pkt_log.read_idx];
+    pkt_log.read_idx = (pkt_log.read_idx + 1u) & (PKT_LOG_BUF_SIZE - 1u);
+    return true;
+}
+
+#endif /* ENABLE_DEFERRED_LOGGING */
+
 static void app_wait_ms(uint32_t ms)
 {
     uint64_t start = SYS_TIME_Counter64Get();
@@ -426,6 +500,43 @@ void APP_Tasks(void) {
                 PTP_GM_Init();
             }
             lan865x_prev_ready = lan865x_ready;
+
+#if ENABLE_DEFERRED_LOGGING
+            /* === Deferred packet log output (max 10 entries per APP_Tasks iteration) === */
+            if (ticks_per_ms > 0u) {
+                PKT_LOG_ENTRY log_e;
+                uint32_t max_print = 10u;
+                while (max_print-- > 0u && PktLog_Read(&log_e)) {
+                    uint64_t ts_ms = log_e.timestamp / ticks_per_ms;
+                    switch (log_e.log_type) {
+                        case PKT_LOG_NOIP:
+                            SYS_CONSOLE_PRINT("[NoIP-RX] #%u seq=%u from %02X:%02X:%02X:%02X:%02X:%02X len=%d ts=%llu ms\r\n",
+                                (unsigned)log_e.pkt_counter, (unsigned)log_e.noip_seq,
+                                log_e.mac_src[0], log_e.mac_src[1], log_e.mac_src[2],
+                                log_e.mac_src[3], log_e.mac_src[4], log_e.mac_src[5],
+                                (int)log_e.length, (unsigned long long)ts_ms);
+                            break;
+                        case PKT_LOG_PTP:
+                            SYS_CONSOLE_PRINT("E0:PTP[0x88F7] len=%u ts=%llu\r\n",
+                                (unsigned)log_e.length,
+                                (unsigned long long)log_e.ptp_ts);
+                            break;
+                        case PKT_LOG_ETH0:
+                            SYS_CONSOLE_PRINT("E0:%u len=%u ts=%llu ms\r\n",
+                                (unsigned)log_e.pkt_counter, (unsigned)log_e.length,
+                                (unsigned long long)ts_ms);
+                            break;
+                        case PKT_LOG_ETH1:
+                            SYS_CONSOLE_PRINT("E1:%u len=%u ts=%llu ms\r\n",
+                                (unsigned)log_e.pkt_counter, (unsigned)log_e.length,
+                                (unsigned long long)ts_ms);
+                            break;
+                        default:
+                            break;
+                    }
+                }
+            }
+#endif /* ENABLE_DEFERRED_LOGGING */
             break;
         }
 
@@ -440,8 +551,6 @@ void APP_Tasks(void) {
 
 bool pktEth0Handler(TCPIP_NET_HANDLE hNet, struct _tag_TCPIP_MAC_PACKET* rxPkt, uint16_t frameType, const void* hParam) {
     static uint32_t packet_counter = 0;
-    uint8_t *puc_s;
-    uint32_t data_len;
     bool ret_val = false;
 
     packet_counter++;
@@ -452,11 +561,26 @@ bool pktEth0Handler(TCPIP_NET_HANDLE hNet, struct _tag_TCPIP_MAC_PACKET* rxPkt, 
         const uint8_t *p = rxPkt->pMacLayer;
         uint32_t seq = ((uint32_t)p[14] << 24) | ((uint32_t)p[15] << 16)
                      | ((uint32_t)p[16] <<  8) |  (uint32_t)p[17];
+#if ENABLE_DEFERRED_LOGGING
+        PKT_LOG_ENTRY log_e = {0};
+        log_e.timestamp   = SYS_TIME_Counter64Get();
+        log_e.pkt_counter = noip_rx_cnt;
+        log_e.noip_seq    = seq;
+        log_e.frame_type  = frameType;
+        log_e.length      = rxPkt->pDSeg->segLen;
+        log_e.iface       = 0u;
+        log_e.log_type    = PKT_LOG_NOIP;
+        memcpy(log_e.mac_src, &p[6], 6u);
+        log_e.data_len    = (log_e.length < (uint16_t)PKT_LOG_DATA_BYTES) ? log_e.length : (uint16_t)PKT_LOG_DATA_BYTES;
+        memcpy(log_e.data, rxPkt->pMacLayer, log_e.data_len);
+        PktLog_Write(&log_e);
+#else
         SYS_CONSOLE_PRINT("[NoIP-RX] #%u seq=%u from %02X:%02X:%02X:%02X:%02X:%02X len=%d\r\n",
             (unsigned)noip_rx_cnt, (unsigned)seq,
             p[6], p[7], p[8], p[9], p[10], p[11],
             rxPkt->pDSeg->segLen);
         DumpMem((uint32_t)rxPkt->pMacLayer, rxPkt->pDSeg->segLen);
+#endif
         TCPIP_PKT_PacketAcknowledge(rxPkt, TCPIP_MAC_PKT_ACK_RX_OK);
         return true;
     }
@@ -469,10 +593,24 @@ bool pktEth0Handler(TCPIP_NET_HANDLE hNet, struct _tag_TCPIP_MAC_PACKET* rxPkt, 
             g_ptp_rx_ts.valid = false;
         }
         if (ipdump_mode == 1u || ipdump_mode == 3u) {
+#if ENABLE_DEFERRED_LOGGING
+            PKT_LOG_ENTRY log_e = {0};
+            log_e.timestamp   = SYS_TIME_Counter64Get();
+            log_e.pkt_counter = packet_counter;
+            log_e.ptp_ts      = rxTs;
+            log_e.frame_type  = frameType;
+            log_e.length      = rxPkt->pDSeg->segLen;
+            log_e.iface       = 0u;
+            log_e.log_type    = PKT_LOG_PTP;
+            log_e.data_len    = (log_e.length < (uint16_t)PKT_LOG_DATA_BYTES) ? log_e.length : (uint16_t)PKT_LOG_DATA_BYTES;
+            memcpy(log_e.data, rxPkt->pMacLayer, log_e.data_len);
+            PktLog_Write(&log_e);
+#else
             SYS_CONSOLE_PRINT("E0:PTP[0x88F7] len=%u ts=%llu\r\n",
                               (unsigned)rxPkt->pDSeg->segLen,
                               (unsigned long long)rxTs);
             DumpMem((uint32_t)rxPkt->pMacLayer, rxPkt->pDSeg->segLen);
+#endif
         }
         /* Store the frame for later processing in APP_Tasks().
          * If a frame is already pending, the older (stale) frame is overwritten
@@ -490,11 +628,23 @@ bool pktEth0Handler(TCPIP_NET_HANDLE hNet, struct _tag_TCPIP_MAC_PACKET* rxPkt, 
     }
 
     if (ipdump_mode == 1 || ipdump_mode == 3) {
+#if ENABLE_DEFERRED_LOGGING
+        PKT_LOG_ENTRY log_e = {0};
+        log_e.timestamp   = SYS_TIME_Counter64Get();
+        log_e.pkt_counter = packet_counter;
+        log_e.frame_type  = frameType;
+        log_e.length      = rxPkt->pDSeg->segLen;
+        log_e.iface       = 0u;
+        log_e.log_type    = PKT_LOG_ETH0;
+        log_e.data_len    = (log_e.length < (uint16_t)PKT_LOG_DATA_BYTES) ? log_e.length : (uint16_t)PKT_LOG_DATA_BYTES;
+        memcpy(log_e.data, rxPkt->pMacLayer, log_e.data_len);
+        PktLog_Write(&log_e);
+#else
         SYS_CONSOLE_PRINT("E0:%d\n\r", packet_counter);
-
-        puc_s = rxPkt->pMacLayer;
-        data_len = rxPkt->pDSeg->segLen;
+        uint8_t *puc_s = rxPkt->pMacLayer;
+        uint32_t data_len = rxPkt->pDSeg->segLen;
         DumpMem((uint32_t) puc_s, data_len);
+#endif
     }
 
     if ( fwd_mode == 1) {
@@ -510,17 +660,27 @@ bool pktEth0Handler(TCPIP_NET_HANDLE hNet, struct _tag_TCPIP_MAC_PACKET* rxPkt, 
 
 bool pktEth1Handler(TCPIP_NET_HANDLE hNet, struct _tag_TCPIP_MAC_PACKET* rxPkt, uint16_t frameType, const void* hParam) {
     static uint32_t packet_counter = 0;
-    uint8_t *puc_s;
-    uint32_t data_len;
 
     packet_counter++;
 
     if (ipdump_mode == 2 || ipdump_mode == 3) {
+#if ENABLE_DEFERRED_LOGGING
+        PKT_LOG_ENTRY log_e = {0};
+        log_e.timestamp   = SYS_TIME_Counter64Get();
+        log_e.pkt_counter = packet_counter;
+        log_e.frame_type  = frameType;
+        log_e.length      = rxPkt->pDSeg->segLen;
+        log_e.iface       = 1u;
+        log_e.log_type    = PKT_LOG_ETH1;
+        log_e.data_len    = (log_e.length < (uint16_t)PKT_LOG_DATA_BYTES) ? log_e.length : (uint16_t)PKT_LOG_DATA_BYTES;
+        memcpy(log_e.data, rxPkt->pDSeg->segLoad, log_e.data_len);
+        PktLog_Write(&log_e);
+#else
         SYS_CONSOLE_PRINT("E1:%d\n\r", packet_counter);
-
-        puc_s = rxPkt->pDSeg->segLoad;
-        data_len = rxPkt->pDSeg->segLen;
+        uint8_t *puc_s = rxPkt->pDSeg->segLoad;
+        uint32_t data_len = rxPkt->pDSeg->segLen;
         DumpMem((uint32_t) puc_s, data_len);
+#endif
     }
     return false;
 }
@@ -561,6 +721,25 @@ void DumpMem(uint32_t addr, uint32_t count) {
     SYS_CONSOLE_PRINT("   %s", str);
     SYS_CONSOLE_PRINT("\n\r");
 }
+
+#if ENABLE_DEFERRED_LOGGING
+static void cmd_logclear(SYS_CMD_DEVICE_NODE *pCmdIO, int argc, char **argv) {
+    (void)pCmdIO; (void)argc; (void)argv;
+    pkt_log.read_idx     = pkt_log.write_idx; /* drain pending entries */
+    pkt_log.overflow_cnt = 0u;
+    pkt_log.total_logged = 0u;
+    SYS_CONSOLE_PRINT("[LOG] ring buffer cleared\r\n");
+}
+
+static void cmd_logstat(SYS_CMD_DEVICE_NODE *pCmdIO, int argc, char **argv) {
+    (void)pCmdIO; (void)argc; (void)argv;
+    uint32_t wi      = pkt_log.write_idx;  /* snapshot volatile index */
+    uint32_t pending = (wi - pkt_log.read_idx) & (PKT_LOG_BUF_SIZE - 1u);
+    SYS_CONSOLE_PRINT("[LOG] total=%u pending=%u overflows=%u bufsize=%u\r\n",
+        (unsigned)pkt_log.total_logged, (unsigned)pending,
+        (unsigned)pkt_log.overflow_cnt, (unsigned)PKT_LOG_BUF_SIZE);
+}
+#endif /* ENABLE_DEFERRED_LOGGING */
 
 static void my_dump(SYS_CMD_DEVICE_NODE* pCmdIO, int argc, char** argv) {
     //const void* cmdIoParam = pCmdIO->cmdIoParam;
@@ -816,6 +995,10 @@ const SYS_CMD_DESCRIPTOR msd_cmd_tbl[] = {
     {"ptp_regs",    (SYS_CMD_FNC) cmd_ptp_regs,    ": dump TX-Match registers via GM state machine (no SPI collision)"},
     {"noip_send",    (SYS_CMD_FNC) cmd_noip_send,    ": send N raw Ethernet frames bypassing TCP stack (noip_send <n> [gap_ms])"},
     {"noip_stat",    (SYS_CMD_FNC) cmd_noip_stat,    ": show NoIP TX/RX counters"},
+#if ENABLE_DEFERRED_LOGGING
+    {"logclear",     (SYS_CMD_FNC) cmd_logclear,     ": clear deferred packet log buffer"},
+    {"logstat",      (SYS_CMD_FNC) cmd_logstat,      ": show deferred log statistics (total, pending, overflows)"},
+#endif
 };
 
 bool Command_Init(void) {
