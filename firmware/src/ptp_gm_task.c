@@ -47,7 +47,13 @@ typedef enum {
     GM_STATE_WAIT_TTSCA_L,
     GM_STATE_WRITE_CLEAR,
     GM_STATE_WAIT_CLEAR,
-    GM_STATE_SEND_FOLLOWUP
+    GM_STATE_SEND_FOLLOWUP,
+    GM_STATE_INIT_WRITE,
+    GM_STATE_WAIT_INIT_WRITE,
+    GM_STATE_WRITE_TXMCTL,
+    GM_STATE_WAIT_WRITE_TXMCTL,
+    GM_STATE_DEINIT_WRITE,
+    GM_STATE_WAIT_DEINIT_WRITE
 } gmState_t;
 
 /* -------------------------------------------------------------------------
@@ -70,6 +76,7 @@ static volatile bool    gm_tx_busy          = false;
 static uint32_t         gm_sync_interval_ms = PTP_GM_SYNC_PERIOD_MS;
 static uint8_t          gm_src_mac[6]       = {0u};
 static ptp_gm_dst_mode_t gm_dst_mode        = PTP_GM_DST_MULTICAST;
+static uint8_t          gm_seq_step         = 0u;      /* current step in init/deinit write sequence */
 
 /* Frame buffers */
 static uint8_t gm_sync_buf[60];       /* 14 (eth) + 44 (syncMsg_t) + 2 pad bytes */
@@ -98,6 +105,12 @@ static const char *gm_state_to_str(gmState_t state)
         case GM_STATE_WRITE_CLEAR:   return "GM_STATE_WRITE_CLEAR";
         case GM_STATE_WAIT_CLEAR:    return "GM_STATE_WAIT_CLEAR";
         case GM_STATE_SEND_FOLLOWUP: return "GM_STATE_SEND_FOLLOWUP";
+        case GM_STATE_INIT_WRITE:        return "GM_STATE_INIT_WRITE";
+        case GM_STATE_WAIT_INIT_WRITE:   return "GM_STATE_WAIT_INIT_WRITE";
+        case GM_STATE_WRITE_TXMCTL:      return "GM_STATE_WRITE_TXMCTL";
+        case GM_STATE_WAIT_WRITE_TXMCTL: return "GM_STATE_WAIT_WRITE_TXMCTL";
+        case GM_STATE_DEINIT_WRITE:      return "GM_STATE_DEINIT_WRITE";
+        case GM_STATE_WAIT_DEINIT_WRITE: return "GM_STATE_WAIT_DEINIT_WRITE";
         default:                     return "GM_STATE_UNKNOWN";
     }
 }
@@ -109,6 +122,35 @@ static void gm_set_state(gmState_t nextState, uint32_t line)
 }
 
 #define GM_SET_STATE(_nextState) gm_set_state((_nextState), (uint32_t)__LINE__)
+
+/* -------------------------------------------------------------------------
+ * Init / Deinit write sequences (strictly sequential, callback-protected)
+ * ---------------------------------------------------------------------- */
+
+/* Number of register writes in each sequence.
+ * Deinit has one extra write (GM_TXMCTL) to disarm the match detector first. */
+#define GM_INIT_WRITE_COUNT   7u
+#define GM_DEINIT_WRITE_COUNT 8u
+
+static const uint32_t gm_init_addrs[GM_INIT_WRITE_COUNT] = {
+    GM_TXMLOC, GM_TXMPATH, GM_TXMPATL, GM_TXMMSKH, GM_TXMMSKL, MAC_TI, PPSCTL
+};
+static const uint32_t gm_init_vals[GM_INIT_WRITE_COUNT] = {
+    12u,
+    (GM_PTP_ETHERTYPE >> 8u) & 0xFFu,
+    (((uint32_t)(GM_PTP_ETHERTYPE & 0xFFu)) << 8u) | 0x10u,
+    0x00u,
+    0x00u,
+    40u,
+    0x0000007Du
+};
+
+static const uint32_t gm_deinit_addrs[GM_DEINIT_WRITE_COUNT] = {
+    GM_TXMCTL, GM_TXMPATH, GM_TXMPATL, GM_TXMMSKH, GM_TXMMSKL, GM_TXMLOC, MAC_TI, PPSCTL
+};
+static const uint32_t gm_deinit_vals[GM_DEINIT_WRITE_COUNT] = {
+    0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u
+};
 
 /* -------------------------------------------------------------------------
  * Internal helpers
@@ -131,17 +173,6 @@ static void gm_tx_cb(void *pInst, const uint8_t *pTx,
 {
     (void)pInst; (void)pTx; (void)len; (void)pTag; (void)pGlobalTag;
     gm_tx_busy = false;
-}
-
-/* Fire-and-forget register write (no callback needed) */
-static void gm_write(uint32_t addr, uint32_t value)
-{
-#if PTP_GM_USE_DRV_LAN865X_WRITEREGISTER
-    DRV_LAN865X_WriteRegister(0u, addr, value, true, NULL, NULL);
-#else
-    (void)addr;
-    (void)value;
-#endif
 }
 
 static bool gm_read_register(uint32_t addr, bool useCallbackProtectedMode)
@@ -327,28 +358,9 @@ void PTP_GM_Init(void)
         }
     }
 
-    /* --- TX Match registers: arm configured EtherType detection --- */
-    gm_write(GM_TXMLOC,    12u);         /* byte offset: EtherType at byte 12 of Ethernet frame (6 bytes DA + 6 bytes SA = offset 12) */
-    gm_write(GM_TXMPATH,   (GM_PTP_ETHERTYPE >> 8u) & 0xFFu); /* pattern high byte */
-    gm_write(GM_TXMPATL,   (((uint32_t)(GM_PTP_ETHERTYPE & 0xFFu)) << 8u) | 0x10u); /* low byte + tsmt */
-    gm_write(GM_TXMMSKH,   0x00u);       /* no masking */
-    gm_write(GM_TXMMSKL,   0x00u);
-    /* NOTE: GM_TXMCTL is NOT armed here — it is re-armed before every Sync TX
-     * in GM_STATE_SEND_SYNC, so PLCA resets cannot clear the arm permanently. */
-
-    /* MAC time increment: 40 ns per clock period */
-    gm_write(MAC_TI, 40u);
-
-    /* NOTE: OA_CONFIG0 (cut-through) and PADCTRL writes intentionally omitted.
-     * Writing these registers while PLCA is running causes TC6Error_SyncLost. */
-
-    /* PPS output enable (optional, makes timing visible on an oscilloscope) */
-    gm_write(PPSCTL, 0x0000007Du);
-
     /* Reset state machine */
     gm_op_done          = false;
     gm_tx_busy          = false;
-    GM_SET_STATE(GM_STATE_WAIT_PERIOD);
     gm_seq_id           = 0u;
     gm_sync_cnt         = 0u;
     gm_retry_cnt        = 0u;
@@ -356,7 +368,14 @@ void PTP_GM_Init(void)
     gm_tick_ms          = 0u;
     gm_period_start     = 0u;
 
-    SYS_CONSOLE_PRINT("[PTP-GM] Init complete (MAC %02X:%02X:%02X:%02X:%02X:%02X)\r\n",
+    /* Kick off the async init write sequence (TX Match, MAC time increment, PPS).
+     * The actual register writes are performed sequentially in PTP_GM_Service()
+     * via GM_STATE_INIT_WRITE / GM_STATE_WAIT_INIT_WRITE — each write is
+     * confirmed by its callback before the next one starts. */
+    gm_seq_step = 0u;
+    GM_SET_STATE(GM_STATE_INIT_WRITE);
+
+    SYS_CONSOLE_PRINT("[PTP-GM] Init started (MAC %02X:%02X:%02X:%02X:%02X:%02X)\r\n",
                        gm_src_mac[0], gm_src_mac[1], gm_src_mac[2],
                        gm_src_mac[3], gm_src_mac[4], gm_src_mac[5]);
 }
@@ -375,10 +394,7 @@ void PTP_GM_Service(void)
         case GM_STATE_WAIT_PERIOD:
             if (gm_reg_dump_pending) {
                 gm_reg_dump_pending = false;
-                /* Read TX-Match registers safely (no SPI collision — we are idle).
-                 * gm_write() uses DRV_LAN865X_WriteRegister which is fire-and-forget;
-                 * for a read we use gm_read_register() + a temporary one-shot callback.
-                 * Simplest safe approach: just print the last-written values from init. */
+                /* Print the last-written init values for diagnostics. */
                 SYS_CONSOLE_PRINT("[PTP-GM] TX-Match reg dump (last written values):\r\n");
                 SYS_CONSOLE_PRINT("  TXMCTL  0x%08lX  TXMPATH 0x%08lX\r\n",
                     (unsigned long)0x00000000uL, (unsigned long)0x00000088uL);
@@ -403,41 +419,13 @@ void PTP_GM_Service(void)
 #else
             build_sync();
 #endif
-            /* Re-arm TX Match pattern detector (TXMCTL) before each Sync TX.
+            /* Write GM_TXMCTL (callback-protected) before sending the frame.
              * PLCA resets may clear the arm bit, so we set it explicitly here.
-             * TXME (bit 1) enables pattern matching; MACTXTSE (bit 2) enables
-             * the MAC-level TX timestamp capture into TTSCAH/TTSCAL.
-             * Do NOT use 0x0001 — bit 0 is reserved and enables nothing. */
-            gm_write(GM_TXMCTL, 0x0000u); /* TEST: kein MACTXTSE — nur TSC=1 im SPI-Header (pure header-based capture) */
-            gm_tx_busy   = true;
-            gm_retry_cnt = 0u;
-            gm_op_done   = false;
-#if (PTP_GM_SYNC_TX_MODE == 1)
-            if (!gm_send_raw_eth_frame(gm_noip_buf, sizeof(gm_noip_buf),
-                                       0x00u, gm_tx_cb, NULL)) {
-                gm_tx_busy = false;
-                GM_SET_STATE(GM_STATE_WAIT_PERIOD);
-                break;
-            }
-            gm_sync_cnt++;
-            GM_SET_STATE(GM_STATE_WAIT_PERIOD);
-#else
-            if (!gm_send_raw_eth_frame(gm_sync_buf, sizeof(gm_sync_buf),
-                                       0x01u, gm_tx_cb, NULL)) {
-                /* TX failed — abort, skip FollowUp */
-                gm_tx_busy = false;
-                gm_write(GM_TXMCTL, 0x0000u);  /* disarm TX Match */
-                GM_SET_STATE(GM_STATE_WAIT_PERIOD);
-                break;
-            }
-            gm_sync_cnt++;
-            SYS_CONSOLE_PRINT("[PTP-GM] Sync #%u\r\n", (unsigned)gm_seq_id);
-            /* With MACTXTSE mode: LAN8651 delays frame to PLCA boundary and captures
-             * timestamp directly into STATUS0.TTSCAA — TXPMDET is NOT set in this mode.
-             * Skip TXPMCTL polling; go directly to STATUS0 capture wait. */
+             * The actual frame send happens in GM_STATE_WAIT_WRITE_TXMCTL after
+             * the write callback confirms the register update. */
+            gm_retry_cnt  = 0u;
             gm_wait_ticks = 0u;
-            GM_SET_STATE(GM_STATE_WAIT_STATUS0);
-#endif
+            GM_SET_STATE(GM_STATE_WRITE_TXMCTL);
             break;
 
         /* ---- Sent READ(TXMCTL); start in next state ---- */
@@ -618,6 +606,127 @@ void PTP_GM_Service(void)
             break;
         }
 
+        /* ---- Issue next register write in the init sequence ---- */
+        case GM_STATE_INIT_WRITE:
+            gm_op_done = false;
+            if (!gm_write_register(gm_init_addrs[gm_seq_step],
+                                   gm_init_vals[gm_seq_step], true)) {
+                SYS_CONSOLE_PRINT("[PTP-GM] INIT_WRITE failed at step %u\r\n",
+                                  (unsigned)gm_seq_step);
+                GM_SET_STATE(GM_STATE_WAIT_PERIOD);
+                break;
+            }
+            GM_SET_STATE(GM_STATE_WAIT_INIT_WRITE);
+            break;
+
+        /* ---- Wait for init write callback; advance or finish ---- */
+        case GM_STATE_WAIT_INIT_WRITE:
+            if (!gm_op_done) {
+                if (++gm_wait_ticks >= 200u) {
+                    SYS_CONSOLE_PRINT("[PTP-GM] WAIT_INIT_WRITE cb timeout at step %u\r\n",
+                                      (unsigned)gm_seq_step);
+                    gm_wait_ticks = 0u;
+                    GM_SET_STATE(GM_STATE_WAIT_PERIOD);
+                }
+                break;
+            }
+            gm_wait_ticks = 0u;
+            gm_seq_step++;
+            if (gm_seq_step < GM_INIT_WRITE_COUNT) {
+                GM_SET_STATE(GM_STATE_INIT_WRITE);
+            } else {
+                SYS_CONSOLE_PRINT("[PTP-GM] Init complete — all registers written\r\n");
+                GM_SET_STATE(GM_STATE_WAIT_PERIOD);
+            }
+            break;
+
+        /* ---- Write GM_TXMCTL before each Sync TX (callback-protected) ---- */
+        case GM_STATE_WRITE_TXMCTL:
+            gm_op_done = false;
+            /* TSC=1 in SPI header (pure header-based capture); MACTXTSE not set */
+            if (!gm_write_register(GM_TXMCTL, 0x0000u, true)) {
+                SYS_CONSOLE_PRINT("[PTP-GM] WRITE_TXMCTL failed\r\n");
+                GM_SET_STATE(GM_STATE_WAIT_PERIOD);
+                break;
+            }
+            GM_SET_STATE(GM_STATE_WAIT_WRITE_TXMCTL);
+            break;
+
+        /* ---- Wait for TXMCTL write callback; then send the Sync frame ---- */
+        case GM_STATE_WAIT_WRITE_TXMCTL:
+            if (!gm_op_done) {
+                if (++gm_wait_ticks >= 200u) {
+                    SYS_CONSOLE_PRINT("[PTP-GM] WAIT_WRITE_TXMCTL cb timeout\r\n");
+                    gm_wait_ticks = 0u;
+                    GM_SET_STATE(GM_STATE_WAIT_PERIOD);
+                }
+                break;
+            }
+            gm_wait_ticks = 0u;
+            /* TXMCTL write confirmed — now send the frame */
+            gm_tx_busy = true;
+            gm_op_done = false;
+#if (PTP_GM_SYNC_TX_MODE == 1)
+            if (!gm_send_raw_eth_frame(gm_noip_buf, sizeof(gm_noip_buf),
+                                       0x00u, gm_tx_cb, NULL)) {
+                gm_tx_busy = false;
+                GM_SET_STATE(GM_STATE_WAIT_PERIOD);
+                break;
+            }
+            gm_sync_cnt++;
+            GM_SET_STATE(GM_STATE_WAIT_PERIOD);
+#else
+            if (!gm_send_raw_eth_frame(gm_sync_buf, sizeof(gm_sync_buf),
+                                       0x01u, gm_tx_cb, NULL)) {
+                /* TX failed — TXMCTL was already written to 0x0000 prior to
+                 * this send attempt; no additional disarm write needed. */
+                gm_tx_busy = false;
+                GM_SET_STATE(GM_STATE_WAIT_PERIOD);
+                break;
+            }
+            gm_sync_cnt++;
+            SYS_CONSOLE_PRINT("[PTP-GM] Sync #%u\r\n", (unsigned)gm_seq_id);
+            /* With pure header-based TSC capture: skip TXPMDET polling;
+             * go directly to STATUS0 capture wait. */
+            gm_wait_ticks = 0u;
+            GM_SET_STATE(GM_STATE_WAIT_STATUS0);
+#endif
+            break;
+
+        /* ---- Issue next register write in the deinit sequence ---- */
+        case GM_STATE_DEINIT_WRITE:
+            gm_op_done = false;
+            if (!gm_write_register(gm_deinit_addrs[gm_seq_step],
+                                   gm_deinit_vals[gm_seq_step], true)) {
+                SYS_CONSOLE_PRINT("[PTP-GM] DEINIT_WRITE failed at step %u\r\n",
+                                  (unsigned)gm_seq_step);
+                GM_SET_STATE(GM_STATE_IDLE);
+                break;
+            }
+            GM_SET_STATE(GM_STATE_WAIT_DEINIT_WRITE);
+            break;
+
+        /* ---- Wait for deinit write callback; advance or finish ---- */
+        case GM_STATE_WAIT_DEINIT_WRITE:
+            if (!gm_op_done) {
+                if (++gm_wait_ticks >= 200u) {
+                    SYS_CONSOLE_PRINT("[PTP-GM] WAIT_DEINIT_WRITE cb timeout at step %u\r\n",
+                                      (unsigned)gm_seq_step);
+                    gm_wait_ticks = 0u;
+                    GM_SET_STATE(GM_STATE_IDLE);
+                }
+                break;
+            }
+            gm_wait_ticks = 0u;
+            gm_seq_step++;
+            if (gm_seq_step < GM_DEINIT_WRITE_COUNT) {
+                GM_SET_STATE(GM_STATE_DEINIT_WRITE);
+            } else {
+                SYS_CONSOLE_PRINT("[PTP-GM] Deinit complete — TX-Match/TSU/PPS disarmed\r\n");
+                GM_SET_STATE(GM_STATE_IDLE);
+            }
+            break;
+
         default:
             GM_SET_STATE(GM_STATE_WAIT_PERIOD);
             break;
@@ -626,21 +735,10 @@ void PTP_GM_Service(void)
 
 void PTP_GM_Deinit(void)
 {
-    /* Best-effort disarm of TX-Match logic; safe no-op when register writes are disabled. */
-    gm_write(GM_TXMCTL,  0u);
-    gm_write(GM_TXMPATH, 0u);
-    gm_write(GM_TXMPATL, 0u);
-    gm_write(GM_TXMMSKH, 0u);
-    gm_write(GM_TXMMSKL, 0u);
-    gm_write(GM_TXMLOC,  0u);   /* clear TX-Match location (set during Init) */
-
-    /* Stop MAC TSU free-running timer — prevents residual PTP timestamp activity
-     * from interfering with normal (NoIP) Ethernet traffic after ptp_mode off. */
-    gm_write(MAC_TI,  0u);
-
-    /* Disable PPS output pulse that was started during Init. */
-    gm_write(PPSCTL,  0u);
-
+    /* Kick off the async disarm sequence for TX-Match, TSU, and PPS registers.
+     * The actual register writes are performed sequentially in PTP_GM_Service()
+     * via GM_STATE_DEINIT_WRITE / GM_STATE_WAIT_DEINIT_WRITE — each write is
+     * confirmed by its callback before the next one starts. */
     gm_tx_busy      = false;
     gm_op_done      = false;
     gm_op_val       = 0u;
@@ -650,9 +748,10 @@ void PTP_GM_Deinit(void)
     gm_retry_cnt    = 0u;
     gm_wait_ticks   = 0u;
     gm_period_start = gm_tick_ms;
-    GM_SET_STATE(GM_STATE_IDLE);
+    gm_seq_step     = 0u;
+    GM_SET_STATE(GM_STATE_DEINIT_WRITE);
 
-    SYS_CONSOLE_PRINT("[PTP-GM] deinit: TX-Match/TSU/PPS disarmed, state reset\r\n");
+    SYS_CONSOLE_PRINT("[PTP-GM] Deinit: starting async disarm sequence\r\n");
 }
 
 void PTP_GM_GetStatus(uint32_t *pSyncCount, uint32_t *pState)
