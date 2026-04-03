@@ -104,7 +104,11 @@ typedef enum {
  */
 void PTP_GM_Init(void);
 
-/** Service the GM state machine.  Must be called every 1 ms (from a timer callback). */
+/** Called from 1 ms timer ISR — increments the tick counter only.
+ *  Must NOT perform any driver calls or console I/O. */
+void PTP_GM_TickISR(void);
+
+/** Service the GM state machine.  Must be called from the main loop. */
 void PTP_GM_Service(void);
 
 /** De-initialize GM runtime state and disarm TX-Match registers (best effort). */
