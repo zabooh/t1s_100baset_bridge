@@ -99,7 +99,21 @@ uint32_t my_delay_time = 0;
 static uint32_t noip_tx_cnt = 0u;
 static uint32_t noip_rx_cnt = 0u;
 SYS_TIME_HANDLE timerHandle;
-static SYS_TIME_HANDLE gmTimerHandle = SYS_TIME_HANDLE_INVALID;
+
+/* Maximum expected PTP frame size on wire.
+ * Sync/FollowUp messages are ≤ 76 bytes; Announce up to ~90 bytes.
+ * 128 bytes gives comfortable headroom for all standard PTP message types. */
+#define PTP_MAX_FRAME_SIZE  128u
+
+/* Buffer for a single pending PTP frame received in pktEth0Handler */
+typedef struct {
+    uint8_t  data[PTP_MAX_FRAME_SIZE]; /* buffer for PTP frame payload             */
+    uint16_t length;                   /* frame length in bytes                    */
+    uint64_t rxTimestamp;              /* hardware RX timestamp from LAN865x       */
+    bool     pending;                  /* true when a frame is waiting to be read  */
+} PTP_FRAME_BUFFER;
+
+static PTP_FRAME_BUFFER ptp_rx_buffer = {0};
 
 static void app_wait_ms(uint32_t ms)
 {
@@ -123,12 +137,6 @@ volatile uint32_t lan_reg_read_value = 0;
 
 void BRIDGE_TimerCallback(uintptr_t context) {
     if (my_delay_time)my_delay_time--;
-}
-
-static void GM_TimerCallback(uintptr_t context) {
-    if (PTP_FOL_GetMode() == PTP_MASTER) {
-        PTP_GM_Service();
-    }
 }
 
 // LAN865X Register callback for read operations
@@ -242,9 +250,6 @@ void APP_Initialize(void) {
     timerHandle = SYS_TIME_TimerCreate(0, SYS_TIME_MSToCount(1000), &BRIDGE_TimerCallback, (uintptr_t) NULL, SYS_TIME_PERIODIC);
     SYS_TIME_TimerStart(timerHandle);
 
-    gmTimerHandle = SYS_TIME_TimerCreate(0, SYS_TIME_MSToCount(1), &GM_TimerCallback, (uintptr_t) NULL, SYS_TIME_PERIODIC);
-    SYS_TIME_TimerStart(gmTimerHandle);
-
     Command_Init();
     /* TODO: Initialize your application's state machine and other
      * parameters.
@@ -299,6 +304,37 @@ void APP_Tasks(void) {
             /* TODO: implement your application state machine.*/
         case APP_STATE_IDLE:
         {
+            /* === GM Service: call PTP_GM_Service() every 1 ms === */
+            static uint64_t last_gm_tick  = 0u;
+            static uint64_t ticks_per_ms  = 0u;
+            if (ticks_per_ms == 0u) {
+                ticks_per_ms = (uint64_t)SYS_TIME_FrequencyGet() / 1000ULL;
+            }
+            uint64_t current_tick = SYS_TIME_Counter64Get();
+
+            if (PTP_FOL_GetMode() == PTP_MASTER) {
+                if ((current_tick - last_gm_tick) >= ticks_per_ms) {
+                    PTP_GM_Service();
+                    last_gm_tick = current_tick;
+                }
+            }
+
+            /* === FOL Service: process a buffered PTP frame ===
+             * ptp_rx_buffer.pending is set by pktEth0Handler() and cleared here.
+             * On ARM Cortex-M, aligned bool writes are single-instruction atomic,
+             * so no explicit critical-section is needed for this flag.
+             * All standard PTP message types (Sync, FollowUp, Announce, Delay_Req)
+             * are buffered here; stale frames of any type are overwritten by the
+             * next arrival, which is acceptable because PTP frames arrive at a
+             * maximum rate of once every 125 ms and APP_Tasks() runs far more
+             * frequently than that. */
+            if (PTP_FOL_GetMode() == PTP_SLAVE && ptp_rx_buffer.pending) {
+                ptp_rx_buffer.pending = false;
+                PTP_FOL_OnFrame(ptp_rx_buffer.data,
+                                ptp_rx_buffer.length,
+                                ptp_rx_buffer.rxTimestamp);
+            }
+
             /* Re-run PTP_GM_Init() if the LAN865x driver recovers from a
              * reinit (triggered by TC6Error_SyncLost / LOFE) while in GM mode.
              * The reinit clears all TX-Match registers written by PTP_GM_Init(),
@@ -346,7 +382,7 @@ bool pktEth0Handler(TCPIP_NET_HANDLE hNet, struct _tag_TCPIP_MAC_PACKET* rxPkt, 
         return true;
     }
 
-    /* PTP frame (EtherType 0x88F7): feed into clock servo, do not forward to IP stack */
+    /* PTP frame (EtherType 0x88F7): buffer for processing in APP_Tasks, do not forward to IP stack */
     if (frameType == 0x88F7u) {
         uint64_t rxTs = 0u;
         if (g_ptp_rx_ts.valid) {
@@ -359,7 +395,17 @@ bool pktEth0Handler(TCPIP_NET_HANDLE hNet, struct _tag_TCPIP_MAC_PACKET* rxPkt, 
                               (unsigned long long)rxTs);
             DumpMem((uint32_t)rxPkt->pMacLayer, rxPkt->pDSeg->segLen);
         }
-        PTP_FOL_OnFrame(rxPkt->pMacLayer, (uint16_t)rxPkt->pDSeg->segLen, rxTs);
+        /* Store the frame for later processing in APP_Tasks().
+         * If a frame is already pending, the older (stale) frame is overwritten
+         * because PTP Sync frames that are not processed promptly become irrelevant. */
+        uint16_t copyLen = rxPkt->pDSeg->segLen;
+        if (copyLen > (uint16_t)sizeof(ptp_rx_buffer.data)) {
+            copyLen = (uint16_t)sizeof(ptp_rx_buffer.data);
+        }
+        memcpy(ptp_rx_buffer.data, rxPkt->pMacLayer, copyLen);
+        ptp_rx_buffer.length      = copyLen;
+        ptp_rx_buffer.rxTimestamp = rxTs;
+        ptp_rx_buffer.pending     = true;
         TCPIP_PKT_PacketAcknowledge(rxPkt, TCPIP_MAC_PKT_ACK_RX_OK);
         return true;
     }
