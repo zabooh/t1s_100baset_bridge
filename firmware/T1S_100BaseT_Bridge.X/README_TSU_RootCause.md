@@ -7,6 +7,171 @@
 
 ---
 
+## Stand 2026-04-04 — TXMCTL-Fix + Testergebnis
+
+### Fixes implementiert
+
+**Fix A — TXMCTL nie armiert (CHK-50):**  
+`GM_STATE_WRITE_TXMCTL` schrieb `0x0000u` (TXME=0 = Match-Detector disarmiert) vor jedem Sync.  
+Geändert zu `0x0002u` (TXME=1 = armiert) in `ptp_gm_task.c` Zeile 644.
+
+```c
+// Vorher (falsch):
+gm_write_register(GM_TXMCTL, 0x0000u, true);
+
+// Nachher (korrekt, CHK-50):
+gm_write_register(GM_TXMCTL, 0x0002u, true);  // TXME=1: arm TX-Match-Detector
+```
+
+**Fix B — TXMCTL fehlte in Init-Sequenz:**  
+`GM_INIT_WRITE_COUNT` 7 → 8; `GM_TXMCTL = 0x0000u` als erster Eintrag  
+in `gm_init_addrs[]` / `gm_init_vals[]` hinzugefügt.  
+Sichert disarmierten Zustand nach Power-On und jedem LOFR-Reset.
+
+### Testergebnis 2026-04-04 (ptp_diag.py --dump-txmatch --duration 60)
+
+| Schritt | Test | Ergebnis |
+|---------|------|---------|
+| 0 | IP-Konfiguration | **PASS** |
+| 1 | Ping GM↔Follower | **PASS** |
+| 2 | PTP aktivieren | **PASS** |
+| 3 | GM sendet Syncs (gmSyncs-Zähler) | **PASS** |
+| 4 | TXPMDET-Bit gesetzt (TXMCTL 0x0080) | **FAIL** |
+| 5 | Follower empfängt PTP-Frames | **PASS** |
+| 6 | FollowUp gesendet (TTSCAA → FU-Pfad) | **FAIL** |
+| 7 | Servo konvergiert | **FAIL** |
+| 8 | Offset-Stabilität | **FAIL** |
+
+**Serielle Log-Ausgabe (GM, repräsentativ):**
+```
+[PTP-GM] TTSCA not set after Sync #0
+[PTP-GM] TTSCA not set after Sync #1
+...
+```
+`[DBG] _OnStatus0` **erscheint nie** (hatte `0x0F00u`-Schwelle).  
+`[DBG] _OnStatus1` **erscheint nie**.  
+→ STATUS0 und STATUS1 bleiben dauerhaft 0.
+
+### Schlussfolgerung
+
+**TXME=1 allein reicht nicht.** Obwohl TXMCTL jetzt korrekt armiert  
+wird, setzt die Hardware TXPMDET und TTSCAA weiterhin nie.  
+Der Fix war notwendig (vorher logisch falsch), aber nicht hinreichend.
+
+### Bestätigte korrekte Pfade (Code-Review 2026-04-04)
+
+| Prüfung | Ergebnis |
+|---------|---------|
+| TSC=1 in SPI-Header (byte[3] bits[7:6]) | ✅ korrekt — `SET_VAL(HDR_TSC, entry->tsc, tx_buf)` bei SV=1 |
+| `DRV_LAN865X_SendRawEthFrame` → `TC6_SendRawEthernetPacket` mit tsc=1 | ✅ korrekt |
+| FTSE=0x80 in CONFIG0 (`_InitUserSettings` case 8) | ✅ korrekt |
+| IMASK0 = 0x00000000 (TTSCAA unmaskiert) | ✅ korrekt |
+| `_OnStatus0` speichert TTSCAA-Bits vor W1C | ✅ korrekt |
+| `DRV_LAN865X_GetAndClearTsCapture()` atomar | ✅ korrekt |
+
+### Nächste Schritte (aktualisiert 2026-04-04)
+
+~~1. **reg_access_test.py**~~ ✅ ERLEDIGT — 17/18 PASS (siehe unten)  
+~~2. **CHK-52**~~ ✅ ERLEDIGT — tsc=0x01 bestätigt (siehe unten)  
+~~3. **CHK-12 (Bit15)**~~ ✅ ERLEDIGT — kein Effekt (siehe unten)  
+
+→ **Alle Software-Pfade bewiesen. Problem in Hardware-Capture-Engine.**  
+→ **Nächster Schritt: Microchip Support kontaktieren** (siehe Abschnitt unten)
+
+---
+
+## Stand 2026-04-04 (II) — CHK-12, reg_access_test, CHK-52
+
+### reg_access_test.py — 2026-04-04
+
+Neues Testskript `reg_access_test.py` erstellt und ausgeführt. Ergebnis: **17/18 PASS**.
+
+| Test | Register | Ergebnis |
+|------|---------|---------|
+| T01 | CONFIG0 = 0x000090E6 | ✅ FTSE+FTSS gesetzt |
+| T02 | IMASK0 = 0x00000000 | ✅ TTSCAA unmaskiert |
+| T03–T05 | TXMLOC Roundtrip (0xAB schreiben + zurücklesen) | ✅ Callback funktioniert |
+| T06 | TXMCTL = 0x00000002 (TXME=1) | ✅ sinnvoller Wert |
+| T07 | NETWORK_CTRL = 0x0000000C (TXEN+RXEN) | ✅ Bit15 = 0 |
+| T08 | Callback-Latenz Ø 4650 ms | ⚠ >1000 ms (PTP-Pipeline blockiert, erwartet) |
+
+**Schluss:** Register-Zugriffs-Mechanismus einwandfrei. Callbacks feuern korrekt.  
+Hohe Latenz (~4.5 s) ist durch die 500-ms-STATUS0-Wartezeit in der PTP-State-Machine erwartet.
+
+### CHK-12 (NETWORK_CTRL Bit15) — 2026-04-04
+
+Zweiter Lauf mit TXME=1 (CHK-50 Fix eingebaut). Beide Tests je 60+ Syncs:
+
+| Test | NC | TTSCAA | TTSCMA | Syncs |
+|------|----|--------|--------|-------|
+| A (Baseline) | `0x0000000C` | nein | 0 | 60 |
+| B (+Bit15) | `0x0000800C` | nein | 0 | 60 |
+
+**CHK-12 endgültig ausgeschlossen:** `STORE_TX_TS` (Bit15) hat keinen messbaren Effekt.  
+Auch TTSCMA = 0 in beiden Tests — TC6 versucht keinen Capture.
+
+### CHK-52 (tsc=0x01 Verifizierung) — 2026-04-04
+
+Debug-Print in `DRV_LAN865X_SendRawEthFrame` (`drv_lan865x_api.c`) eingebaut:
+
+```c
+if (0u != tsc) {
+    static uint8_t chk52_tsc_cnt = 0u;
+    if (chk52_tsc_cnt < 10u) {
+        chk52_tsc_cnt++;
+        SYS_CONSOLE_PRINT("[DBG-CHK52] tsc=0x%02X len=%u call#%u\r\n", ...);
+    }
+}
+```
+
+**Serielle Ausgabe (GM, 10 aufeinanderfolgende Syncs):**
+```
+[DBG-CHK52] tsc=0x01 len=60 call#1
+[PTP-GM] Sync #0 sent, waiting for TX done...
+[PTP-GM] Sync #0 TX confirmed
+[PTP-GM] TTSCA not set after Sync #0
+[DBG-CHK52] tsc=0x01 len=60 call#2
+...
+```
+
+**CHK-52 BESTÄTIGT: `tsc=0x01` erreicht `TC6_SendRawEthernetPacket` — jedes Mal.**  
+`SET_VAL(HDR_TSC, 1, tx_buf)` → byte[3] = 0x40 (bits[7:6]=01) wird korrekt gesetzt.  
+Der gesamte Software-Pfad ist ausgeschlossen.
+
+### Gesamtbeweis (Stand 2026-04-04)
+
+| CHK | Beschreibung | Ergebnis |
+|-----|-------------|---------|
+| CHK-50 | TXME=1 (TXMCTL=0x0002) | ✅ Fix angewendet — notwendig aber nicht hinreichend |
+| CHK-12 | NETWORK_CTRL Bit15 | ❌ kein Effekt — ausgeschlossen |
+| CHK-52 | tsc=0x01 zu TC6 | ✅ Software korrekt — ausgeschlossen |
+| reg_access | Callback-Roundtrip | ✅ Mechanismus einwandfrei |
+| STATUS0/1 | Timestamp-Events | ❌ **permanent 0 — Hardware-Ebene** |
+
+**Fazit: Die GEM-TSU-Capture-Engine im LAN8651 erzeugt keine TX-Timestamp-Events,**  
+**obwohl TSC=1 korrekt im SPI-Header codiert wird. Alle konfigurierbaren SW-Register korrekt.**  
+**Ursache liegt in der Hardware oder in einer undokumentierten Initialisierungsvoraussetzung.**
+
+### Empfohlene nächste Schritte
+
+1. **Microchip Support** — Case öffnen mit:
+   - Chip: LAN8651 Rev. ?
+   - TC6 SPI-Header TSC=01 (byte[3]=0x40) korrekt encodiert ✓
+   - CONFIG0=0x000090E6 (FTSE+FTSS) ✓  
+   - TXMCTL=0x0002 (TXME=1) ✓
+   - IMASK0=0x00000000 ✓
+   - NETWORK_CTRL=0x0000000C und 0x0000800C beide getestet
+   - STATUS0 und STATUS1 bleiben **permanent 0**
+   - Frage: Welche zusätzliche Initialisierung / welcher Register-Wert aktiviert die TX-Timestamp-Capture-Engine?
+
+2. **CHK-31** (optional, vor Support-Antwort) — CONFIG0 isoliert testen:
+   ```
+   lan_write 0x00000004 0x000000C0   # nur FTSE+FTSS, alle anderen Bits 0
+   ```
+   Wenn TTSCAA dann erscheint: einer der Base-Bits in 0x9026 blockiert Capture-Pfad.
+
+---
+
 ## 0  Was die Code-Analyse liefert (vor Theorienliste)
 
 Vor der Priorisierung: was der Code **beweist**, um Spekulation zu begrenzen.

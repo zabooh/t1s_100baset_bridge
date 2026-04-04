@@ -415,7 +415,7 @@ class LAN8651RegisterReader:
         ser.write(f'{command}\r\n'.encode())
         
         # Wait for complete response including prompt
-        response = self.wait_for_prompt(ser, timeout=0.8)  # Ultra-fast timeout
+        response = self.wait_for_prompt(ser, timeout=2.0)  # Generous timeout for two-phase response
         return response
     
     def wait_for_prompt(self, ser, timeout=2.0):  # Increased to 2.0s for safety
@@ -448,7 +448,7 @@ class LAN8651RegisterReader:
         # For LAN865X commands: Look for complete read result pattern
         if 'lan_read' in response.lower():
             # Must have the complete LAN865X Read result
-            lan_match = re.search(r'LAN865X Read: Addr=0x([0-9A-Fa-f]+) Value=0x([0-9A-Fa-f]+)', response)
+            lan_match = re.search(r'LAN865X Read OK: Addr=0x([0-9A-Fa-f]+) Value=0x([0-9A-Fa-f]+)', response)
             if lan_match:
                 # Found complete read result - check if followed by newline/carriage return
                 # This indicates the command is truly complete
@@ -464,7 +464,7 @@ class LAN8651RegisterReader:
     def parse_lan_read_response(self, response):
         """Parse LAN865X read response - Enhanced for correct pattern matching"""
         # Look for the actual result line (not the initiation line)
-        match = re.search(r'LAN865X Read: Addr=0x([0-9A-Fa-f]+) Value=0x([0-9A-Fa-f]+)', response)
+        match = re.search(r'LAN865X Read OK: Addr=0x([0-9A-Fa-f]+) Value=0x([0-9A-Fa-f]+)', response)
         if match:
             addr = int(match.group(1), 16)
             value = int(match.group(2), 16) 
@@ -473,7 +473,7 @@ class LAN8651RegisterReader:
     
     def parse_lan_read_response(self, response):
         """Parse LAN865X read response"""
-        match = re.search(r'LAN865X Read: Addr=0x([0-9A-Fa-f]+) Value=0x([0-9A-Fa-f]+)', response)
+        match = re.search(r'LAN865X Read OK: Addr=0x([0-9A-Fa-f]+) Value=0x([0-9A-Fa-f]+)', response)
         if match:
             addr = int(match.group(1), 16)
             value = int(match.group(2), 16)
@@ -523,11 +523,14 @@ class LAN8651RegisterReader:
     def read_register_group(self, ser, mms_name, group_info):
         """Read all registers in a group and return results - ROBUST VERSION"""
         results = []
-        print(f"\n📡 Lese {group_info['name']} Register ({len(group_info['registers'])} Register)...")
+        total_regs = len(group_info['registers'])
+        print(f"\n📡 Lese {group_info['name']} Register ({total_regs} Register)...")
+        if total_regs == 0:
+            print(f"  (Keine Register in dieser Gruppe)")
+            return results
         
         # Progress counter for user feedback
         reg_count = 0
-        total_regs = len(group_info['registers'])
         failed_count = 0
         
         for addr, reg_info in group_info['registers'].items():
@@ -857,7 +860,7 @@ class LAN8651RegisterReader:
             # Test basic communication with robust synchronization
             print("\n🔌 Teste Kommunikation (Prompt-basiert)...")
             response = self.send_command(ser, "lan_read 0x00000004")
-            if "LAN865X Read:" not in response:
+            if "LAN865X Read OK:" not in response:
                 print("❌ Keine gültige LAN865X Antwort - Prüfe Verbindung!")
                 print(f"Debug - Response: '{response[:100]}...'")
                 return False
@@ -887,7 +890,7 @@ class LAN8651RegisterReader:
                         "description": "Wichtigste MAC Control Register",
                         "registers": {
                             k: v for k, v in self.register_maps["MMS_1"]["registers"].items()
-                            if k in ["0x01000000", "0x01000004"]
+                            if k in ["0x00010000", "0x00010001", "0x00010024", "0x00010025"]
                         }
                     }
                 }

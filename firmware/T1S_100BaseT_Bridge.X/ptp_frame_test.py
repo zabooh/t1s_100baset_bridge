@@ -64,6 +64,27 @@ def wake(ser: serial.Serial, name: str) -> None:
     print(f"[{name}] Prompt bereit")
 
 
+def _is_response_complete(response: str, cmd_lower: str) -> bool:
+    if len(response) < 10:
+        return False
+    if "lan_read" in cmd_lower:
+        m = re.search(r'LAN865X Read OK: Addr=0x[0-9A-Fa-f]+ Value=0x[0-9A-Fa-f]+',
+                      response, re.IGNORECASE)
+        if m:
+            tail = response[m.end():]
+            return '\n' in tail or '\r' in tail
+        return False
+    if "lan_write" in cmd_lower:
+        m = re.search(r'LAN865X Write (?:OK|failed|timeout)',
+                      response, re.IGNORECASE)
+        if m:
+            tail = response[m.end():]
+            return '\n' in tail or '\r' in tail
+        return False
+    # Fallback: traditionelle Prompt-Erkennung
+    return any(response.endswith(p) for p in PROMPT_MARKERS)
+
+
 def send_cmd(ser: serial.Serial, name: str, cmd: str,
              timeout: float = 5.0) -> str:
     ser.reset_input_buffer()
@@ -71,17 +92,15 @@ def send_cmd(ser: serial.Serial, name: str, cmd: str,
     print(f"[{name}] >> {cmd}")
     resp = ""
     deadline = time.time() + timeout
+    cmd_lower = cmd.lower()
     while time.time() < deadline:
-        if ser.in_waiting:
-            chunk = ser.read(ser.in_waiting).decode("utf-8", errors="ignore")
+        available = ser.in_waiting
+        if available > 0:
+            chunk = ser.read(available).decode("utf-8", errors="ignore")
             resp += chunk
-            if any(resp.endswith(p) for p in PROMPT_MARKERS):
+            if _is_response_complete(resp, cmd_lower):
                 break
-        else:
-            time.sleep(0.05)
-    time.sleep(0.1)
-    if ser.in_waiting:
-        resp += ser.read(ser.in_waiting).decode("utf-8", errors="ignore")
+        time.sleep(0.0005)  # 0.5ms Polling
     out = "\n".join(l for l in resp.splitlines() if cmd not in l).strip()
     if out:
         print(f"[{name}] << {out}")

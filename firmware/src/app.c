@@ -850,7 +850,6 @@ static void lan_read(SYS_CMD_DEVICE_NODE* pCmdIO, int argc, char** argv) {
     app_lan_reg_operation_complete = false;
     app_lan_op_initiated = false;
     app_lan_state = APP_LAN_WAIT_READ;
-    SYS_CONSOLE_PRINT("LAN865X Read requested: addr=0x%08X\n\r", (unsigned int)app_lan_addr);
 }
 
 // LAN865X Register write command  
@@ -871,8 +870,6 @@ static void lan_write(SYS_CMD_DEVICE_NODE* pCmdIO, int argc, char** argv) {
     app_lan_reg_operation_complete = false;
     app_lan_op_initiated = false;
     app_lan_state = APP_LAN_WAIT_WRITE;
-    SYS_CONSOLE_PRINT("LAN865X Write requested: addr=0x%08X value=0x%08X\n\r",
-                      (unsigned int)app_lan_addr, (unsigned int)app_lan_value);
 }
 
 

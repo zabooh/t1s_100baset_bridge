@@ -29,6 +29,17 @@ typedef enum {
 #define GM_OA_CONFIG0   (0x00000004u)
 #define GM_OA_STATUS0   (0x00000008u)
 
+/* ---- Vendor/PHY registers used during GM init ---- */
+#define GM_PADCTRL      (0x000A0088u)   /* Pad control register (RMW in init)  */
+
+/* ---- RMW bit masks for GM init sequence ---- */
+/* OA_CONFIG0: set Bits 7 (FTSE) and 6 — same as reference TC6_ptp_master_init */
+#define GM_OA_CONFIG0_RMW_VALUE     (0x000000C0u)
+#define GM_OA_CONFIG0_RMW_MASK      (0x000000C0u)
+/* PADCTRL: set Bit 8, clear Bit 9 — same as reference TC6_ptp_master_init */
+#define GM_PADCTRL_RMW_VALUE        (0x00000100u)
+#define GM_PADCTRL_RMW_MASK         (0x00000300u)
+
 /* ---- TX Timestamp Capture A/B/C ---- */
 #define GM_OA_TTSCAH    (0x00000010u)   /* Capture A: seconds   */
 #define GM_OA_TTSCAL    (0x00000011u)   /* Capture A: nanosecs  */

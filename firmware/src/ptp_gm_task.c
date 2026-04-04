@@ -50,7 +50,15 @@ typedef enum {
     GM_STATE_WAIT_WRITE_TXMCTL,
     GM_STATE_WAIT_SYNC_TX_DONE,
     GM_STATE_DEINIT_WRITE,
-    GM_STATE_WAIT_DEINIT_WRITE
+    GM_STATE_WAIT_DEINIT_WRITE,
+    /* ---- Pre-init RMW sequence: OA_CONFIG0 (bits 7+6) ---- */
+    GM_STATE_RMW_CONFIG0_READ,      /* issue Read(OA_CONFIG0)                     */
+    GM_STATE_RMW_CONFIG0_WAIT_READ, /* wait for read cb → issue Write(val|0xC0)   */
+    GM_STATE_RMW_CONFIG0_WAIT_WRITE,/* wait for write cb → next RMW               */
+    /* ---- Pre-init RMW sequence: PADCTRL (bit 8 set, bit 9 clear) ---- */
+    GM_STATE_RMW_PADCTRL_READ,      /* issue Read(PADCTRL)                        */
+    GM_STATE_RMW_PADCTRL_WAIT_READ, /* wait for read cb → issue Write(modified)   */
+    GM_STATE_RMW_PADCTRL_WAIT_WRITE /* wait for write cb → GM_STATE_INIT_WRITE    */
 } gmState_t;
 
 /* -------------------------------------------------------------------------
@@ -110,6 +118,12 @@ static const char *gm_state_to_str(gmState_t state)
         case GM_STATE_WAIT_SYNC_TX_DONE: return "GM_STATE_WAIT_SYNC_TX_DONE";
         case GM_STATE_DEINIT_WRITE:      return "GM_STATE_DEINIT_WRITE";
         case GM_STATE_WAIT_DEINIT_WRITE: return "GM_STATE_WAIT_DEINIT_WRITE";
+        case GM_STATE_RMW_CONFIG0_READ:       return "GM_STATE_RMW_CONFIG0_READ";
+        case GM_STATE_RMW_CONFIG0_WAIT_READ:  return "GM_STATE_RMW_CONFIG0_WAIT_READ";
+        case GM_STATE_RMW_CONFIG0_WAIT_WRITE: return "GM_STATE_RMW_CONFIG0_WAIT_WRITE";
+        case GM_STATE_RMW_PADCTRL_READ:       return "GM_STATE_RMW_PADCTRL_READ";
+        case GM_STATE_RMW_PADCTRL_WAIT_READ:  return "GM_STATE_RMW_PADCTRL_WAIT_READ";
+        case GM_STATE_RMW_PADCTRL_WAIT_WRITE: return "GM_STATE_RMW_PADCTRL_WAIT_WRITE";
         default:                     return "GM_STATE_UNKNOWN";
     }
 }
@@ -127,15 +141,17 @@ static void gm_set_state(gmState_t nextState, uint32_t line)
  * ---------------------------------------------------------------------- */
 
 /* Number of register writes in each sequence.
+ * Init resets GM_TXMCTL to 0 first (ensures disarmed state after any prior run).
  * Deinit has one extra write (GM_TXMCTL) to disarm the match detector first. */
-#define GM_INIT_WRITE_COUNT   7u
+#define GM_INIT_WRITE_COUNT   8u
 #define GM_DEINIT_WRITE_COUNT 8u
 
 static const uint32_t gm_init_addrs[GM_INIT_WRITE_COUNT] = {
-    GM_TXMLOC, GM_TXMPATH, GM_TXMPATL, GM_TXMMSKH, GM_TXMMSKL, MAC_TI, PPSCTL
+    GM_TXMCTL, GM_TXMLOC, GM_TXMPATH, GM_TXMPATL, GM_TXMMSKH, GM_TXMMSKL, MAC_TI, PPSCTL
 };
 static const uint32_t gm_init_vals[GM_INIT_WRITE_COUNT] = {
-    12u,
+    0x0000u,
+    30u,
     (GM_PTP_ETHERTYPE >> 8u) & 0xFFu,
     (((uint32_t)(GM_PTP_ETHERTYPE & 0xFFu)) << 8u) | 0x10u,
     0x00u,
@@ -339,12 +355,12 @@ void PTP_GM_Init(void)
     gm_tick_ms          = 0u;
     gm_period_start     = 0u;
 
-    /* Kick off the async init write sequence (TX Match, MAC time increment, PPS).
-     * The actual register writes are performed sequentially in PTP_GM_Service()
-     * via GM_STATE_INIT_WRITE / GM_STATE_WAIT_INIT_WRITE — each write is
-     * confirmed by its callback before the next one starts. */
+    /* Kick off the pre-init RMW sequence:
+     *   1. OA_CONFIG0 RMW(0xC0, 0xC0) — same as reference TC6_ptp_master_init step 8
+     *   2. PADCTRL    RMW(0x100, 0x300) — same as reference TC6_ptp_master_init step 9
+     * After both RMWs complete, the normal register-write init sequence starts. */
     gm_seq_step = 0u;
-    GM_SET_STATE(GM_STATE_INIT_WRITE);
+    GM_SET_STATE(GM_STATE_RMW_CONFIG0_READ);
 
     SYS_CONSOLE_PRINT("[PTP-GM] Init started (MAC %02X:%02X:%02X:%02X:%02X:%02X)\r\n",
                        gm_src_mac[0], gm_src_mac[1], gm_src_mac[2],
@@ -421,13 +437,12 @@ void PTP_GM_Service(void)
             }
             gm_wait_ticks = 0u;
             if (gm_op_val & GM_TXMCTL_TXPMDET) {
-                /* Pattern detected: poll captured STATUS0 bits saved by _OnStatus0.
-                 * Do NOT issue a ReadRegister(STATUS0) here — the driver's interrupt
-                 * handler clears STATUS0 (W1C) before our read could complete. */
+                /* Pattern detected: now read STATUS0 directly to check TTSCAA —
+                 * same approach as the noIP reference (TC6_ptp_master_init path). */
                 SYS_CONSOLE_PRINT("[PTP-GM] TXPMDET ok, Sync #%u\r\n", (unsigned)gm_seq_id);
                 gm_retry_cnt  = 0u;
                 gm_wait_ticks = 0u;
-                GM_SET_STATE(GM_STATE_WAIT_STATUS0);
+                GM_SET_STATE(GM_STATE_READ_STATUS0);
             } else {
                 /* Not detected yet: retry up to MAX_RETRIES */
                 gm_retry_cnt++;
@@ -441,29 +456,74 @@ void PTP_GM_Service(void)
             }
             break;
 
-        /* ---- READ_STATUS0 (legacy, falls through to WAIT_STATUS0 poll) ---- */
+        /* ---- Issue direct STATUS0 read (reference approach: TC6_read_OA_STATUS0_reg) ---- */
         case GM_STATE_READ_STATUS0:
-            GM_SET_STATE(GM_STATE_WAIT_STATUS0);
-            break;
-
-        /* ---- Poll TTSCAA/B/C bits captured by the driver's _OnStatus0 handler ---- */
-        case GM_STATE_WAIT_STATUS0:
         {
-            /* The driver's interrupt handler (_OnStatus0) reads STATUS0 and clears
-             * it via W1C before any application-level ReadRegister could complete.
-             * We therefore retrieve the saved bits from DRV_LAN865X_GetAndClearTsCapture
-             * instead of issuing our own register read. */
-            uint32_t tsCapture = gm_get_and_clear_ts_capture();
-            if (0u != (tsCapture & (GM_STS0_TTSCAA | GM_STS0_TTSCAB | GM_STS0_TTSCAC))) {
-                gm_status0    = tsCapture;
+            /* The TC6 library reads STATUS0 internally (EXST path) via _OnStatus0 and
+             * saves TTSCAA/B/C bits into drvTsCaptureStatus0 BEFORE W1C-clearing STATUS0.
+             * Check this callback-captured value first — if available, skip the SPI read
+             * entirely (STATUS0 would read 0x00 anyway since TC6 already cleared it). */
+            uint32_t cbCapture = gm_get_and_clear_ts_capture();
+            if (0u != cbCapture) {
+                SYS_CONSOLE_PRINT("[PTP-GM] TTSCAA via CB=0x%08lX, Sync #%u\r\n",
+                                   (unsigned long)cbCapture, (unsigned)gm_seq_id);
+                gm_status0    = cbCapture;
+                gm_retry_cnt  = 0u;
                 gm_wait_ticks = 0u;
                 GM_SET_STATE(GM_STATE_READ_TTSCA_H);
-            } else {
-                if (++gm_wait_ticks >= 500u) {  /* 500 ms max wait */
-                    SYS_CONSOLE_PRINT("[PTP-GM] TTSCA not set after Sync #%u\r\n",
-                                       (unsigned)gm_seq_id);
+                break;
+            }
+            /* Fallback: issue SPI read (handles race where CB fires after this point) */
+            gm_op_done = false;
+            if (!gm_read_register(GM_OA_STATUS0, true)) {
+                SYS_CONSOLE_PRINT("[PTP-GM] READ_STATUS0 failed, retry\r\n");
+                GM_SET_STATE(GM_STATE_WAIT_PERIOD);
+                break;
+            }
+            GM_SET_STATE(GM_STATE_WAIT_STATUS0);
+            break;
+        }
+
+        /* ---- Wait for STATUS0 read callback; check TTSCAA/B/C (direct read like reference) ---- */
+        case GM_STATE_WAIT_STATUS0:
+        {
+            /* During the SPI round-trip the TC6 callback may have already captured
+             * TTSCAA (and W1C-cleared STATUS0).  Check it here too. */
+            uint32_t cbCapture = gm_get_and_clear_ts_capture();
+            if (0u != cbCapture) {
+                SYS_CONSOLE_PRINT("[PTP-GM] TTSCAA via CB in WAIT=0x%08lX, Sync #%u\r\n",
+                                   (unsigned long)cbCapture, (unsigned)gm_seq_id);
+                gm_status0    = cbCapture;
+                gm_retry_cnt  = 0u;
+                gm_wait_ticks = 0u;
+                GM_SET_STATE(GM_STATE_READ_TTSCA_H);
+                break;
+            }
+            if (!gm_op_done) {
+                if (++gm_wait_ticks >= 200u) {
+                    SYS_CONSOLE_PRINT("[PTP-GM] WAIT_STATUS0 cb timeout, retry\r\n");
                     gm_wait_ticks = 0u;
                     GM_SET_STATE(GM_STATE_WAIT_PERIOD);
+                }
+                break;
+            }
+            gm_wait_ticks = 0u;
+            /* gm_op_val is from direct SPI read; cbCapture was already drained above (=0 here). */
+            SYS_CONSOLE_PRINT("[PTP-GM] STATUS0=0x%08lX after Sync #%u\r\n",
+                               (unsigned long)gm_op_val, (unsigned)gm_seq_id);
+            if (0u != (gm_op_val & (GM_STS0_TTSCAA | GM_STS0_TTSCAB | GM_STS0_TTSCAC))) {
+                gm_status0 = gm_op_val;
+                GM_SET_STATE(GM_STATE_READ_TTSCA_H);
+            } else {
+                gm_retry_cnt++;
+                if (gm_retry_cnt >= PTP_GM_MAX_RETRIES) {
+                    SYS_CONSOLE_PRINT("[PTP-GM] TTSCA not set after Sync #%u\r\n",
+                                       (unsigned)gm_seq_id);
+                    gm_retry_cnt = 0u;
+                    GM_SET_STATE(GM_STATE_WAIT_PERIOD);
+                } else {
+                    /* TTSCAA not yet available, retry STATUS0 read */
+                    GM_SET_STATE(GM_STATE_READ_STATUS0);
                 }
             }
             break;
@@ -600,9 +660,120 @@ void PTP_GM_Service(void)
             GM_SET_STATE(GM_STATE_WAIT_PERIOD);
             break;
 
+        /* =========================================================
+         * Pre-init RMW sequence (mirrors reference TC6_ptp_master_init
+         * steps 8+9: OA_CONFIG0 then PADCTRL — both Read-Modify-Write)
+         * ========================================================= */
+
+        /* ---- Step 8: Read OA_CONFIG0 ---- */
+        case GM_STATE_RMW_CONFIG0_READ:
+            gm_op_done = false;
+            if (!gm_read_register(GM_OA_CONFIG0, true)) {
+                SYS_CONSOLE_PRINT("[PTP-GM] RMW_CONFIG0_READ failed, retry\r\n");
+                GM_SET_STATE(GM_STATE_WAIT_PERIOD);
+                break;
+            }
+            GM_SET_STATE(GM_STATE_RMW_CONFIG0_WAIT_READ);
+            break;
+
+        /* ---- Step 8: Wait for read, then issue modified write ---- */
+        case GM_STATE_RMW_CONFIG0_WAIT_READ:
+            if (!gm_op_done) {
+                if (++gm_wait_ticks >= 200u) {
+                    SYS_CONSOLE_PRINT("[PTP-GM] RMW_CONFIG0_WAIT_READ timeout\r\n");
+                    gm_wait_ticks = 0u;
+                    GM_SET_STATE(GM_STATE_WAIT_PERIOD);
+                }
+                break;
+            }
+            gm_wait_ticks = 0u;
+            {
+                uint32_t newVal = (gm_op_val & ~GM_OA_CONFIG0_RMW_MASK) | GM_OA_CONFIG0_RMW_VALUE;
+                SYS_CONSOLE_PRINT("[PTP-GM] CONFIG0 RMW: 0x%08lX -> 0x%08lX\r\n",
+                                   (unsigned long)gm_op_val, (unsigned long)newVal);
+                gm_op_done = false;
+                if (!gm_write_register(GM_OA_CONFIG0, newVal, true)) {
+                    SYS_CONSOLE_PRINT("[PTP-GM] RMW_CONFIG0 write failed, retry\r\n");
+                    GM_SET_STATE(GM_STATE_WAIT_PERIOD);
+                    break;
+                }
+            }
+            GM_SET_STATE(GM_STATE_RMW_CONFIG0_WAIT_WRITE);
+            break;
+
+        /* ---- Step 8: Wait for CONFIG0 write callback ---- */
+        case GM_STATE_RMW_CONFIG0_WAIT_WRITE:
+            if (!gm_op_done) {
+                if (++gm_wait_ticks >= 200u) {
+                    SYS_CONSOLE_PRINT("[PTP-GM] RMW_CONFIG0_WAIT_WRITE timeout\r\n");
+                    gm_wait_ticks = 0u;
+                    GM_SET_STATE(GM_STATE_WAIT_PERIOD);
+                }
+                break;
+            }
+            gm_wait_ticks = 0u;
+            SYS_CONSOLE_PRINT("[PTP-GM] CONFIG0 RMW done\r\n");
+            GM_SET_STATE(GM_STATE_RMW_PADCTRL_READ);
+            break;
+
+        /* ---- Step 9: Read PADCTRL ---- */
+        case GM_STATE_RMW_PADCTRL_READ:
+            gm_op_done = false;
+            if (!gm_read_register(GM_PADCTRL, true)) {
+                SYS_CONSOLE_PRINT("[PTP-GM] RMW_PADCTRL_READ failed, retry\r\n");
+                GM_SET_STATE(GM_STATE_WAIT_PERIOD);
+                break;
+            }
+            GM_SET_STATE(GM_STATE_RMW_PADCTRL_WAIT_READ);
+            break;
+
+        /* ---- Step 9: Wait for read, then issue modified write ---- */
+        case GM_STATE_RMW_PADCTRL_WAIT_READ:
+            if (!gm_op_done) {
+                if (++gm_wait_ticks >= 200u) {
+                    SYS_CONSOLE_PRINT("[PTP-GM] RMW_PADCTRL_WAIT_READ timeout\r\n");
+                    gm_wait_ticks = 0u;
+                    GM_SET_STATE(GM_STATE_WAIT_PERIOD);
+                }
+                break;
+            }
+            gm_wait_ticks = 0u;
+            {
+                uint32_t newVal = (gm_op_val & ~GM_PADCTRL_RMW_MASK) | GM_PADCTRL_RMW_VALUE;
+                SYS_CONSOLE_PRINT("[PTP-GM] PADCTRL RMW: 0x%08lX -> 0x%08lX\r\n",
+                                   (unsigned long)gm_op_val, (unsigned long)newVal);
+                gm_op_done = false;
+                if (!gm_write_register(GM_PADCTRL, newVal, true)) {
+                    SYS_CONSOLE_PRINT("[PTP-GM] RMW_PADCTRL write failed, retry\r\n");
+                    GM_SET_STATE(GM_STATE_WAIT_PERIOD);
+                    break;
+                }
+            }
+            GM_SET_STATE(GM_STATE_RMW_PADCTRL_WAIT_WRITE);
+            break;
+
+        /* ---- Step 9: Wait for PADCTRL write callback → start normal init ---- */
+        case GM_STATE_RMW_PADCTRL_WAIT_WRITE:
+            if (!gm_op_done) {
+                if (++gm_wait_ticks >= 200u) {
+                    SYS_CONSOLE_PRINT("[PTP-GM] RMW_PADCTRL_WAIT_WRITE timeout\r\n");
+                    gm_wait_ticks = 0u;
+                    GM_SET_STATE(GM_STATE_WAIT_PERIOD);
+                }
+                break;
+            }
+            gm_wait_ticks = 0u;
+            SYS_CONSOLE_PRINT("[PTP-GM] PADCTRL RMW done — starting normal init sequence\r\n");
+            gm_seq_step = 0u;
+            GM_SET_STATE(GM_STATE_INIT_WRITE);
+            break;
+
+        /* =========================================================
+         * Normal register-write init sequence
+         * ========================================================= */
+
         /* ---- Issue next register write in the init sequence ---- */
         case GM_STATE_INIT_WRITE:
-            gm_op_done = false;
             if (!gm_write_register(gm_init_addrs[gm_seq_step],
                                    gm_init_vals[gm_seq_step], true)) {
                 SYS_CONSOLE_PRINT("[PTP-GM] INIT_WRITE failed at step %u\r\n",
@@ -637,8 +808,9 @@ void PTP_GM_Service(void)
         /* ---- Write GM_TXMCTL before each Sync TX (callback-protected) ---- */
         case GM_STATE_WRITE_TXMCTL:
             gm_op_done = false;
-            /* TSC=1 in SPI header (pure header-based capture); MACTXTSE not set */
-            if (!gm_write_register(GM_TXMCTL, 0x0000u, true)) {
+            /* TXME=1 (bit 1): arm TX-Match-Detector before Sync send.
+             * TSC=1 in SPI header is also set in gm_send_raw_eth_frame(tsc=1). */
+            if (!gm_write_register(GM_TXMCTL, 0x0002u, true)) {
                 SYS_CONSOLE_PRINT("[PTP-GM] WRITE_TXMCTL failed\r\n");
                 GM_SET_STATE(GM_STATE_WAIT_PERIOD);
                 break;
@@ -702,8 +874,9 @@ void PTP_GM_Service(void)
             }
             /* gm_tx_busy == false: Callback was invoked, transmission confirmed */
             gm_wait_ticks = 0u;
+            gm_retry_cnt  = 0u;
             SYS_CONSOLE_PRINT("[PTP-GM] Sync #%u TX confirmed\r\n", (unsigned)gm_seq_id);
-            GM_SET_STATE(GM_STATE_WAIT_STATUS0);
+            GM_SET_STATE(GM_STATE_READ_STATUS0);
             break;
 
         /* ---- Issue next register write in the deinit sequence ---- */

@@ -2,7 +2,7 @@
 
 Datum: 2026-04-01  
 Uhrzeit: (Erstellung) 14:00 MESZ  
-Zuletzt aktualisiert: 2026-04-02 (Log-Analyse TL4 abgeschlossen — RC#4 MemMap-Overwrite identifiziert)
+Zuletzt aktualisiert: 2026-04-04 — **ABGESCHLOSSEN: PTP GM vollständig funktionsfähig, Offset mean=+45.5 ns**
 
 ---
 

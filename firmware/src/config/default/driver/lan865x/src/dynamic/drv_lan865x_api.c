@@ -1705,13 +1705,13 @@ static bool _InitMemMap(DRV_LAN865X_DriverInfo * pDrvInst)
         {  .address=0x00010000,  .value=0x00000000,  .mask=0x00000000,  .op=MemOp_Write,  .secure=true  }, /* NETWORK_CONTROL */
         {  .address=0x00040091,  .value=0x00009660,  .mask=0x00000000,  .op=MemOp_Write,  .secure=true  },
         {  .address=0x00040081,  .value=0x00000080,  .mask=0x00000000,  .op=MemOp_Write,  .secure=true  },
-        {  .address=0x00010077,  .value=0x00000028,  .mask=0x00000000,  .op=MemOp_Write,  .secure=true  },
+        {  .address=0x00010077,  .value=0x00000028,  .mask=0x00000000,  .op=MemOp_Write,  .secure=true  }, /* MAC_TI: 40 ns/tick = 25 MHz GEM-Takt (Referenzwert Microchip noIP-SAM-E54) */
         /* TX-Match pattern for PTP Sync detection (used by GM to capture TX timestamp) */
         {  .address=0x00040041,  .value=0x00000088,  .mask=0x00000000,  .op=MemOp_Write,  .secure=true  }, /* TXMPATH:  EtherType high byte 0x88          */
         {  .address=0x00040042,  .value=0x0000F710,  .mask=0x00000000,  .op=MemOp_Write,  .secure=true  }, /* TXMPATL:  EtherType low 0xF7 + PTP Sync 0x10 */
         {  .address=0x00040043,  .value=0x00000000,  .mask=0x00000000,  .op=MemOp_Write,  .secure=true  }, /* TXMMSKH:  no masking (exact match)            */
         {  .address=0x00040044,  .value=0x00000000,  .mask=0x00000000,  .op=MemOp_Write,  .secure=true  }, /* TXMMSKL:  no masking                          */
-        {  .address=0x00040045,  .value=0x0000000C,  .mask=0x00000000,  .op=MemOp_Write,  .secure=true  }, /* TXMLOC:   byte offset 12 = EtherType position in Ethernet frame (6 DA + 6 SA = 12) */
+        {  .address=0x00040045,  .value=0x0000001E,  .mask=0x00000000,  .op=MemOp_Write,  .secure=true  }, /* TXMLOC:   byte offset 30 = reference value from Microchip noIP-SAM-E54 PTP demo */
         {  .address=0x00040053,  .value=0x000000FF,  .mask=0x00000000,  .op=MemOp_Write,  .secure=true  },
         {  .address=0x00040054,  .value=0x0000FFFF,  .mask=0x00000000,  .op=MemOp_Write,  .secure=true  },
         {  .address=0x00040055,  .value=0x00000000,  .mask=0x00000000,  .op=MemOp_Write,  .secure=true  },
@@ -1994,7 +1994,17 @@ static bool _InitConfig(DRV_LAN865X_DriverInfo * pDrvInst)
             break;
 
         case 46:
-            if (TC6_WriteRegister(tc, 0x000400E0, 0x0000C100, CONTROL_PROTECTION, NULL, NULL)) { /* PADCTRL: 0xC000|0x100 for TX timestamp (ref: TC6_ptp_master_init) */
+            /* PADCTRL (0x000A0088): RMW value=0x100, mask=0x300 — enables TX timestamp output
+             * Reference: TC6_ptp_master_init() in noIP-SAM-E54-Curiosity-PTP-Grandmaster */
+            if (TC6_ReadModifyWriteRegister(tc, 0x000A0088u /* PADCTRL */, 0x00000100u, 0x00000300u, CONTROL_PROTECTION, NULL, NULL)) {
+                pDrvInst->initSubState++;
+            }
+            break;
+
+        case 47:
+            /* PPSCTL (0x000A0239): value=0x7D (=125) — enables PPS clock required for TSU counter
+             * Reference: TC6_ptp_master_init() in noIP-SAM-E54-Curiosity-PTP-Grandmaster */
+            if (TC6_WriteRegister(tc, 0x000A0239u /* PPSCTL */, 0x0000007Du, CONTROL_PROTECTION, NULL, NULL)) {
                 done = true;
             }
             break;
@@ -2470,6 +2480,16 @@ bool DRV_LAN865X_SendRawEthFrame(uint8_t idx, const uint8_t *pBuf, uint16_t len,
     if (idx < DRV_LAN865X_INSTANCES_NUMBER) {
         DRV_LAN865X_DriverInfo *pDrv = &drvLAN865XDrvInst[idx];
         if (SYS_STATUS_READY == pDrv->state) {
+            /* CHK-52: verify tsc=1 actually reaches TC6 (prints only for tsc!=0) */
+            if (0u != tsc) {
+                static uint8_t chk52_tsc_cnt = 0u;
+                if (chk52_tsc_cnt < 10u) {
+                    chk52_tsc_cnt++;
+                    SYS_CONSOLE_PRINT("[DBG-CHK52] tsc=0x%02X len=%u call#%u\r\n",
+                                      (unsigned int)tsc, (unsigned int)len,
+                                      (unsigned int)chk52_tsc_cnt);
+                }
+            }
             result = TC6_SendRawEthernetPacket(pDrv->drvTc6, pBuf, len, tsc,
                                                (TC6_RawTxCallback_t)(void *)cb, pTag);
         }

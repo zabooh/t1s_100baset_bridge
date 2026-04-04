@@ -227,50 +227,76 @@ def tier1_tsu(ser: serial.Serial, name: str) -> bool:
     section("TIER 1: TSU Wall-Clock Verification (TEST_TSU_01..04)")
     results = []
 
-    # TEST_TSU_01 — MAC_TI Readback
+    # TEST_TSU_01 — MAC_TI Readback (erwartet 0x28 = 40 ns/Takt bei 25 MHz GEM-Takt)
     val = lan_read(ser, name, REG["MAC_TI"])
     if val is None:
         results.append(fail("TEST_TSU_01 MAC_TI lesbar"))
         hint("lan_read antwortet nicht → SPI-Problem oder Firmware nicht geladen")
     elif val == 0x28:
-        results.append(ok("TEST_TSU_01 MAC_TI=0x28 (40 ns/Takt)"))
+        results.append(ok("TEST_TSU_01 MAC_TI=0x28 (40 ns/Takt bei 25 MHz ✓)"))
+    elif val == 0x08:
+        results.append(fail("TEST_TSU_01 MAC_TI=0x08 (falscher Wert — TSU läuft 5× zu langsam!)",
+                            "0x08 statt 0x28"))
+        hint("Firmware hat MAC_TI auf 8 → neu flashen mit korrigiertem Build (40 = Referenzwert)")
     else:
         results.append(fail("TEST_TSU_01 MAC_TI falsch", f"0x{val:08X} statt 0x28"))
         hint("PTP_GM_Init() nicht aufgerufen, oder LOFR-Reset hat MAC_TI überschrieben")
 
-    # TEST_TSU_02 — MAC_TN zählt
-    tn1 = lan_read(ser, name, REG["MAC_TN"])
-    info("TEST_TSU_02 MAC_TN t=0", f"0x{tn1:08X}" if tn1 is not None else "N/A")
-    print("  Warte 500 ms ...")
-    time.sleep(0.5)
-    tn2 = lan_read(ser, name, REG["MAC_TN"])
-    info("TEST_TSU_02 MAC_TN t=500ms", f"0x{tn2:08X}" if tn2 is not None else "N/A")
-    if tn1 is not None and tn2 is not None:
-        delta = (tn2 - tn1) if tn2 >= tn1 else (1_000_000_000 - tn1 + tn2)
-        expected = 500_000_000
-        in_range = abs(delta - expected) < expected * 0.25
+    # TEST_TSU_02 — TSU-Uhr Genauigkeit (PC-Wanduhr als Referenz, per-Read timestamps)
+    # WICHTIG: lan_read dauert ~4s bei aktivem PTP. Daher für jedes Register einzeln
+    # den PC-Zeitstempel erfassen, um TSU-Δ mit dem GLEICHEN Zeitintervall zu vergleichen.
+    sl_t0 = lan_read(ser, name, REG["MAC_TSL"]); t_after_sl0 = time.time()
+    tn_t0 = lan_read(ser, name, REG["MAC_TN"]);  t_after_tn0 = time.time()
+    info("TEST_TSU_02 t=0",
+         f"TSL=0x{sl_t0:08X}  TN=0x{tn_t0:08X}" if (sl_t0 is not None and tn_t0 is not None) else "N/A")
+    print("  Warte 5 s (Messfenster) ...")
+    time.sleep(5.0)
+    sl_t5 = lan_read(ser, name, REG["MAC_TSL"]); t_after_sl5 = time.time()
+    tn_t5 = lan_read(ser, name, REG["MAC_TN"]);  t_after_tn5 = time.time()
+    info("TEST_TSU_02 t=5s",
+         f"TSL=0x{sl_t5:08X}  TN=0x{tn_t5:08X}" if (sl_t5 is not None and tn_t5 is not None) else "N/A")
+    if all(v is not None for v in [sl_t0, tn_t0, sl_t5, tn_t5]):
+        tsl_delta    = sl_t5 - sl_t0
+        tn_delta     = tn_t5 - tn_t0
+        total_tsu_ns = tsl_delta * 1_000_000_000 + tn_delta
+        # Referenzzeit: vom Abschluss von tn_t0 bis zum Abschluss von tn_t5
+        # (das ist genau der Zeitraum, den total_tsu_ns misst)
+        real_ns      = int((t_after_tn5 - t_after_tn0) * 1_000_000_000)
+        info("TEST_TSU_02 T_real (tn→tn)", f"{real_ns/1e9:.3f} s")
+        factor = total_tsu_ns / real_ns if real_ns > 0 else 0
+        in_range = 0.75 <= factor <= 1.25
         if in_range:
-            results.append(ok("TEST_TSU_02 MAC_TN zählt", f"Δ={delta:,} ns ({delta/1e6:.0f} ms)"))
+            results.append(ok("TEST_TSU_02 TSU-Uhr korrekt",
+                              f"TSU={total_tsu_ns/1e9:.3f} s  Real={real_ns/1e9:.3f} s  "
+                              f"Faktor={factor:.3f}×"))
         else:
-            results.append(fail("TEST_TSU_02 MAC_TN Δ außerhalb 375–625 ms",
-                                f"Δ={delta:,} ns"))
-            hint("TSU zählt nicht korrekt → MAC_TI=0 oder GEM nicht initialisiert")
+            results.append(fail("TEST_TSU_02 TSU-Uhr falsch",
+                                f"TSU={total_tsu_ns/1e9:.3f} s  Real={real_ns/1e9:.3f} s  "
+                                f"Faktor={factor:.3f}× (erwartet ~1.0×)"))
+            hint("MAC_TI prüfen: 40 ns/tick bei 25 MHz GEM-Takt korrekt (Referenzwert)")
     else:
-        results.append(fail("TEST_TSU_02 MAC_TN lesbar"))
+        results.append(fail("TEST_TSU_02 TSU-Uhr lesbar"))
+        t_after_tn0 = t_after_tn5 = None
+        sl_t0 = sl_t5 = None
 
-    # TEST_TSU_03 — MAC_TSL steigt nach 1.2 s
-    sl1 = lan_read(ser, name, REG["MAC_TSL"])
-    info("TEST_TSU_03 MAC_TSL t=0", f"0x{sl1:08X}" if sl1 is not None else "N/A")
-    print("  Warte 1.2 s auf Sekunden-Rollover ...")
-    time.sleep(1.2)
-    sl2 = lan_read(ser, name, REG["MAC_TSL"])
-    info("TEST_TSU_03 MAC_TSL t=1.2s", f"0x{sl2:08X}" if sl2 is not None else "N/A")
-    if sl1 is not None and sl2 is not None:
-        if sl2 - sl1 >= 1:
-            results.append(ok("TEST_TSU_03 MAC_TSL steigt", f"Δ={sl2 - sl1} s"))
+    # TEST_TSU_03 — MAC_TSL Sekunden-Zähler (wiederverwendet Samples aus TSU_02 — kein extra Sleep)
+    if sl_t0 is not None and sl_t5 is not None and t_after_tn0 is not None:
+        tsl_d       = sl_t5 - sl_t0
+        real_s      = (t_after_tn5 - t_after_tn0)
+        expected_lo = int(real_s * 0.75)
+        expected_hi = int(real_s * 1.25)
+        if expected_lo <= tsl_d <= expected_hi:
+            results.append(ok("TEST_TSU_03 MAC_TSL Δ korrekt",
+                              f"Δ={tsl_d} s  Real={real_s:.1f} s"))
+        elif tsl_d >= 1:
+            factor_s = tsl_d / real_s if real_s > 0 else 0
+            results.append(fail("TEST_TSU_03 MAC_TSL Δ außerhalb ±25% von T_real",
+                                f"Δ={tsl_d} s  Real={real_s:.1f} s  "
+                                f"Faktor={factor_s:.2f}× "
+                                f"({'zu schnell' if factor_s > 1 else 'zu langsam'})"))
+            hint("MAC_TI prüfen: 40 ns/tick bei 25 MHz GEM-Takt korrekt")
         else:
-            results.append(fail("TEST_TSU_03 MAC_TSL steigt nicht",
-                                f"sl1={sl1} sl2={sl2}"))
+            results.append(fail("TEST_TSU_03 MAC_TSL steigt nicht", f"Δ={tsl_d} s"))
             hint("MAC_TN läuft aber TSL nicht → Sekunden-Überlauf-Logik defekt?")
     else:
         results.append(fail("TEST_TSU_03 MAC_TSL lesbar"))
@@ -337,6 +363,48 @@ def tier2_oa(ser: serial.Serial, name: str) -> bool:
     if imask1 is not None:
         info("TEST_OA_03 IMASK1", f"0x{imask1:08X}")
 
+    # TEST_OA_03b — CONFIG0 Bit 6+7 (RMW von PTP_GM_Init)
+    # Referenz: TC6_ptp_master_init step 8: OA_CONFIG0 RMW(0xC0, 0xC0)
+    # 0x90E6 hat Bit7=1 und Bit6=1 (0xE6 & 0xC0 == 0xC0) → RMW ändert nichts,
+    # aber wir prüfen explizit ob beide Bits gesetzt sind.
+    val_c0 = lan_read(ser, name, REG["CONFIG0"])
+    if val_c0 is not None:
+        bit7 = bool(val_c0 & 0x80)
+        bit6 = bool(val_c0 & 0x40)
+        if bit7 and bit6:
+            results.append(ok("TEST_OA_03b CONFIG0 Bit7(FTSE)+Bit6 gesetzt",
+                               f"0x{val_c0:08X} & 0xC0 = 0x{val_c0 & 0xC0:02X}"))
+        elif bit7:
+            results.append(fail("TEST_OA_03b CONFIG0 Bit6 NICHT gesetzt!",
+                                 f"0x{val_c0:08X} — RMW hat Bit6 nicht gesetzt"))
+            hint("RMW_CONFIG0 in PTP_GM_Init ist fehlgeschlagen oder\n"
+                 "der TCPIP-Stack hat CONFIG0 danach überschrieben")
+        else:
+            results.append(fail("TEST_OA_03b CONFIG0 Bit7(FTSE) nicht gesetzt!",
+                                 f"0x{val_c0:08X}"))
+    else:
+        results.append(fail("TEST_OA_03b CONFIG0 nicht lesbar"))
+
+    # TEST_OA_03c — PADCTRL RMW-Verifikation
+    # Referenz: TC6_ptp_master_init step 9: PADCTRL RMW(value=0x100, mask=0x300)
+    # Erwartet: Bit8=1, Bit9=0
+    PADCTRL_ADDR = 0x000A0088
+    val_pad = lan_read(ser, name, PADCTRL_ADDR)
+    if val_pad is not None:
+        bit8 = bool(val_pad & 0x100)
+        bit9 = bool(val_pad & 0x200)
+        masked = val_pad & 0x300
+        if bit8 and not bit9:
+            results.append(ok("TEST_OA_03c PADCTRL korrekt (Bit8=1, Bit9=0)",
+                               f"0x{val_pad:08X} → Bits[9:8]=0x{masked >> 8:01X}"))
+        else:
+            results.append(fail("TEST_OA_03c PADCTRL falsch!",
+                                 f"0x{val_pad:08X}  Bit8={int(bit8)}  Bit9={int(bit9)}  "
+                                 f"(erwartet Bit8=1 Bit9=0)"))
+            hint("RMW_PADCTRL in PTP_GM_Init fehlgeschlagen (Adresse 0x000A0088)")
+    else:
+        results.append(fail("TEST_OA_03c PADCTRL nicht lesbar (0x000A0088)"))
+
     # TEST_OA_04 — TTSC Register Baseline
     print("\n  TEST_OA_04: Capture-Register vor Aktivierung (sollen 0 sein):")
     all_zero = True
@@ -363,7 +431,7 @@ def tier3_txm_and_nc(ser: serial.Serial, name: str) -> bool:
 
     # TEST_TXM_01 — Readback aller TX-Match-Register
     expected = {
-        "TXMLOC"  : 12,
+        "TXMLOC"  : 30,      # Referenz: TC6_ptp_master_init step 1
         "TXMPATH" : 0x88,
         "TXMPATL" : 0xF710,
         "TXMMSKH" : 0x00,
