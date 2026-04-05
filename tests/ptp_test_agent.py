@@ -359,6 +359,38 @@ class PTPTestAgent:
                     pass
 
     # ------------------------------------------------------------------
+    # Step 0 — Reset both boards
+    # ------------------------------------------------------------------
+
+    def test_step_0_reset(self):
+        """Send a reset command to both boards and wait 8 seconds.
+
+        Always executed regardless of ``--from-step``.  A failure to
+        confirm the reset only produces a warning — the test continues.
+        """
+        step = "Step 0: Reset"
+        self.log.info(f"\n--- {step} ---")
+
+        detail_parts = []
+
+        for label, ser in [("GM ", self.gm_ser), ("FOL", self.fol_ser)]:
+            self.log.info(f"  [{label}] reset")
+            try:
+                resp = send_command(ser, "reset", self.cmd_timeout, self.log)
+                detail_parts.append(f"{label} reset sent")
+                self.log.info(f"  [{label}] ✓ reset command sent")
+                if resp.strip():
+                    self.log.debug(f"  [{label}] response: {resp.strip()!r}")
+            except Exception as exc:
+                detail_parts.append(f"{label} reset WARNING ({exc})")
+                self.log.info(f"  [{label}] ⚠ reset failed (continuing): {exc}")
+
+        self.log.info("  Waiting 8 s after reset…")
+        time.sleep(8)
+
+        self._record(step, True, "; ".join(detail_parts))
+
+    # ------------------------------------------------------------------
     # Step 1 — IP configuration
     # ------------------------------------------------------------------
 
@@ -663,6 +695,9 @@ class PTPTestAgent:
         self.connect()
 
         try:
+            # Step 0 is always executed before any user-selected start step.
+            self.test_step_0_reset()
+
             step_functions = [
                 (1, self.test_step_1_ip_config),
                 (2, self.test_step_2_connectivity),
