@@ -284,7 +284,7 @@ class PTPTestAgent:
         samples: Number of ``ptp_offset`` samples to collect in Step 5.
         convergence_timeout: Max seconds to wait for FINE state.
         cmd_timeout: Max seconds to wait for a single command response.
-        stop_ptp_after: If ``True``, send ``ptp_mode off`` during cleanup.
+        stop_ptp_after: If ``True`` (default), send ``ptp_mode off`` during cleanup.
         from_step: Skip steps below this number.
         log: :class:`Logger` instance.
     """
@@ -299,7 +299,7 @@ class PTPTestAgent:
         samples: int = DEFAULT_SAMPLES,
         convergence_timeout: float = DEFAULT_CONVERGENCE_TIMEOUT,
         cmd_timeout: float = DEFAULT_CMD_TIMEOUT,
-        stop_ptp_after: bool = False,
+        stop_ptp_after: bool = True,
         from_step: int = 1,
         log: Logger = None,
     ):
@@ -848,9 +848,10 @@ def build_arg_parser() -> argparse.ArgumentParser:
         help="Start from step N (1–5, default: 1)",
     )
     parser.add_argument(
-        "--stop-ptp",
-        action="store_true",
-        help="Send 'ptp_mode off' on both boards after the test",
+        "--no-stop-ptp",
+        dest="stop_ptp",
+        action="store_false",
+        help="Do not send 'ptp_mode off' on both boards after the test",
     )
     parser.add_argument(
         "--log-file",
