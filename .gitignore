@@ -93,3 +93,7 @@ activate_*.py
 # MCC and IDE generated
 MCC_Test.mc3
 MCC_Alternatives.md
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
