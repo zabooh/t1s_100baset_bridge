@@ -27,11 +27,16 @@ Requirements:
 import argparse
 import datetime
 import re
+import faulthandler
 import statistics
 import sys
 import threading
 import time
 from typing import Dict, List, Optional, Tuple
+
+# Enable faulthandler so C-level crashes (e.g. pyserial/Windows COM) dump a
+# Python traceback to stderr instead of silently terminating the process.
+faulthandler.enable()
 
 try:
     import serial
@@ -88,20 +93,22 @@ FOL_STATE_PATTERNS: Dict[str, re.Pattern] = {
 # ---------------------------------------------------------------------------
 
 class Logger:
-    """Dual-writes to stdout and an optional log file."""
+    """Dual-writes to stdout and an optional log file.  Thread-safe."""
 
     def __init__(self, log_file: str = None, verbose: bool = False):
         self.log_file = log_file
         self.verbose = verbose
         self._fh = None
+        self._lock = threading.Lock()
         if log_file:
             self._fh = open(log_file, "w", encoding="utf-8")
 
     def _write(self, line: str):
-        print(line)
-        if self._fh:
-            self._fh.write(line + "\n")
-            self._fh.flush()
+        with self._lock:
+            print(line)
+            if self._fh:
+                self._fh.write(line + "\n")
+                self._fh.flush()
 
     def info(self, msg: str):
         self._write(msg)
@@ -111,9 +118,10 @@ class Logger:
             self._write(f"  [DBG] {msg}")
 
     def close(self):
-        if self._fh:
-            self._fh.close()
-            self._fh = None
+        with self._lock:
+            if self._fh:
+                self._fh.close()
+                self._fh = None
 
 
 # ---------------------------------------------------------------------------
@@ -469,18 +477,26 @@ class PTPOnOffTestAgent:
         live_log=True so all FOL output is visible as info during the wait —
         without this Phase C would appear completely silent for up to 30 s.
         """
-        self._conv_result = wait_for_pattern(
-            self.fol_ser,
-            RE_FINE,
-            timeout=self.convergence_timeout,
-            log=self.log,
-            extra_patterns={
-                "MATCHFREQ": RE_MATCHFREQ,
-                "HARD_SYNC": RE_HARD_SYNC,
-                "COARSE":    RE_COARSE,
-            },
-            live_log=True,
-        )
+        try:
+            self._conv_result = wait_for_pattern(
+                self.fol_ser,
+                RE_FINE,
+                timeout=self.convergence_timeout,
+                log=self.log,
+                extra_patterns={
+                    "MATCHFREQ": RE_MATCHFREQ,
+                    "HARD_SYNC": RE_HARD_SYNC,
+                    "COARSE":    RE_COARSE,
+                },
+                live_log=True,
+            )
+        except Exception as exc:  # noqa: BLE001
+            import traceback
+            msg = f"  [CONV-THREAD ERROR] {type(exc).__name__}: {exc}\n{traceback.format_exc()}"
+            self.log.info(msg)
+            sys.stderr.write(msg + "\n")
+            sys.stderr.flush()
+            self._conv_result = (False, self.convergence_timeout, {})
 
     def _collect_convergence_result(self) -> Tuple[bool, float, dict]:
         """Join convergence thread and return (matched, elapsed, milestones)."""
@@ -740,10 +756,14 @@ class PTPOnOffTestAgent:
 
         # Start convergence thread BEFORE GM restart command so the
         # timer captures the moment PTP becomes active again.
+        sys.stderr.write("TRACE PhaseC-1: reset_input_buffer\n"); sys.stderr.flush()
         self.fol_ser.reset_input_buffer()
+        sys.stderr.write("TRACE PhaseC-2: start_convergence_thread\n"); sys.stderr.flush()
         self._start_convergence_thread()
+        sys.stderr.write("TRACE PhaseC-3: _start_gm\n"); sys.stderr.flush()
 
         gm_started = self._start_gm()
+        sys.stderr.write(f"TRACE PhaseC-4: gm_started={gm_started}\n"); sys.stderr.flush()
         if not gm_started:
             self.log.info("  WARNING: GM restart not confirmed — convergence may fail")
 

@@ -98,6 +98,13 @@ volatile int      hardResync      = 0;
 static double   rateRatioValue[FIR_FILER_SIZE]         = {0};
 static lpfStateF rateRatiolpfState;
 
+/* Calibrated TI/TISUBN saved at first UNINIT->MATCHFREQ; reused after GM restart
+ * so that the 16-frame UNINIT re-measurement (which gives rateRatioFIR~1.0 because
+ * the LAN865x clock is already at the calibrated rate) does not overwrite the
+ * correct crystal-compensated increment value. */
+static uint32_t calibratedTI_value     = 0u;
+static uint32_t calibratedTISUBN_value = 0u;
+
 static int32_t  offsetValue[FIR_FILER_SIZE_FINE]       = {0};
 static lpfState offsetState;
 
@@ -311,12 +318,15 @@ uint64_t tsToInternal(const timeStamp_t *ts)
 static void resetSlaveNode(void)
 {
     PTP_LOG("GM_RESET -> Slave node reset initiated due to sequence ID mismatch\r\n");
+
     ptp_sync_sequenceId = -1;
     syncReceived        = 0;
     wallClockSet        = false;
     ptpSynced           = 0;
-    syncStatus          = UNINIT;
     runs                = 0;
+    hardResync          = 1;    /* force hard-sync on first FollowUp after reset */
+    diffLocal           = 0;
+    diffRemote          = 0;
 
     memset(&TS_SYNC, 0, sizeof(ptpSync_ct));
 
@@ -326,6 +336,22 @@ static void resetSlaveNode(void)
     }
     for (uint32_t x = 0; x < FIR_FILER_SIZE; x++) {
         firLowPassFilterF(1.0, &rateRatiolpfState);
+    }
+
+    if (calibratedTI_value != 0u) {
+        /* Fast-reset path: LAN865x TI/TISUBN registers already hold the
+         * calibrated crystal-compensation value — re-apply them and skip
+         * the 16-frame UNINIT re-measurement that would produce
+         * rateRatioFIR~1.0 (= uncompensated, 5ppm drift per frame). */
+        fol_reg_values.ti_value     = calibratedTI_value;
+        fol_reg_values.tisubn_value = calibratedTISUBN_value;
+        fol_pending_action          = FOL_ACTION_SET_CLOCK_INC;
+        syncStatus                  = MATCHFREQ;   /* jump straight to MATCHFREQ */
+        PTP_LOG("GM_RESET: reusing calibrated TI=%u TISUBN=0x%08X\r\n",
+                (unsigned int)calibratedTI_value,
+                (unsigned int)calibratedTISUBN_value);
+    } else {
+        syncStatus = UNINIT;   /* first boot: normal calibration needed */
     }
 
     PTP_FOL_Init();
@@ -462,6 +488,10 @@ static void processFollowUp(followUpMsg_t *ptpPkt)
             PTP_LOG("PTP UNINIT->MATCHFREQ  scheduling TI=%u TISUBN=0x%08X\r\n",
                     (unsigned int)mac_ti, (unsigned int)calcSubInc_uint);
 
+            /* Save calibrated values for reuse after any subsequent GM restart */
+            calibratedTI_value     = (uint32_t)mac_ti;
+            calibratedTISUBN_value = calcSubInc_uint;
+
             syncStatus = MATCHFREQ;
             ptpSynced  = 1;
             runs       = 0;
@@ -471,7 +501,10 @@ static void processFollowUp(followUpMsg_t *ptpPkt)
         if (offset_abs > MATCHFREQ_RESET_THRESHOLD) {
             hardResync = 1;
         } else {
+            PTP_LOG("[PTP-DBG] MATCHFREQ->HARDSYNC offset=%d abs=%llu\r\n",
+                    (int)offset, (unsigned long long)offset_abs);
             syncStatus = HARDSYNC;
+            ptpSynced  = 1;   /* ensure PPS is re-enabled on next frame (fast-reset path) */
         }
 
     } else if (syncStatus >= HARDSYNC) {
@@ -487,12 +520,16 @@ static void processFollowUp(followUpMsg_t *ptpPkt)
             runs = 0;
 
         } else if (offset_abs > HARDSYNC_THRESHOLD) {
+            PTP_LOG("[PTP-DBG] HARDSYNC big offset=%d abs=%llu\r\n",
+                    (int)offset, (unsigned long long)offset_abs);
             offset_abs = HARDSYNC_THRESHOLD;
             fol_reg_values.ta_value = ((neg & 1u) << 31) | (uint32_t)offset_abs;
             fol_pending_action = FOL_ACTION_ADJUST_OFFSET;
             syncStatus = HARDSYNC;
 
         } else if (offset_abs > HARDSYNC_COARSE_THRESHOLD) {
+            PTP_LOG("[PTP-DBG] HARDSYNC coarse offset=%d abs=%llu\r\n",
+                    (int)offset, (unsigned long long)offset_abs);
             for (uint32_t x = 0; x < FIR_FILER_SIZE_FINE; x++) {
                 (void)firLowPassFilter(0, &offsetCoarseState);
                 (void)firLowPassFilter(0, &offsetState);
