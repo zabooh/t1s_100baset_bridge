@@ -19,6 +19,7 @@ import datetime
 import re
 import statistics
 import sys
+import threading
 import time
 from typing import Dict, List, Optional, Tuple
 
@@ -45,8 +46,9 @@ DEFAULT_SAMPLES = 20
 OFFSET_THRESHOLD_NS = 100      # nanoseconds
 
 # Regex patterns used for parsing
-RE_IP_SET = re.compile(r"IP address set to")
-RE_PING_REPLY = re.compile(r"Reply from")
+RE_IP_SET = re.compile(r"Set ip address OK|IP address set to")
+RE_PING_REPLY = re.compile(r"Ping:.*reply.*from|Reply from")
+RE_PING_DONE  = re.compile(r"Ping: done\.")
 RE_FOL_START = re.compile(r"\[PTP\] follower mode")
 RE_GM_START = re.compile(r"\[PTP\] grandmaster mode")
 RE_MATCHFREQ = re.compile(r"UNINIT->MATCHFREQ")
@@ -177,6 +179,7 @@ def wait_for_pattern(
     timeout: float = DEFAULT_CONVERGENCE_TIMEOUT,
     log: Logger = None,
     extra_patterns: dict = None,
+    live_log: bool = False,
 ) -> tuple:
     """Read from *ser* until *pattern* matches or *timeout* expires.
 
@@ -187,6 +190,8 @@ def wait_for_pattern(
         log: Optional :class:`Logger` for debug output.
         extra_patterns: Mapping of label→compiled-regex for milestones to
             record (first-match timestamps returned in the result dict).
+        live_log: If ``True``, log incoming lines via ``log.info`` instead
+            of ``log.debug`` so they appear without ``--verbose``.
 
     Returns:
         A tuple ``(matched: bool, elapsed: float, milestones: dict)``.
@@ -209,7 +214,10 @@ def wait_for_pattern(
             if log:
                 for line in decoded.splitlines():
                     if line.strip():
-                        log.debug(f"  <- {line.rstrip()}")
+                        if live_log:
+                            log.info(f"    {line.rstrip()}")
+                        else:
+                            log.debug(f"  <- {line.rstrip()}")
 
             for label, pat in extra_patterns.items():
                 if label not in milestones and pat.search(buffer):
@@ -446,15 +454,28 @@ class PTPTestAgent:
         ]:
             cmd = f"ping {dst_ip}"
             self.log.info(f"  [{src_label}] {cmd}")
-            resp = send_command(src_ser, cmd, self.cmd_timeout, self.log)
-            if RE_PING_REPLY.search(resp):
+            # Ping reply is async in Harmony TCP/IP — wait for 'Ping: done.'
+            src_ser.reset_input_buffer()
+            src_ser.write((cmd + "\r\n").encode("ascii"))
+            self.log.debug(f"  >> {cmd}")
+            matched, elapsed, milestones = wait_for_pattern(
+                src_ser,
+                RE_PING_DONE,
+                timeout=15.0,
+                log=self.log,
+                extra_patterns={"first_reply": RE_PING_REPLY},
+                live_log=True,
+            )
+            if matched:
                 detail_parts.append(f"{src_label} ok")
-                self.log.info(f"  [{src_label}] ✓ Reply received")
+                self.log.info(f"  [{src_label}] ✓ Ping done ({elapsed:.1f}s)")
+            elif milestones.get("first_reply") is not None:
+                # Got at least one reply but 'done' line didn't appear
+                detail_parts.append(f"{src_label} ok (partial)")
+                self.log.info(f"  [{src_label}] ✓ Got reply but no 'done' line ({elapsed:.1f}s)")
             else:
                 detail_parts.append(f"{src_label} FAIL")
-                self.log.info(
-                    f"  [{src_label}] ✗ No reply. Response: {resp.strip()!r}"
-                )
+                self.log.info(f"  [{src_label}] ✗ No reply within 15s")
                 passed = False
 
         self._record(step, passed, "; ".join(detail_parts))
@@ -467,6 +488,10 @@ class PTPTestAgent:
     def test_step_3_start_ptp(self) -> bool:
         """Start PTP — Follower first, then Grandmaster.
 
+        The convergence monitor thread is started *before* any ptp_mode command
+        is sent so that Step 4 reports the true elapsed time from PTP activation
+        to FINE state, not just the residual buffer drain time.
+
         Returns:
             ``True`` if both boards confirmed their PTP mode.
         """
@@ -476,6 +501,15 @@ class PTPTestAgent:
         passed = True
         detail_parts = []
 
+        # Flush FOL RX buffer, then launch convergence monitor in background
+        # so the timer starts from the moment PTP is activated.
+        self.fol_ser.reset_input_buffer()
+        self._convergence_result = None
+        self._convergence_thread = threading.Thread(
+            target=self._convergence_worker, daemon=True
+        )
+        self._convergence_thread.start()
+
         # Follower first
         self.log.info("  [FOL] ptp_mode follower")
         resp_fol = send_command(
@@ -483,44 +517,64 @@ class PTPTestAgent:
         )
         if RE_FOL_START.search(resp_fol):
             detail_parts.append("FOL start ok")
-            self.log.info("  [FOL] ✓ follower mode confirmed")
+            self.log.info("  [FOL] \u2713 follower mode confirmed")
         else:
             detail_parts.append("FOL start FAIL")
             self.log.info(
-                f"  [FOL] ✗ Unexpected response: {resp_fol.strip()!r}"
+                f"  [FOL] \u2717 Unexpected response: {resp_fol.strip()!r}"
             )
             passed = False
 
         # Short pause before starting GM
         time.sleep(0.5)
 
-        # Grandmaster second
+        # Grandmaster second — wait for the confirmation pattern directly
+        # (no quiet-period) because the GM continuously emits debug output.
         self.log.info("  [GM ] ptp_mode master")
-        resp_gm = send_command(
-            self.gm_ser, "ptp_mode master", self.cmd_timeout, self.log
+        self.gm_ser.reset_input_buffer()
+        self.gm_ser.write(b"ptp_mode master\r\n")
+        gm_matched, _, _ = wait_for_pattern(
+            self.gm_ser, RE_GM_START, timeout=self.cmd_timeout, log=self.log
         )
-        if RE_GM_START.search(resp_gm):
+        if gm_matched:
             detail_parts.append("GM start ok")
-            self.log.info("  [GM ] ✓ grandmaster mode confirmed")
+            self.log.info("  [GM ] \u2713 grandmaster mode confirmed")
         else:
             detail_parts.append("GM start FAIL")
-            self.log.info(
-                f"  [GM ] ✗ Unexpected response: {resp_gm.strip()!r}"
-            )
+            self.log.info("  [GM ] \u2717 grandmaster mode not confirmed")
             passed = False
 
         self._record(step, passed, "; ".join(detail_parts))
         return passed
+
+    def _convergence_worker(self):
+        """Background thread: monitor FOL port for FINE state convergence.
+
+        Writes ``(matched, elapsed, milestones)`` into ``self._convergence_result``.
+        """
+        extra = {
+            "MATCHFREQ": RE_MATCHFREQ,
+            "HARD_SYNC": RE_HARD_SYNC,
+            "COARSE":    RE_COARSE,
+        }
+        self._convergence_result = wait_for_pattern(
+            self.fol_ser,
+            RE_FINE,
+            timeout=self.convergence_timeout,
+            log=self.log,
+            extra_patterns=extra,
+        )
 
     # ------------------------------------------------------------------
     # Step 4 — Convergence monitoring
     # ------------------------------------------------------------------
 
     def test_step_4_convergence(self) -> bool:
-        """Monitor the Follower for convergence to FINE state.
+        """Collect convergence result from the background thread started in Step 3.
 
-        Watches for the state progression:
-        ``UNINIT → MATCHFREQ → HARDSYNC → COARSE → FINE``
+        Because the thread began before any ``ptp_mode`` command was sent,
+        *elapsed* is the true wall-clock time from PTP activation to FINE state.
+        Falls back to an inline monitor when Step 3 was skipped via ``--from-step``.
 
         Returns:
             ``True`` if FINE state was reached within the timeout.
@@ -528,19 +582,29 @@ class PTPTestAgent:
         step = "Step 4: Convergence to FINE state"
         self.log.info(f"\n--- {step} (timeout={self.convergence_timeout}s) ---")
 
-        extra = {
-            "MATCHFREQ": RE_MATCHFREQ,
-            "HARD_SYNC": RE_HARD_SYNC,
-            "COARSE": RE_COARSE,
-        }
+        # Wait for the worker thread (self-terminates on timeout).
+        thread = getattr(self, "_convergence_thread", None)
+        if thread is not None:
+            thread.join(timeout=self.convergence_timeout + 2.0)
 
-        matched, elapsed, milestones = wait_for_pattern(
-            self.fol_ser,
-            RE_FINE,
-            timeout=self.convergence_timeout,
-            log=self.log,
-            extra_patterns=extra,
-        )
+        result = getattr(self, "_convergence_result", None)
+        if result is None:
+            # Step 3 was skipped: run the monitor inline now.
+            self.log.info("  (No convergence thread — running inline monitor)")
+            extra = {
+                "MATCHFREQ": RE_MATCHFREQ,
+                "HARD_SYNC": RE_HARD_SYNC,
+                "COARSE":    RE_COARSE,
+            }
+            result = wait_for_pattern(
+                self.fol_ser,
+                RE_FINE,
+                timeout=self.convergence_timeout,
+                log=self.log,
+                extra_patterns=extra,
+            )
+
+        matched, elapsed, milestones = result
 
         milestone_str = ", ".join(
             f"{k}@{v:.1f}s" for k, v in milestones.items()
@@ -565,6 +629,28 @@ class PTPTestAgent:
     # Step 5 — Offset validation
     # ------------------------------------------------------------------
 
+    def _read_one_offset(self) -> Optional[int]:
+        """Send ``ptp_offset`` and return the ns value, or ``None`` on timeout.
+
+        Uses pattern-based reading instead of ``send_command`` because PTP in
+        FINE state continuously emits output that prevents the 0.5 s quiet
+        period inside ``send_command`` from ever triggering.
+        """
+        self.fol_ser.reset_input_buffer()
+        self.fol_ser.write(b"ptp_offset\r\n")
+        deadline = time.monotonic() + 2.0
+        buf = ""
+        while time.monotonic() < deadline:
+            chunk = self.fol_ser.read(256)
+            if chunk:
+                buf += chunk.decode("ascii", errors="replace")
+                m = RE_PTP_OFFSET.search(buf)
+                if m:
+                    return int(m.group(1))
+            else:
+                time.sleep(0.05)
+        return None
+
     def test_step_5_offset_validation(self) -> bool:
         """Collect *samples* offset measurements from the Follower.
 
@@ -578,16 +664,13 @@ class PTPTestAgent:
 
         offsets = []
         for i in range(self.samples):
-            resp = send_command(
-                self.fol_ser, "ptp_offset", self.cmd_timeout, self.log
-            )
-            value = parse_offset(resp)
+            value = self._read_one_offset()
             if value is not None:
                 offsets.append(value)
-                self.log.debug(f"  sample {i+1}/{self.samples}: {value:+d} ns")
+                self.log.info(f"  sample {i+1:2d}/{self.samples}: {value:+d} ns")
             else:
                 self.log.info(
-                    f"  ✗ Could not parse offset from: {resp.strip()!r}"
+                    f"  ✗ sample {i+1}/{self.samples}: no offset received within 2s"
                 )
             # Brief pause between samples
             time.sleep(0.2)
