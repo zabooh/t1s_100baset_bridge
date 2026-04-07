@@ -93,7 +93,7 @@ static uint32_t gm_noip_seq = 0u;
 
 typedef char gm_sync_msg_size_must_be_44[(sizeof(syncMsg_t) == 44u) ? 1 : -1];
 
-static const char *gm_state_to_str(gmState_t state)
+static __attribute__((unused)) const char *gm_state_to_str(gmState_t state)
 {
     switch (state) {
         case GM_STATE_IDLE:          return "GM_STATE_IDLE";

@@ -873,6 +873,30 @@ static void lan_write(SYS_CMD_DEVICE_NODE* pCmdIO, int argc, char** argv) {
 }
 
 
+static void cmd_plca_node(SYS_CMD_DEVICE_NODE *pCmdIO, int argc, char **argv) {
+    if (argc != 2) {
+        SYS_CONSOLE_PRINT("Usage: plca_node <id>  (0=coordinator/GM, 1..N=participant)\r\n");
+        return;
+    }
+    if (app_lan_state != APP_LAN_IDLE) {
+        SYS_CONSOLE_PRINT("ERROR: LAN operation still in progress\r\n");
+        return;
+    }
+    uint8_t nodeId = (uint8_t)strtoul(argv[1], NULL, 0);
+    /* Update driver internal state so LOFE re-init uses the new node ID */
+    DRV_LAN865X_SetPlcaNodeId(0u, nodeId);
+    /* Write PLCA_CTRL1 register: bits[15:8]=NODE_CNT, bits[7:0]=NODE_ID */
+    app_lan_addr  = 0x0004CA02u;
+    app_lan_value = ((uint32_t)DRV_LAN865X_PLCA_NODE_COUNT_IDX0 << 8u) | nodeId;
+    app_lan_reg_operation_complete = false;
+    app_lan_op_initiated = false;
+    app_lan_state = APP_LAN_WAIT_WRITE;
+    SYS_CONSOLE_PRINT("[PLCA] node ID set to %u (NODE_CNT=%u, reg=0x%08lX)\r\n",
+                      (unsigned)nodeId,
+                      (unsigned)DRV_LAN865X_PLCA_NODE_COUNT_IDX0,
+                      app_lan_value);
+}
+
 static void cmd_ptp_mode(SYS_CMD_DEVICE_NODE *pCmdIO, int argc, char **argv) {
     if (argc != 2) {
         SYS_CONSOLE_PRINT("Usage: ptp_mode [off|follower|master]\r\n");
@@ -1026,7 +1050,8 @@ const SYS_CMD_DESCRIPTOR msd_cmd_tbl[] = {
     {"lan_read", (SYS_CMD_FNC) lan_read, ": read LAN865X register (lan_read <addr_hex>)"},
     {"lan_write", (SYS_CMD_FNC) lan_write, ": write LAN865X register (lan_write <addr_hex> <value_hex>)"},
     {"dump", (SYS_CMD_FNC) cmd_mem_dump, ": dump memory (dump <addr_hex> <count>)"},
-    {"ptp_mode",     (SYS_CMD_FNC) cmd_ptp_mode,     ": set PTP mode (off|follower|master) — master=PLCA node 0, follower=PLCA node 1"},
+    {"plca_node",    (SYS_CMD_FNC) cmd_plca_node,    ": set PLCA node ID at runtime (plca_node <id>)"},
+    {"ptp_mode",     (SYS_CMD_FNC) cmd_ptp_mode,     ": set PTP mode (off|follower|master)"},
     {"ptp_status",   (SYS_CMD_FNC) cmd_ptp_status,   ": show PTP mode, sync count, offset"},
     {"ptp_interval", (SYS_CMD_FNC) cmd_ptp_interval, ": set GM Sync interval in ms (default 125)"},
     {"ptp_dst",      (SYS_CMD_FNC) cmd_ptp_dst,      ": set PTP DST MAC (multicast|broadcast)"},

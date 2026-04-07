@@ -112,8 +112,8 @@ static int32_t  offsetCoarseValue[FIR_FILER_SIZE_FINE] = {0};
 static lpfState offsetCoarseState;
 
 long double continiousratio = 1.0;
-static int32_t  diff        = 0;
-static int32_t  filteredDiff= 0;
+static int32_t  __attribute__((unused)) diff        = 0;
+static int32_t  __attribute__((unused)) filteredDiff= 0;
 long double corrNs          = 0.0;
 long double corrNsFlt       = 0.0;
 
