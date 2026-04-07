@@ -274,6 +274,7 @@ typedef enum {
 } app_lan_state_t;
 
 static app_lan_state_t app_lan_state   = APP_LAN_IDLE;
+static uint8_t         s_plca_node_id  = DRV_LAN865X_PLCA_NODE_ID_IDX0;
 static uint32_t        app_lan_addr    = 0u;
 static uint32_t        app_lan_value   = 0u;
 static uint64_t        app_lan_expire_tick = 0u;    /* SYS_TIME tick at which the operation times out */
@@ -303,18 +304,29 @@ void lan_write_callback(void *reserved1, bool success, uint32_t addr, uint32_t v
 // Help command for Test group
 static void test_help(SYS_CMD_DEVICE_NODE* pCmdIO, int argc, char** argv) {
     SYS_CONSOLE_PRINT("Test group commands:\n\r");
-    SYS_CONSOLE_PRINT("  help           - Show this help\n\r");
-    SYS_CONSOLE_PRINT("  timestamp      - Show build timestamp\n\r");
-    SYS_CONSOLE_PRINT("  ipdump <mode>  - Enable IP packet dumping (0=off, 1=eth0, 2=eth1, 3=both)\n\r");
-    SYS_CONSOLE_PRINT("  fwd <mode>     - Set forwarding mode (0=off, 1=on)\n\r");
-    SYS_CONSOLE_PRINT("  stats          - Show TX/RX software counters for eth0 and eth1\n\r");
-    SYS_CONSOLE_PRINT("  lan_read <addr> - Read LAN865X register (hex address)\n\r");
-    SYS_CONSOLE_PRINT("  lan_write <addr> <value> - Write LAN865X register (hex addr, hex value)\n\r");
-    SYS_CONSOLE_PRINT("  noip_send <n> [gap_ms] - Send N raw Ethernet frames (EtherType 0x88B5) on T1S\n\r");
-    SYS_CONSOLE_PRINT("  noip_stat      - Show NoIP TX/RX counters\n\r");
-    SYS_CONSOLE_PRINT("  dump <addr> <count> - Dump memory (hex addr, decimal or hex count)\n\r");
-    SYS_CONSOLE_PRINT("\n\rExample: Test lan_read 0x00000004\n\r");
-    SYS_CONSOLE_PRINT("Example: Test dump 0x20000000 64\n\r");
+    SYS_CONSOLE_PRINT("  help                         - Show this help\n\r");
+    SYS_CONSOLE_PRINT("  timestamp                    - Show build timestamp\n\r");
+    SYS_CONSOLE_PRINT("  ipdump <mode>                - Dump RX IP packets (0=off, 1=eth0, 2=eth1, 3=both)\n\r");
+    SYS_CONSOLE_PRINT("  fwd [mode]                   - Set forwarding (0=off, 1=on)\n\r");
+    SYS_CONSOLE_PRINT("  stats                        - Show TX/RX software counters for eth0 and eth1\n\r");
+    SYS_CONSOLE_PRINT("  lan_read  <addr>             - Read  LAN865X register (hex address)\n\r");
+    SYS_CONSOLE_PRINT("  lan_write <addr> <value>     - Write LAN865X register (hex addr, hex value)\n\r");
+    SYS_CONSOLE_PRINT("  dump <addr> <count>          - Dump memory (hex addr, count)\n\r");
+    SYS_CONSOLE_PRINT("  plca_node [id]               - Get/set PLCA node ID (no arg = show current)\n\r");
+    SYS_CONSOLE_PRINT("  ptp_mode [off|follower|master] - Set PTP operating mode\n\r");
+    SYS_CONSOLE_PRINT("  ptp_status                   - Show PTP mode, sync count, offset\n\r");
+    SYS_CONSOLE_PRINT("  ptp_interval <ms>            - Set GM sync interval in ms (default 125)\n\r");
+    SYS_CONSOLE_PRINT("  ptp_dst [multicast|broadcast]- Set PTP destination MAC\n\r");
+    SYS_CONSOLE_PRINT("  ptp_offset                   - Show follower time offset [ns]\n\r");
+    SYS_CONSOLE_PRINT("  ptp_reset                    - Reset PTP follower servo to UNINIT\n\r");
+    SYS_CONSOLE_PRINT("  ptp_regs                     - Dump TX-Match registers (no SPI collision)\n\r");
+    SYS_CONSOLE_PRINT("  noip_send <n> [gap_ms]       - Send N raw Ethernet frames (EtherType 0x88B5)\n\r");
+    SYS_CONSOLE_PRINT("  noip_stat                    - Show NoIP TX/RX counters\n\r");
+    SYS_CONSOLE_PRINT("  logclear                     - Clear deferred packet log buffer\n\r");
+    SYS_CONSOLE_PRINT("  logstat                      - Show deferred log statistics\n\r");
+    SYS_CONSOLE_PRINT("\n\rExample: Test plca_node       -> zeigt aktuelle Node-ID\n\r");
+    SYS_CONSOLE_PRINT("Example: Test plca_node 0     -> setzt Node-ID auf 0 (GM/Coordinator)\n\r");
+    SYS_CONSOLE_PRINT("Example: Test lan_read 0x0004CA02\n\r");
 }
 
 // stats command: print TX/RX software counters for both interfaces
@@ -874,8 +886,11 @@ static void lan_write(SYS_CMD_DEVICE_NODE* pCmdIO, int argc, char** argv) {
 
 
 static void cmd_plca_node(SYS_CMD_DEVICE_NODE *pCmdIO, int argc, char **argv) {
-    if (argc != 2) {
-        SYS_CONSOLE_PRINT("Usage: plca_node <id>  (0=coordinator/GM, 1..N=participant)\r\n");
+    if (argc < 2) {
+        /* No parameter: show current node ID */
+        SYS_CONSOLE_PRINT("[PLCA] current node ID: %u (NODE_CNT=%u)\r\n",
+                          (unsigned)s_plca_node_id,
+                          (unsigned)DRV_LAN865X_PLCA_NODE_COUNT_IDX0);
         return;
     }
     if (app_lan_state != APP_LAN_IDLE) {
@@ -883,6 +898,7 @@ static void cmd_plca_node(SYS_CMD_DEVICE_NODE *pCmdIO, int argc, char **argv) {
         return;
     }
     uint8_t nodeId = (uint8_t)strtoul(argv[1], NULL, 0);
+    s_plca_node_id = nodeId;
     /* Update driver internal state so LOFE re-init uses the new node ID */
     DRV_LAN865X_SetPlcaNodeId(0u, nodeId);
     /* Write PLCA_CTRL1 register: bits[15:8]=NODE_CNT, bits[7:0]=NODE_ID */
@@ -1050,7 +1066,7 @@ const SYS_CMD_DESCRIPTOR msd_cmd_tbl[] = {
     {"lan_read", (SYS_CMD_FNC) lan_read, ": read LAN865X register (lan_read <addr_hex>)"},
     {"lan_write", (SYS_CMD_FNC) lan_write, ": write LAN865X register (lan_write <addr_hex> <value_hex>)"},
     {"dump", (SYS_CMD_FNC) cmd_mem_dump, ": dump memory (dump <addr_hex> <count>)"},
-    {"plca_node",    (SYS_CMD_FNC) cmd_plca_node,    ": set PLCA node ID at runtime (plca_node <id>)"},
+    {"plca_node",    (SYS_CMD_FNC) cmd_plca_node,    ": get/set PLCA node ID (plca_node [id], no arg: show current)"},
     {"ptp_mode",     (SYS_CMD_FNC) cmd_ptp_mode,     ": set PTP mode (off|follower|master)"},
     {"ptp_status",   (SYS_CMD_FNC) cmd_ptp_status,   ": show PTP mode, sync count, offset"},
     {"ptp_interval", (SYS_CMD_FNC) cmd_ptp_interval, ": set GM Sync interval in ms (default 125)"},
