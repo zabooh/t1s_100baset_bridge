@@ -11,6 +11,12 @@ REM   build_dual_cmake.bat rebuild          – wie clean, aber explizit
 REM   build_dual_cmake.bat gm               – nur GM-Variante (nodeId=0)
 REM   build_dual_cmake.bat follower         – nur Follower-Variante (nodeId=1)
 REM   build_dual_cmake.bat help             – diese Hilfe anzeigen
+REM
+REM ---------------------------------------------------------------------------
+REM  TOOLCHAIN-AUSWAHL  (bei Aenderung: rebuild ausfuehren!)
+REM  Verfuegbare Versionen: v4.60  v5.10
+REM ---------------------------------------------------------------------------
+set "XC32_VERSION=v4.60"
 REM ---------------------------------------------------------------------------
 
 setlocal
@@ -68,10 +74,15 @@ if /i "%MODE%"=="clean" (
 )
 
 REM --- CMake konfigurieren (nur wenn noch kein build.ninja vorhanden) -------
+set "XC32_BIN=C:/Program Files/Microchip/xc32/%XC32_VERSION%/bin"
 if not exist "%BUILD_DIR%\build.ninja" (
-    echo [0/2] CMake konfigurieren ...
+    echo [0/2] CMake konfigurieren ^(XC32 %XC32_VERSION%^) ...
     pushd "%CMAKE_DIR%"
-    cmake --preset T1S_100BaseT_Bridge_default_conf
+    cmake --preset T1S_100BaseT_Bridge_default_conf ^
+        -DXCV32_VERSION=%XC32_VERSION% ^
+        -DCMAKE_C_COMPILER="%XC32_BIN%/xc32-gcc.exe" ^
+        -DCMAKE_CXX_COMPILER="%XC32_BIN%/xc32-g++.exe" ^
+        -DCMAKE_ASM_COMPILER="%XC32_BIN%/xc32-gcc.exe"
     if errorlevel 1 (
         echo *** CMAKE CONFIGURE FEHLGESCHLAGEN ***
         popd
@@ -80,7 +91,7 @@ if not exist "%BUILD_DIR%\build.ninja" (
     popd
     echo.
 ) else (
-    echo [0/2] CMake bereits konfiguriert.
+    echo [0/2] CMake bereits konfiguriert. ^(XC32 %XC32_VERSION% - bei Versionswechsel 'rebuild' aufrufen^)
 )
 
 REM =========================================================================
