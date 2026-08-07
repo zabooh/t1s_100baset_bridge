@@ -7,13 +7,6 @@ diagnostics for the bridge itself (packet mirroring, register access, PLCA
 control, a raw-Ethernet loopback test) plus **persistent network/PLCA
 configuration** on an Emulated EEPROM (§5.2).
 
-> A more actively developed sibling project,
-> [`lan866x-tools`](https://github.com/zabooh/lan866x-tools), builds on this
-> firmware and additionally embeds a full **LAN866x SOME/IP (RCP) client** —
-> on-board `discovery`/`diag`/`clickdemo`/GPIO/I2C/SPI/DNCP commands that mirror
-> the PC-side `lan866x-tools` toolset, plus software NTP time sync. This repo
-> stays a lean bridge without the endpoint-tooling/NTP dependencies.
-
 ---
 
 ## Contents
@@ -88,13 +81,27 @@ the bridge board.
 
 | Function | Board | Microchip order number |
 |---|---|---|
-| **MCU host** (Cortex-M4F, runs this firmware) + **onboard 100BASE-T PHY** for `eth1` (GMAC ↔ RJ45) | SAM E54 Curiosity (Ultra) board (ATSAME54P20A, onboard LAN8740A Ethernet) | **DM320210** — *verify against your board* |
-| **10BASE-T1S MAC-PHY** for `eth0` (SPI ↔ two-wire bus) | MikroElektronika **Two-Wire ETH Click** (LAN8651) | `MIKROE-xxxx` — *verify on mikroe.com* |
+| **MCU host** (Cortex-M4F, runs this firmware) | SAM E54 Curiosity (Ultra) board | **DM320210** |
+| **100BASE-T PHY** for `eth1` (GMAC ↔ RMII, plugs into the board's PHY daughter-card header) | Microchip **LAN8740A PHY Daughter Board** | **AC320004-3** |
+| **10BASE-T1S MAC-PHY** for `eth0` (SPI ↔ two-wire bus) | MikroElektronika **Two-Wire ETH Click** (LAN8651) | **MIKROE-5543** |
 
-> **`eth1` (100BASE-T) is the host board's onboard Ethernet** — a **LAN8740A**
-> PHY on RMII (PHY address 0), driven by the GMAC. No separate PHY daughter
-> board is used; the RJ45 on the board edge is the 100BASE-T port. This matches
-> the firmware config (`DRV_LAN8740_PHY_*` in `configuration.h`).
+> **`eth1` (100BASE-T) needs the LAN8740A PHY Daughter Board, order number
+> `AC320004-3`, plugged into the SAM E54 Curiosity (Ultra)'s PHY expansion
+> header — the LAN8740A is not soldered onto the Curiosity board itself.**
+> This is a compiled-in driver dependency, not just a config value: MCC
+> generates a chip-specific Ethernet PHY driver
+> (`DRV_ETHPHY_LAN8740`/`drv_extphy_lan8740.c`); the `DRV_LAN8740_PHY_*`
+> macros in `configuration.h` only tune *that* driver (RMII mode, PHY
+> address **0**, link-negotiation timeouts) — they don't make it work with a
+> different PHY chip.
+>
+> **Do not confuse this with Microchip's more commonly bundled PHY daughter
+> board for this same header, the KSZ8061 (`AC320004-6`)** — same connector,
+> different chip, needs a different Harmony PHY driver component selected in
+> MCC and regenerated, not a macro edit. The `AC320004-x` series covers
+> several interchangeable-connector PHY/switch daughter boards (`-4` =
+> LAN9303, `-5` = KSZ8041, `-6` = KSZ8061, `-7` = KSZ8863); make sure `-3`
+> (LAN8740A) is the one that's fitted.
 >
 > **`eth0` (10BASE-T1S)** uses the **LAN8651** MAC-PHY on the Two-Wire ETH
 > Click, driven by `DRV_LAN865X` over SERCOM SPI. The SPI pin assignment in the
@@ -133,8 +140,9 @@ RJ45 adapter on the same subnet, on an address **other than** `.200`/`.210`/`.54
 1. **Debugger + console:** one USB cable from the PC to the SAM E54 Curiosity
    board's **embedded-debugger** USB port. This is both the programmer
    (PKOB/EDBG) and the virtual COM port for the CLI (**115200 8N1**).
-2. **100BASE-T:** the board's **onboard RJ45** (LAN8740A PHY) ↔ the PC's
-   Ethernet adapter (the one set to `192.168.0.220`).
+2. **100BASE-T:** the RJ45 on the **LAN8740A PHY Daughter Board** (`AC320004-3`,
+   plugged into the Curiosity board's PHY header) ↔ the PC's Ethernet adapter
+   (the one set to `192.168.0.220`).
 3. **T1S:** the two-wire bus from the LAN865x Click to the LAN866x endpoint.
 
 ---
@@ -539,7 +547,7 @@ for `eth1` and leaves the bus frame for normal local/bridge processing.
 ### 6.3 Using it
 
 1. On the PC, start **Wireshark** on the Fast-Ethernet adapter connected to
-   the bridge's `eth1` (the board's onboard RJ45).
+   the bridge's `eth1` (the LAN8740A PHY Daughter Board's RJ45).
 2. On the board CLI: `mirror 1` (turn it on). `mirror` with no argument shows
    the current state; `mirror 0` turns it off.
 3. Run anything that talks to the endpoint from the bridge itself (e.g. the
