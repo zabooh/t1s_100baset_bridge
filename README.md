@@ -77,6 +77,8 @@ MikroElektronika Click add-on. The **LAN866x endpoint** on the T1S side is a
 *separate* device (the thing you reach through the bridge); it is not part of
 the bridge board.
 
+![The assembled bridge board: the SAM E54 Curiosity Ultra host (red board) with the green Two-Wire ETH Click (10BASE-T1S MAC-PHY, plugged into the "X32" header, top left) for eth0, and the LAN8740A PHY Daughter Board (AC320004-3, bottom left, with the RJ45 jack) for eth1 — note it is a separate plug-in module, not part of the Curiosity board itself.](boards.jpg)
+
 ### Bridge board: bill of materials
 
 | Function | Board | Microchip order number |
