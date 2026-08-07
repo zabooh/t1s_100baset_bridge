@@ -64,16 +64,19 @@ if not defined MPLABX_MAKE (
 )
 echo Make      : %MPLABX_MAKE%
 
-set "MP_CC_DIR_ARG="
+rem NOTE: deliberately NOT passing MP_CC_DIR on the make command line here.
+rem nbproject\Makefile-local-default.mk (written by MPLAB X itself) already
+rem defines it with the correct absolute path from the last IDE build. Any
+rem command-line MP_CC_DIR - even blank, e.g. from a flaky read below - takes
+rem precedence over that file's assignment and silently breaks xc32-bin2hex
+rem ("undefined reference"-free link, then "\xc32-bin2hex: file not found").
+rem setup_compiler.config is only used here for build_summary.py's xc32-nm.
 if exist "%COMPILER_CONFIG%" (
     for /f "usebackq delims=" %%D in (`powershell -NoProfile -Command "(Get-Content '%COMPILER_CONFIG%' | ConvertFrom-Json).bin_dir"`) do set "XC32_BIN_DIR=%%D"
-    if defined XC32_BIN_DIR (
-        echo Compiler  : %XC32_BIN_DIR%
-        set "MP_CC_DIR_ARG=MP_CC_DIR=%XC32_BIN_DIR%"
-    )
+    if defined XC32_BIN_DIR echo Compiler  : %XC32_BIN_DIR%
 ) else (
     echo WARNING: No compiler configured ^(run "python setup_compiler.py"^).
-    echo          Falling back to whatever MPLAB X's Makefile has baked in.
+    echo          build_summary.py's interrupt-handler listing will be empty.
 )
 
 set "MODE=incremental"
@@ -107,7 +110,7 @@ goto :build
 :build
 echo [1/1] Building (make, CONF=%CONF%, TYPE_IMAGE=%TYPE_IMAGE%)...
 pushd "%MPLAB_DIR%"
-"%MPLABX_MAKE%" -f Makefile CONF=%CONF% TYPE_IMAGE=%TYPE_IMAGE% %MP_CC_DIR_ARG% build
+"%MPLABX_MAKE%" -f Makefile CONF=%CONF% TYPE_IMAGE=%TYPE_IMAGE% build
 set "BUILD_RC=%errorlevel%"
 popd
 if not "%BUILD_RC%"=="0" ( echo ERROR: Build failed. & exit /b 1 )

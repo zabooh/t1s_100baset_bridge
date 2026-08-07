@@ -40,6 +40,7 @@
 #include "config/default/driver/lan865x/drv_lan865x.h"
 #include "system/command/sys_command.h"
 #include "tcpip_manager_control.h"
+#include "env.h"
 
 
 // *****************************************************************************
@@ -415,6 +416,7 @@ void APP_Tasks(void) {
             TCPIP_STACK_PacketHandlerRegister(eth0_net_hd, pktEth0Handler, MyEth0HandlerParam);
             TCPIP_NET_HANDLE eth1_net_hd = TCPIP_STACK_IndexToNet(1);
             TCPIP_STACK_PacketHandlerRegister(eth1_net_hd, pktEth1Handler, MyEth1HandlerParam);
+            env_apply();   /* push the persisted network config into the stack (once, stack is up) */
             appData.state = APP_STATE_IDLE;
             break;
         }
@@ -874,14 +876,14 @@ void APP_ApplyPlca(uint8_t node_id, uint8_t node_cnt) {
 
 static void cmd_plca_node(SYS_CMD_DEVICE_NODE *pCmdIO, int argc, char **argv) {
     if (argc < 2) {
-        /* No parameter: show current node ID + the compile-time node count */
+        /* No parameter: show current node ID + the env-configured node count */
         SYS_CONSOLE_PRINT("[PLCA] current node ID: %u (NODE_CNT=%u)\r\n",
-                          (unsigned)s_plca_node_id, (unsigned)DRV_LAN865X_PLCA_NODE_COUNT_IDX0);
+                          (unsigned)s_plca_node_id, (unsigned)env_plca_cnt());
         return;
     }
-    /* Runtime override - not persistent. Node count comes from the compile-time
-     * config (DRV_LAN865X_PLCA_NODE_COUNT_IDX0 in configuration.h). */
-    APP_ApplyPlca((uint8_t)strtoul(argv[1], NULL, 0), DRV_LAN865X_PLCA_NODE_COUNT_IDX0);
+    /* Live override (not persisted - use 'setenv plca_id'/'saveenv' for that). The
+     * node count comes from the persistent env config so the two stay consistent. */
+    APP_ApplyPlca((uint8_t)strtoul(argv[1], NULL, 0), env_plca_cnt());
 }
 
 uint8_t frame[60];

@@ -22,3 +22,7 @@ setup_compiler.config
 __pycache__/
 *.pyc
 *.pyo
+
+# MCC backup artifacts (written when migrating .mc3 -> the v5.6 YAML model)
+*.mc3.bak0
+*.bak0

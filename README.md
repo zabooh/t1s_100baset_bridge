@@ -4,14 +4,15 @@ A **10BASE-T1S ↔ 100BASE-T Layer-2 bridge** firmware for the ATSAME54P20A. It
 lets a PC on ordinary Fast Ethernet reach a Microchip **LAN866x 10BASE-T1S
 endpoint** that lives on the two-wire T1S bus, and it ships with on-board
 diagnostics for the bridge itself (packet mirroring, register access, PLCA
-control, a raw-Ethernet loopback test).
+control, a raw-Ethernet loopback test) plus **persistent network/PLCA
+configuration** on an Emulated EEPROM (§5.2).
 
 > A more actively developed sibling project,
 > [`lan866x-tools`](https://github.com/zabooh/lan866x-tools), builds on this
 > firmware and additionally embeds a full **LAN866x SOME/IP (RCP) client** —
 > on-board `discovery`/`diag`/`clickdemo`/GPIO/I2C/SPI/DNCP commands that mirror
-> the PC-side `lan866x-tools` toolset, plus persistent network configuration and
-> software NTP time sync. This repo stays a lean, dependency-free bridge.
+> the PC-side `lan866x-tools` toolset, plus software NTP time sync. This repo
+> stays a lean bridge without the endpoint-tooling/NTP dependencies.
 
 ---
 
@@ -27,12 +28,14 @@ control, a raw-Ethernet loopback test).
   - [Block view](#block-view)
   - [The bridge data path](#the-bridge-data-path)
   - [Application state machine (`app.c`)](#application-state-machine-appc)
+  - [Persistent config (`env.c`, Emulated EEPROM)](#persistent-config-envc-emulated-eeprom)
   - [Port mirror and SPAN (Wireshark)](#port-mirror-and-span-wireshark)
   - [CLI commands](#cli-commands)
 - [4. Building it yourself](#4-building-it-yourself)
 - [5. Changing IP and PLCA configuration](#5-changing-ip-and-plca-configuration)
   - [5.1 Persistent: edit the build config and rebuild](#51-persistent-edit-the-build-config-and-rebuild)
-  - [5.2 Runtime via the CLI (not persistent)](#52-runtime-via-the-cli-not-persistent)
+  - [5.2 Persistent via the `env` CLI group (recommended)](#52-persistent-via-the-env-cli-group-recommended)
+  - [5.3 Volatile runtime via Harmony stack commands](#53-volatile-runtime-via-harmony-stack-commands--plca_node)
 - [6. Port mirror: capturing the T1S bus in Wireshark](#6-port-mirror-capturing-the-t1s-bus-in-wireshark)
   - [6.1 Why a mirror is needed](#61-why-a-mirror-is-needed)
   - [6.2 What gets mirrored (both directions, MAC-filtered)](#62-what-gets-mirrored-both-directions-mac-filtered)
@@ -50,8 +53,8 @@ The board sits between two worlds:
    100BASE-T (RJ45)          ATSAME54P20A + LAN865x + LAN8740     10BASE-T1S (2-wire)
    ┌──────────────┐  100M    ┌───────────────────────────┐  T1S   ┌──────────────┐
    │  Wireshark   │◄────────►│ eth1 (GMAC)   eth0 (LAN865x)│◄──────►│  LAN866x     │
-   │  ping        │ .181/.180│   └── MAC bridge (L2) ──┘   │ PLCA   │  endpoint    │
-   └──────────────┘          └───────────────────────────┘ node 0  │  192.168.0.54│
+   │  ping        │ .210/.200│   └── MAC bridge (L2) ──┘   │ PLCA   │  endpoint    │
+   └──────────────┘          └───────────────────────────┘ node 7  │  192.168.0.54│
                                                                     └──────────────┘
 ```
 
@@ -111,13 +114,14 @@ the bridge board.
 
 | Interface | Role | IP | Mask | PLCA |
 |---|---|---|---|---|
-| `eth0` | T1S (LAN865x) | **192.168.0.180** | /24 | node id **7** (see `configuration.h`), node count **8** |
-| `eth1` | 100BASE-T (GMAC) | **192.168.0.181** | /24 | — |
+| `eth0` | T1S (LAN865x) | **192.168.0.200** | /24 | node id **7** (see `configuration.h`), node count **8** |
+| `eth1` | 100BASE-T (GMAC) | **192.168.0.210** | /24 | — |
 | endpoint | LAN866x | 192.168.0.54 | /24 | follower |
 
 Both bridge interfaces share one `192.168.0.0/24` subnet (gateway
 `192.168.0.1`) — the MAC bridge makes that a single L2 segment. Put the PC's
-RJ45 adapter on the same subnet (e.g. `192.168.0.200`).
+RJ45 adapter on the same subnet, on an address **other than** `.200`/`.210`/`.54`
+(e.g. `192.168.0.220`).
 
 > **PLCA coordinator.** If the T1S side is meant to run with this board as
 > coordinator, set the node id to **0** (`plca_node 0` at runtime, or
@@ -130,7 +134,7 @@ RJ45 adapter on the same subnet (e.g. `192.168.0.200`).
    board's **embedded-debugger** USB port. This is both the programmer
    (PKOB/EDBG) and the virtual COM port for the CLI (**115200 8N1**).
 2. **100BASE-T:** the board's **onboard RJ45** (LAN8740A PHY) ↔ the PC's
-   Ethernet adapter (the one set to `192.168.0.200`).
+   Ethernet adapter (the one set to `192.168.0.220`).
 3. **T1S:** the two-wire bus from the LAN865x Click to the LAN866x endpoint.
 
 ---
@@ -144,11 +148,14 @@ superloop (`SYS_Tasks()` in `main.c`); no RTOS, no threads, no locks.
 
 ```
                        ┌──────────────────────────────────────────────┐
-   serial CLI ───────► │ SYS_CMD console: "Test" group (app.c)        │
-   (EDBG COM)          ├──────────────────────────────────────────────┤
+   serial CLI ───────► │ SYS_CMD console: "Test" + "env" groups       │
+   (EDBG COM)          │   (app.c / env.c)                            │
+                       ├──────────────────────────────────────────────┤
    T1S bus  ◄──────────┤ eth0: DRV_LAN865X ┐                          │
                        │                   ├─ TCPIP MAC bridge (L2) ─┐ │
    100BASE-T ◄─────────┤ eth1: GMAC+LAN8740┘   + Harmony TCP/IP stack │ │
+                       ├──────────────────────────────────────────────┤
+                       │ Emulated EEPROM (last 16 KB flash) — env.c   │
                        └──────────────────────────────────────────────┘
                                          packet handlers (app.c):
                                          pktEth0Handler / pktEth1Handler
@@ -169,12 +176,26 @@ superloop (`SYS_Tasks()` in `main.c`); no RTOS, no threads, no locks.
 `APP_Initialize` registers the Telnet auth + a 1 s timer and calls
 `Command_Init()` to register the `Test` command group. `APP_Tasks` walks
 `INIT → WAIT → SERVICE_TASKS → IDLE`: in `SERVICE_TASKS` it registers the two
-packet handlers; in `IDLE` it (1) services the async LAN865x register
-read/write state machine (`lan_read`/`lan_write`/`plca_node`), and (2) drains
-the deferred packet-log ring buffer to the console (≤10 entries/iteration, so
-logging never stalls the loop). Captured frame bytes go to a separate circular
-pool; the ring uses a lock-free single-producer/consumer pattern (handlers
-write, `APP_Tasks` reads).
+packet handlers and calls `env_apply()` (push the persisted network config
+into the now-running TCP/IP stack); in `IDLE` it (1) services the async
+LAN865x register read/write state machine (`lan_read`/`lan_write`/
+`plca_node`), and (2) drains the deferred packet-log ring buffer to the
+console (≤10 entries/iteration, so logging never stalls the loop). Captured
+frame bytes go to a separate circular pool; the ring uses a lock-free
+single-producer/consumer pattern (handlers write, `APP_Tasks` reads).
+
+### Persistent config (`env.c`, Emulated EEPROM)
+
+*(Full walkthrough in [§5.2](#52-persistent-via-the-env-cli-group-recommended).)*
+
+A versioned, CRC-protected record (per-interface IP/mask/gateway/DNS, both
+MACs, PLCA node id/count) lives in the **Emulated EEPROM** Harmony library
+(added via MCC; reserves the last 16 KB of flash). `ENV_Init()` runs at the
+very start of `SYS_Initialize()` in `initialization.c` — **before**
+`TCPIP_STACK_Init()` — so a persisted or freshly-seeded MAC is already in
+effect when the stack binds its interfaces. On a blank/corrupt EEPROM (e.g.
+first flash) it seeds itself from the `configuration.h` compiled defaults,
+including a per-board MAC derived from the SAME54's serial number.
 
 ### Port mirror and SPAN (Wireshark)
 
@@ -192,8 +213,9 @@ picture, each filtered by the bridge's own `eth0` MAC to stay duplicate-free:
 
 ### CLI commands
 
-All commands are in the **`Test`** group; type the command name directly (no
-group prefix needed).
+Two command groups; type the command name directly (no group prefix needed).
+
+**`Test` group:**
 
 | Command | Description |
 |---|---|
@@ -203,11 +225,21 @@ group prefix needed).
 | `ipdump [0..3]` | dump RX frames (0=off, 1=eth0, 2=eth1, 3=both) |
 | `stats` | per-interface TX/RX software counters |
 | `meminfo` | free memory: C-runtime heap (total + largest free block) **and** TCP/IP heap (free/maxblock/highwater, like `heapinfo`) |
-| `plca_node [id]` | get/set PLCA node id (0 = coordinator); no arg = show current |
+| `plca_node [id]` | get/set PLCA node id (0 = coordinator); no arg = show current — **volatile**, see [§5.3](#53-volatile-runtime-via-harmony-stack-commands--plca_node) |
 | `lan_read <addr>` / `lan_write <addr> <val>` | LAN865x register access (hex) |
 | `noip_send <n> [gap_ms]` / `noip_stat` | raw-Ethernet (EtherType 0x88B5) loopback test + counters |
 | `dump <addr> <count>` | memory dump (hex) |
 | `logstat` / `logclear` | deferred packet-log statistics / clear |
+
+**`env` group** — persistent config on the Emulated EEPROM (see [§5.2](#52-persistent-via-the-env-cli-group-recommended)):
+
+| Command | Description |
+|---|---|
+| `showenv` | show the current config: per-interface IP/mask/gw/dns, MAC, PLCA id/count |
+| `setenv <key> <val>` | edit the RAM shadow — keys: `ip0/mask0/gw0/dns0`, `ip1/…`, `mac0`/`mac1`, `plca_id`/`plca_cnt` |
+| `saveenv` | persist to EEPROM **and** apply (IP/PLCA live; MAC at next reset) |
+| `readenv` | reload from EEPROM and apply (discard unsaved edits) |
+| `resetenv` | restore the compiled defaults, persist and apply |
 
 Harmony stack commands (`netinfo`, `bridge`, `ping`, `setip`, `setgw`, etc.) are
 also available.
@@ -283,7 +315,7 @@ pyOCD and reports whether a probe and the device pack are visible.
 After flashing, verify the bridge end to end from the PC:
 
 ```bat
-python smoketest.py --bridge 192.168.0.181 --endpoint 192.168.0.54 --com COM8
+python smoketest.py --bridge 192.168.0.210 --endpoint 192.168.0.54 --com COM8
 ```
 
 Checks bridge reachability, L2 forwarding to the endpoint (ping through the
@@ -299,18 +331,22 @@ bridge), and — if `--com` is given — that the on-board console answers
 2. Open the EDBG COM port at 115200 8N1; you should see the build banner.
 3. `stats` — confirm `eth0`/`eth1` exist and counters move.
 4. `plca_node` — reports the configured node id.
-5. From the PC (on `192.168.0.200`): `ping 192.168.0.54` → 0% loss (bridge
+5. From the PC (on `192.168.0.220`): `ping 192.168.0.54` → 0% loss (bridge
    works). Or run `python smoketest.py`.
 
 ---
 
 ## 5. Changing IP and PLCA configuration
 
-The IP addresses (`eth0` = 192.168.0.180, `eth1` = 192.168.0.181) and the PLCA
-parameters can be changed two ways. **Editing the build config is the only
-persistent method** — a runtime CLI change is convenient for experiments but is
-forgotten on the next reset (this firmware has no persistent config storage;
-see the `lan866x-tools` sibling project's `env` command group for that).
+The IP addresses (`eth0` = 192.168.0.200, `eth1` = 192.168.0.210) and the PLCA
+parameters can be changed two ways:
+
+- **Persistent, no rebuild — the `env` command group (§5.2).** Backed by the
+  Emulated EEPROM (see [§3](#3-firmware-architecture)); survives reset/power-cycle.
+  This is the recommended way to change a board's config.
+- **Persistent, requires rebuild — edit `configuration.h` (§5.1).** Only
+  matters for the *compiled-in* defaults that `env` seeds a blank/freshly
+  flashed EEPROM from (`resetenv` also restores these).
 
 ### 5.1 Persistent: edit the build config and rebuild
 
@@ -319,14 +355,14 @@ MCC-generated file). Edit the macros, then rebuild + reflash in MPLAB X.
 
 | Setting | Macro (`configuration.h`) | Default |
 |---|---|---|
-| eth0 (T1S) IP | `TCPIP_NETWORK_DEFAULT_IP_ADDRESS_IDX0` | `"192.168.0.180"` |
+| eth0 (T1S) IP | `TCPIP_NETWORK_DEFAULT_IP_ADDRESS_IDX0` | `"192.168.0.200"` |
 | eth0 subnet mask | `TCPIP_NETWORK_DEFAULT_IP_MASK_IDX0` | `"255.255.255.0"` |
 | eth0 gateway | `TCPIP_NETWORK_DEFAULT_GATEWAY_IDX0` | `"192.168.0.1"` |
-| eth0 MAC | `TCPIP_NETWORK_DEFAULT_MAC_ADDR_IDX0` | `"00:04:25:01:02:01"` |
-| eth1 (100BASE-T) IP | `TCPIP_NETWORK_DEFAULT_IP_ADDRESS_IDX1` | `"192.168.0.181"` |
+| eth0 MAC | `TCPIP_NETWORK_DEFAULT_MAC_ADDR_IDX0` | `"00:04:25:01:02:03"` (fallback only — `env` derives the real per-board MAC from the SAME54 serial number, see §3) |
+| eth1 (100BASE-T) IP | `TCPIP_NETWORK_DEFAULT_IP_ADDRESS_IDX1` | `"192.168.0.210"` |
 | eth1 subnet mask | `TCPIP_NETWORK_DEFAULT_IP_MASK_IDX1` | `"255.255.255.0"` |
 | eth1 gateway | `TCPIP_NETWORK_DEFAULT_GATEWAY_IDX1` | `"192.168.0.1"` |
-| eth1 MAC | `TCPIP_NETWORK_DEFAULT_MAC_ADDR_IDX1` | `"00:04:25:01:02:04"` |
+| eth1 MAC | `TCPIP_NETWORK_DEFAULT_MAC_ADDR_IDX1` | `"00:04:25:01:02:04"` (fallback only, see above) |
 | PLCA node id | `DRV_LAN865X_PLCA_NODE_ID_IDX0` | `7` |
 | PLCA node count | `DRV_LAN865X_PLCA_NODE_COUNT_IDX0` | `8` |
 
@@ -343,11 +379,89 @@ runtime default, so changing the macro is enough.
 > be overwritten — in that case make the change in the MCC project (TCP/IP
 > network config / LAN865x PLCA) instead.
 
-### 5.2 Runtime via the CLI (not persistent)
+### 5.2 Persistent via the `env` CLI group (recommended)
 
-The Harmony TCP/IP stack commands and the `Test` group let you change
-addressing and PLCA on the fly. Run `netinfo` first to see the exact interface
-names (`eth0`/`eth1`).
+The `env` group (`env.c`) keeps a versioned, CRC-protected copy of the
+per-interface IP/mask/gateway/DNS, both MACs, and the PLCA node id/count in
+the **Emulated EEPROM** — the last 16 KB of flash, reserved by the Emulated
+EEPROM library added via MCC. `ENV_Init()` runs at the very start of
+`SYS_Initialize()` (before `TCPIP_STACK_Init()`), so a persisted MAC is
+already in effect when the stack binds its interfaces.
+
+On first boot (blank/corrupt EEPROM, e.g. right after flashing this firmware
+for the first time) `ENV_Init()` seeds the record from the `configuration.h`
+defaults (§5.1) — including a **per-board MAC** derived from the SAME54's
+128-bit serial number (see [§3](#persistent-config-envc-emulated-eeprom)), so
+every board is unique from one firmware image.
+
+#### `setenv` keys
+
+| Key(s) | Value format | Field |
+|---|---|---|
+| `ip0`, `mask0`, `gw0`, `dns0` | dotted-quad, e.g. `192.168.0.201` | eth0 (T1S) IP/mask/gateway/DNS |
+| `ip1`, `mask1`, `gw1`, `dns1` | dotted-quad | eth1 (100BASE-T) IP/mask/gateway/DNS |
+| `mac0`, `mac1` | `XX:XX:XX:XX:XX:XX` | eth0/eth1 MAC — applies **after the next reset** |
+| `plca_id` | `0`..`254` | PLCA node id (0 = coordinator) |
+| `plca_cnt` | `1`..`255` | PLCA node count |
+
+#### Worked example
+
+Change eth0's DNS server, persist it, and prove it survives a reboot (this
+transcript is a real console session, via `python cli.py --port COM8 "..."`):
+
+```text
+> showenv
+env (RAM shadow):
+  eth0  ip 192.168.0.200  mask 255.255.255.0  gw 192.168.0.1  dns 8.8.8.8
+  eth1  ip 192.168.0.210  mask 255.255.255.0  gw 192.168.0.1  dns 8.8.8.8
+  eth0  mac 00:04:25:CA:CE:D9
+  eth1  mac 00:04:25:CA:CE:DA  (applied at boot)
+  plca  id 7  count 8  (eth0/T1S)
+
+> setenv dns0 1.1.1.1
+setenv: dns0 = 1.1.1.1 (RAM only; 'saveenv' to persist)
+
+> saveenv
+saveenv: persisted to EEPROM and applied (an IP change drops the current connection).
+
+> showenv
+  eth0  ip 192.168.0.200  mask 255.255.255.0  gw 192.168.0.1  dns 1.1.1.1   <- updated
+
+--- board reset (power-cycle, or e.g. "python -m pyocd reset ...") ---
+
+> showenv
+  eth0  ip 192.168.0.200  mask 255.255.255.0  gw 192.168.0.1  dns 1.1.1.1   <- survived the reset
+```
+
+`dns0` is still `1.1.1.1` after the reset — the EEPROM record, not the
+`configuration.h` compiled default (`8.8.8.8`), is what `ENV_Init()` loaded
+this time. To go back to the compiled defaults: `resetenv` (also persists and
+applies immediately, no reset needed):
+
+```text
+> resetenv
+resetenv: restored compiled defaults, persisted and applied.
+
+> showenv
+  eth0  ip 192.168.0.200  mask 255.255.255.0  gw 192.168.0.1  dns 8.8.8.8
+  plca  id 7  count 8  (eth0/T1S)
+```
+
+A **MAC** change follows the same `setenv mac0 XX:XX:XX:XX:XX:XX` + `saveenv`
+pattern, but — unlike IP/PLCA — only takes effect after the *next* reset,
+since the TCP/IP stack reads the MAC once, at `TCPIP_STACK_Init()`.
+
+A **PLCA node id/count** change via `setenv plca_id`/`plca_cnt` + `saveenv`
+applies immediately (queued through the same LAN865x register write the
+`Test` group's `plca_node` command uses) *and* persists. The `Test` group's
+own bare `plca_node <id>` (§5.3) is a separate, quicker path for trying a
+node id **without** touching the EEPROM at all.
+
+### 5.3 Volatile runtime via Harmony stack commands / `plca_node`
+
+The Harmony TCP/IP stack commands and `plca_node` (in the `Test` group) let
+you try a value without touching the EEPROM at all. Run `netinfo` first to
+see the exact interface names (`eth0`/`eth1`).
 
 ```text
 netinfo                                   # show both interfaces, IPs, MACs, status
@@ -358,16 +472,11 @@ plca_node 0                                # set PLCA node id (writes PLCA_CTRL1
 plca_node                                  # (no arg) read back the current node id
 ```
 
-- `setip <interface> <ipv4> <mask>` and `setgw <interface> <ipv4>` are Harmony
-  stack commands.
-- `plca_node [id]` is in the `Test` group; with an argument it writes the
-  LAN865x `PLCA_CTRL1` register (NODE_CNT:NODE_ID) live.
-
-> ⚠️ **Runtime changes are volatile.** Anything set with `setip`/`setgw`/
-> `plca_node` is lost on the next reset or power-cycle — the board boots back
-> to the `configuration.h` defaults. **For a permanent change, edit the build
-> config (§5.1) and reflash.** Use the CLI only to try a value before baking it
-> in.
+> ⚠️ **These specific commands are volatile.** Anything set with `setip`/
+> `setgw`/bare `plca_node <id>` is lost on the next reset or power-cycle — the
+> board boots back to whatever `env` has persisted (§5.2), which itself
+> defaults to the `configuration.h` values (§5.1) on a blank EEPROM. Use these
+> only to try a value before persisting it with `setenv`/`saveenv`.
 
 ---
 

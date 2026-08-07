@@ -46,6 +46,8 @@
 #include "configuration.h"
 #include "definitions.h"
 #include "device.h"
+#include <stdio.h>
+#include "env.h"   /* persistent config: load before TCPIP_STACK_Init, fill MAC strings */
 
 
 // ****************************************************************************
@@ -340,13 +342,20 @@ TCPIP_STACK_HEAP_INTERNAL_CONFIG tcpipHeapConfig =
 };
 
 
+/* Writable MAC address string buffers. The const TCPIP_HOSTS_CONFIGURATION array
+ * holds pointers to these, so the struct stays const while the strings are filled
+ * at runtime from the persistent env (serial-derived, env-stored MAC) by
+ * ENV_Init()+env_mac_str() just before TCPIP_STACK_Init(). */
+static char s_macAddrStr0[18] = TCPIP_NETWORK_DEFAULT_MAC_ADDR_IDX0;
+static char s_macAddrStr1[18] = TCPIP_NETWORK_DEFAULT_MAC_ADDR_IDX1;
+
 const TCPIP_NETWORK_CONFIG __attribute__((unused))  TCPIP_HOSTS_CONFIGURATION[] =
 {
     /*** Network Configuration Index 0 ***/
     {
         .interface = TCPIP_NETWORK_DEFAULT_INTERFACE_NAME_IDX0,
         .hostName = TCPIP_NETWORK_DEFAULT_HOST_NAME_IDX0,
-        .macAddr = TCPIP_NETWORK_DEFAULT_MAC_ADDR_IDX0,
+        .macAddr = s_macAddrStr0,
         .ipAddr = TCPIP_NETWORK_DEFAULT_IP_ADDRESS_IDX0,
         .ipMask = TCPIP_NETWORK_DEFAULT_IP_MASK_IDX0,
         .gateway = TCPIP_NETWORK_DEFAULT_GATEWAY_IDX0,
@@ -360,7 +369,7 @@ const TCPIP_NETWORK_CONFIG __attribute__((unused))  TCPIP_HOSTS_CONFIGURATION[] 
     {
         .interface = TCPIP_NETWORK_DEFAULT_INTERFACE_NAME_IDX1,
         .hostName = TCPIP_NETWORK_DEFAULT_HOST_NAME_IDX1,
-        .macAddr = TCPIP_NETWORK_DEFAULT_MAC_ADDR_IDX1,
+        .macAddr = s_macAddrStr1,
         .ipAddr = TCPIP_NETWORK_DEFAULT_IP_ADDRESS_IDX1,
         .ipMask = TCPIP_NETWORK_DEFAULT_IP_MASK_IDX1,
         .gateway = TCPIP_NETWORK_DEFAULT_GATEWAY_IDX1,
@@ -761,10 +770,19 @@ void SYS_Initialize ( void* data )
    /* Initialize the MIIM Driver Instance 0*/
    sysObj.drvMiim_0 = DRV_MIIM_OBJECT_BASE_Default.DRV_MIIM_Initialize(DRV_MIIM_DRIVER_INDEX_0, (const SYS_MODULE_INIT *) &drvMiimInitData_0); 
 
+    /* Initialize EMULATED_EEPROM0 Library Instance */
+    sysObj.libEMULATED_EEPROM0 = EMU_EEPROM_Initialize(EMULATED_EEPROM0, (SYS_MODULE_INIT *)NULL);
 
-    /* MISRA C-2012 Rule 11.3, 11.8 deviated below. Deviation record ID -  
+   /* Persistent config: load from the Emulated EEPROM (seed on first boot, incl. a
+    * serial-derived per-board MAC), then fill the MAC strings before the stack reads
+    * them. The MAC is env-stored and changeable via 'setenv mac0/mac1' + 'saveenv'. */
+   ENV_Init();
+   env_mac_str(0, s_macAddrStr0);
+   env_mac_str(1, s_macAddrStr1);
+
+    /* MISRA C-2012 Rule 11.3, 11.8 deviated below. Deviation record ID -
     H3_MISRAC_2012_R_11_3_DR_1 & H3_MISRAC_2012_R_11_8_DR_1*/
-        
+
     sysObj.sysTime = SYS_TIME_Initialize(SYS_TIME_INDEX_0, (SYS_MODULE_INIT *)&sysTimeInitData);
     
     /* MISRAC 2012 deviation block end */
