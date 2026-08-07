@@ -14,3 +14,11 @@
 **/*.IAR/settings
 **/*.IAR/*.dep
 **/*.IAR/*.custom_argvars
+
+# Per-machine tool config (written by setup_compiler.py) - never commit
+setup_compiler.config
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo

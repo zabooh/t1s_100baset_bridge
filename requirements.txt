@@ -1,0 +1,4 @@
+# Python dependencies for the tool scripts (cli.py, smoketest.py).
+# pyOCD is installed separately, pinned, via install_prereqs.py / install.bat.
+
+pyserial

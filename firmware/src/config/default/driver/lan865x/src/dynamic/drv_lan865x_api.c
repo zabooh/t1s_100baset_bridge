@@ -673,6 +673,17 @@ TCPIP_MAC_RES DRV_LAN865X_PacketTx(DRV_HANDLE hMac, TCPIP_MAC_PACKET * ptrPacket
     pDrvInst = pClient->pDrvInst;
     SYS_ASSERT(pDrvInst && (LAN865X_MAGIC == pDrvInst->magic), "Driver info pointer is invalid");
     SYS_ASSERT(ptrPacket, "Packet pointer invalid");
+
+    /* T1S->eth1 port mirror (SPAN) for Wireshark: this is the single eth0 egress
+     * point, so every bridge-originated/forwarded frame passes here. The hook
+     * (app.c) is a no-op unless "mirror" is on, and it only clones frames the
+     * bridge itself originates (src MAC == eth0 MAC). Called before the mutex so
+     * it never holds the LAN865x lock while transmitting on eth1/GMAC. */
+    {
+        extern void mirror_eth0_tx_hook(TCPIP_MAC_PACKET *txPkt);
+        mirror_eth0_tx_hook(ptrPacket);
+    }
+
     _Lock(&pDrvInst->drvMutex);
 
     tc6SegCount = TC6_GetRawSegments(pDrvInst->drvTc6, &tc6Seg);
@@ -2394,5 +2405,38 @@ static void _RxPacketAck(TCPIP_MAC_PACKET* pkt, const void* param)
         pDrvInst->rxStats.nRxPendBuffers--;
         pDrvInst->rxStats.nRxOkPackets++;
         TCPIP_Helper_ProtectedSingleListTailAdd(&pDrvInst->rxFreePackets, (SGL_LIST_NODE*) pkt);
+    }
+}
+
+/* --------------------------------------------------------------------------
+ * DRV_LAN865X_SendRawEthFrame
+ * Send a raw Ethernet frame through TC6 with a caller-selected TSC flag.
+ * Use tsc=0x01 for Sync (to arm Timestamp Capture A) and tsc=0x00 otherwise.
+ * -------------------------------------------------------------------------- */
+bool DRV_LAN865X_SendRawEthFrame(uint8_t idx, const uint8_t *pBuf, uint16_t len,
+                                  uint8_t tsc, DRV_LAN865X_RawTxCallback_t cb,
+                                  void *pTag)
+{
+    bool result = false;
+    if (idx < DRV_LAN865X_INSTANCES_NUMBER) {
+        DRV_LAN865X_DriverInfo *pDrv = &drvLAN865XDrvInst[idx];
+        if (SYS_STATUS_READY == pDrv->state) {
+            result = TC6_SendRawEthernetPacket(pDrv->drvTc6, pBuf, len, tsc,
+                                               (TC6_RawTxCallback_t)(void *)cb, pTag);
+        }
+    }
+    return result;
+}
+
+/* --------------------------------------------------------------------------
+ * DRV_LAN865X_SetPlcaNodeId
+ * Persistently stores the PLCA node ID in the driver configuration so that
+ * after a Loss-of-Framing-Error–triggered re-initialisation the correct
+ * node ID is written back to PLCA_CONTROL_1 by _InitUserSettings().
+ * -------------------------------------------------------------------------- */
+void DRV_LAN865X_SetPlcaNodeId(uint8_t idx, uint8_t nodeId)
+{
+    if (idx < DRV_LAN865X_INSTANCES_NUMBER) {
+        drvLAN865XDrvInst[idx].drvCfg.nodeId = nodeId;
     }
 }
