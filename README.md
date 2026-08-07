@@ -1,11 +1,20 @@
 # t1s_100baset_bridge
 
-A **10BASE-T1S ↔ 100BASE-T Layer-2 bridge** firmware for the ATSAME54P20A. It
-lets a PC on ordinary Fast Ethernet reach a Microchip **LAN866x 10BASE-T1S
-endpoint** that lives on the two-wire T1S bus, and it ships with on-board
-diagnostics for the bridge itself (packet mirroring, register access, PLCA
-control, a raw-Ethernet loopback test) plus **persistent network/PLCA
+A **generic 10BASE-T1S ↔ 100BASE-T Layer-2 bridge** firmware for the
+ATSAME54P20A. It bridges an arbitrary 10BASE-T1S segment onto ordinary Fast
+Ethernet, so any device on the T1S side becomes reachable — and reachable
+*from* — a normal IP network, exactly as if it were plugged into a regular
+Ethernet switch. It ships with on-board diagnostics for the bridge itself
+(packet mirroring, register access, PLCA control, a raw-Ethernet loopback
+test, an `iperf` throughput tester) plus **persistent network/PLCA
 configuration** on an Emulated EEPROM (§5.2).
+
+Unlike a USB-to-T1S dongle (which only gives the *host PC's own software* a
+window onto the bus), this bridge puts the T1S segment directly onto an IP
+network. Plug the 100BASE-T side into a network with DHCP and internet
+access, and every node on the T1S segment can talk to a server on the
+internet — no PC, no dongle driver, and no software running on a
+host machine in between.
 
 ---
 
@@ -23,6 +32,7 @@ configuration** on an Emulated EEPROM (§5.2).
   - [Application state machine (`app.c`)](#application-state-machine-appc)
   - [Persistent config (`env.c`, Emulated EEPROM)](#persistent-config-envc-emulated-eeprom)
   - [Port mirror and SPAN (Wireshark)](#port-mirror-and-span-wireshark)
+  - [Throughput testing (iperf)](#throughput-testing-iperf)
   - [CLI commands](#cli-commands)
 - [4. Building it yourself](#4-building-it-yourself)
 - [5. Changing IP and PLCA configuration](#5-changing-ip-and-plca-configuration)
@@ -34,6 +44,10 @@ configuration** on an Emulated EEPROM (§5.2).
   - [6.2 What gets mirrored (both directions, MAC-filtered)](#62-what-gets-mirrored-both-directions-mac-filtered)
   - [6.3 Using it](#63-using-it)
   - [6.4 Limitations](#64-limitations)
+- [7. Throughput testing with iperf](#7-throughput-testing-with-iperf)
+  - [Commands](#commands)
+  - [`iperf` options](#iperf-options)
+  - [Examples](#examples)
 
 ---
 
@@ -42,28 +56,31 @@ configuration** on an Emulated EEPROM (§5.2).
 The board sits between two worlds:
 
 ```
-   PC / lab network                Bridge (this firmware)            T1S bus
+   PC / lab network / internet     Bridge (this firmware)            T1S bus
    100BASE-T (RJ45)          ATSAME54P20A + LAN865x + LAN8740     10BASE-T1S (2-wire)
    ┌──────────────┐  100M    ┌───────────────────────────┐  T1S   ┌──────────────┐
-   │  Wireshark   │◄────────►│ eth1 (GMAC)   eth0 (LAN865x)│◄──────►│  LAN866x     │
-   │  ping        │ .210/.200│   └── MAC bridge (L2) ──┘   │ PLCA   │  endpoint    │
-   └──────────────┘          └───────────────────────────┘ node 7  │  192.168.0.54│
+   │  Wireshark   │◄────────►│ eth1 (GMAC)   eth0 (LAN865x)│◄──────►│  any T1S     │
+   │  ping/server │ .210/.200│   └── MAC bridge (L2) ──┘   │ PLCA   │  node(s)     │
+   └──────────────┘          └───────────────────────────┘ node 7  │  e.g. .54... │
                                                                     └──────────────┘
 ```
 
 It does two jobs:
 
 **a) Transparent L2 bridge.** The two interfaces — `eth0` (the T1S MAC-PHY) and
-`eth1` (100BASE-T) — are joined by the Harmony **MAC bridge**, so any PC-side
-traffic (ARP, ICMP/ping, mDNS, ...) flows through to the endpoint on the T1S bus
-and back, with MAC learning (FDB). From the PC you can simply
-`ping 192.168.0.54` and reach the endpoint *through* the bridge as if it were on
-the local Ethernet. The bridge does **not** forward manually in application
-code — the Harmony MAC bridge handles all L2 forwarding in both directions.
+`eth1` (100BASE-T) — are joined by the Harmony **MAC bridge**, so any traffic
+from the 100BASE-T side (ARP, ICMP/ping, mDNS, ordinary IP traffic from a
+DHCP/internet-connected network, ...) flows through to any node on the T1S
+segment and back, with MAC learning (FDB). From a PC on the 100BASE-T side you
+can simply `ping <t1s-node-ip>` and reach it *through* the bridge as if it
+were on the local Ethernet — the same holds for a server anywhere on the
+internet, if `eth1` is plugged into a network that routes there. The bridge
+does **not** forward manually in application code — the Harmony MAC bridge
+handles all L2 forwarding in both directions.
 
 **b) T1S bus analyzer / SPAN port.** The firmware can mirror T1S traffic onto
 `eth1` so you can capture the two-wire bus in **Wireshark** on the PC —
-including the endpoint's replies *and* the bridge's own requests (`mirror`
+including replies from the T1S side *and* the bridge's own requests (`mirror`
 command). It also has raw frame dump/logging (`ipdump`, `logstat`), a
 raw-Ethernet loopback test (`noip_send`), LAN865x register peek/poke
 (`lan_read`/`lan_write`), PLCA node-ID control, and per-interface counters.
@@ -73,9 +90,10 @@ raw-Ethernet loopback test (`noip_send`), LAN865x register peek/poke
 ## 2. Hardware setup
 
 The bridge node is built from a Microchip SAM E54 Curiosity board with one
-MikroElektronika Click add-on. The **LAN866x endpoint** on the T1S side is a
+MikroElektronika Click add-on. Whatever device(s) sit on the T1S side is a
 *separate* device (the thing you reach through the bridge); it is not part of
-the bridge board.
+the bridge board, and this firmware makes no assumption about what chip or
+product it is.
 
 ![The assembled bridge board: the SAM E54 Curiosity Ultra host (red board) with the green Two-Wire ETH Click (10BASE-T1S MAC-PHY, plugged into the "X32" header, top left) for eth0, and the LAN8740A PHY Daughter Board (AC320004-3, bottom left, with the RJ45 jack) for eth1 — note it is a separate plug-in module, not part of the Curiosity board itself.](boards.jpg)
 
@@ -125,12 +143,15 @@ the bridge board.
 |---|---|---|---|---|
 | `eth0` | T1S (LAN865x) | **192.168.0.200** | /24 | node id **7** (see `configuration.h`), node count **8** |
 | `eth1` | 100BASE-T (GMAC) | **192.168.0.210** | /24 | — |
-| endpoint | LAN866x | 192.168.0.54 | /24 | follower |
+| T1S node (example) | *any device* | e.g. `192.168.0.54` | /24 | follower |
 
 Both bridge interfaces share one `192.168.0.0/24` subnet (gateway
 `192.168.0.1`) — the MAC bridge makes that a single L2 segment. Put the PC's
-RJ45 adapter on the same subnet, on an address **other than** `.200`/`.210`/`.54`
-(e.g. `192.168.0.220`).
+RJ45 adapter on the same subnet, on an address **other than** `.200`/`.210`/
+whatever address(es) the T1S node(s) use (e.g. `192.168.0.220`). Instead of a
+PC, `eth1` can equally be plugged into a switch/router that hands out DHCP
+and routes to the internet — the T1S node(s) then get real IP connectivity,
+including to servers outside the local network.
 
 > **PLCA coordinator.** If the T1S side is meant to run with this board as
 > coordinator, set the node id to **0** (`plca_node 0` at runtime, or
@@ -145,7 +166,8 @@ RJ45 adapter on the same subnet, on an address **other than** `.200`/`.210`/`.54
 2. **100BASE-T:** the RJ45 on the **LAN8740A PHY Daughter Board** (`AC320004-3`,
    plugged into the Curiosity board's PHY header) ↔ the PC's Ethernet adapter
    (the one set to `192.168.0.220`).
-3. **T1S:** the two-wire bus from the LAN865x Click to the LAN866x endpoint.
+3. **T1S:** the two-wire bus from the LAN865x Click to whatever node(s) sit
+   on the T1S segment.
 
 ---
 
@@ -221,6 +243,17 @@ picture, each filtered by the bridge's own `eth0` MAC to stay duplicate-free:
   Because a node never receives its own TX, hooking the egress is the only way
   to see them.
 
+### Throughput testing (iperf)
+
+*(Full option reference and examples in [§7](#7-throughput-testing-with-iperf).)*
+
+`iperf`/`iperfk`/`iperfi`/`iperfs` are the Harmony TCP/IP stack's **built-in**
+iperf2-protocol-compatible throughput tester (`library/tcpip/src/iperf.c`,
+`TCPIP_STACK_USE_IPERF`) — not something this project added. Useful to measure
+end-to-end throughput across the bridge itself (PC → `eth1` → MAC bridge →
+`eth0` → endpoint) without any extra PC tooling beyond a compatible `iperf`/
+`iperf2` binary.
+
 ### CLI commands
 
 Two command groups; type the command name directly (no group prefix needed).
@@ -250,6 +283,15 @@ Two command groups; type the command name directly (no group prefix needed).
 | `saveenv` | persist to EEPROM **and** apply (IP/PLCA live; MAC at next reset) |
 | `readenv` | reload from EEPROM and apply (discard unsaved edits) |
 | `resetenv` | restore the compiled defaults, persist and apply |
+
+**`iperf` group** — Harmony's built-in throughput tester (see [§7](#7-throughput-testing-with-iperf)):
+
+| Command | Description |
+|---|---|
+| `iperf [options]` | start a throughput test session (server or client) |
+| `iperfk` | stop the running session |
+| `iperfi <address>` | bind the test to a specific local interface |
+| `iperfs <tx\|rx> <bytes>` | set the TX/RX buffer size |
 
 Harmony stack commands (`netinfo`, `bridge`, `ping`, `setip`, `setgw`, etc.) are
 also available.
@@ -579,3 +621,79 @@ mirror 0                # turn it off when done
   load.
 - Mirror state is a runtime toggle (like the §5.2 CLI settings) and defaults
   to **off** on every boot.
+
+---
+
+## 7. Throughput testing with iperf
+
+`iperf`/`iperfk`/`iperfi`/`iperfs` are **not** a bridge-specific feature —
+they're the Harmony TCP/IP stack's own built-in throughput tester
+(`library/tcpip/src/iperf.c`, enabled via `TCPIP_STACK_USE_IPERF` in
+`configuration.h`), protocol-compatible with the classic `iperf`/`iperf2`
+tool, so a PC running `iperf2` can test directly against the board (or vice
+versa). Documented here because it's the most useful tool for measuring
+**end-to-end throughput across the bridge itself**: PC → `eth1` → the
+Harmony MAC bridge → `eth0` → the T1S endpoint, and back — a real-world
+number to complement `stats`' packet counters.
+
+Configured in `configuration.h`:
+
+```c
+#define TCPIP_STACK_USE_IPERF
+#define TCPIP_IPERF_TX_BUFFER_SIZE      4096
+#define TCPIP_IPERF_RX_BUFFER_SIZE      4096
+#define TCPIP_IPERF_MAX_INSTANCES       1      // one iperf session at a time
+#define TCPIP_IPERF_TX_BW_LIMIT         10     // default client TX rate: 10 Mbps
+```
+
+### Commands
+
+| Command | Description |
+|---|---|
+| `iperf [options]` | start a test session (as server or client) |
+| `iperfk` | kill/stop the running session |
+| `iperfi <address>` | bind the test to a specific local interface address |
+| `iperfs <tx\|rx> <bytes>` | set the TX/RX buffer size |
+
+### `iperf` options
+
+| Option | Meaning | Default |
+|---|---|---|
+| `-s` | run as **server** | — |
+| `-c <ip>` | run as **client**, connect to `<ip>` | — |
+| `-u` | UDP instead of TCP | TCP |
+| `-b <rate>` | target bandwidth for a UDP client (bps; `K`/`M` suffix allowed) — also switches to UDP | 10 Mbps |
+| `-t <secs>` | test duration | 10 s |
+| `-n <bytes>` | transfer a fixed amount instead of running by time | off |
+| `-i <secs>` | report interval | 1 s |
+| `-p <port>` | server/target port | 5001 |
+| `-l <bytes>` | UDP datagram size | — |
+| `-M <bytes>` | TCP MSS | — |
+| `-S <tos>` | Type of Service | 0 (best effort) |
+| `-x <rate>` | (non-standard) max TCP TX rate, bps | — |
+
+### Examples
+
+On the board, as a server:
+
+```text
+iperf -s
+```
+
+From the board, as a client against the PC (e.g. `192.168.0.220`), 20 s of
+UDP at 50 Mbps:
+
+```text
+iperf -c 192.168.0.220 -u -b 50M -t 20
+```
+
+Stop a running session:
+
+```text
+iperfk
+```
+
+Testing the bridge path from the **PC side** works the same way, just with
+the roles reversed — e.g. `iperf -s` on the board, then
+`iperf2 -c 192.168.0.210` from the PC (through `eth1` → MAC bridge → `eth0`
+→ endpoint), or vice versa with the endpoint as the counterpart.
