@@ -25,6 +25,7 @@ host machine in between.
   - [Bridge board: bill of materials](#bridge-board-bill-of-materials)
   - [How `eth0` (LAN865x) is wired](#how-eth0-lan865x-is-wired-from-the-firmware-config)
   - [Network and addressing (default)](#network-and-addressing-default)
+  - [Host PC: giving the `eth1` adapter a static address](#host-pc-giving-the-eth1-adapter-a-static-address)
   - [Console and cabling](#console-and-cabling)
 - [3. Firmware architecture](#3-firmware-architecture)
   - [Block view](#block-view)
@@ -157,6 +158,69 @@ including to servers outside the local network.
 > coordinator, set the node id to **0** (`plca_node 0` at runtime, or
 > `DRV_LAN865X_PLCA_NODE_ID_IDX0` in `configuration.h` for a persistent
 > change) — see [§5](#5-changing-ip-and-plca-configuration).
+
+### Host PC: giving the `eth1` adapter a static address
+
+Both bridge interfaces are compiled as `TCPIP_NETWORK_CONFIG_IP_STATIC`
+(`configuration.h`), so they hold `.200`/`.210` for as long as the board runs and
+never release them. There is no DHCP server on this segment either — the PC's
+adapter therefore needs a **manually assigned** address in `192.168.0.0/24` that
+is not already taken. The examples in this README use `192.168.0.220`; any free
+address works.
+
+#### Windows
+
+The GUI route (*Network Connections → adapter → Properties → IPv4 → Properties*)
+works, but two failure modes look alike and are worth telling apart. Run
+`ipconfig` and look at the adapter's block:
+
+| What `ipconfig` shows | Meaning | Fix |
+|---|---|---|
+| Only `Autoconfiguration IPv4 Address` `169.254.x.x`, **no** `IPv4 Address` line | The static settings were never committed — the interface is still in DHCP mode and no server answered | In the GUI, `OK` has to be confirmed in **both** dialogs (the IPv4 properties *and* the adapter properties window); then re-run `ipconfig` |
+| The static address, followed by `(Duplicate)` | Address conflict — Windows' ARP probe found the address in use, disabled it, and fell back to APIPA | Pick a free address; `.200` and `.210` belong to the bridge, and because it is an **L2 bridge** the PC sees *both* on the same segment |
+
+Skipping the dialogs avoids the first case entirely. In an **administrator**
+console:
+
+```bat
+netsh interface ip set address name="Ethernet 8" static 192.168.0.220 255.255.255.0
+netsh interface ip show addresses name="Ethernet 8"
+```
+
+Replace `Ethernet 8` with the adapter's name as listed by
+`netsh interface ip show config`. A default gateway is not needed for a direct
+board-to-PC link. The second command is the check: the address must appear as a
+real `IP Address`, not as an autoconfiguration one.
+
+This is **persistent**. `netsh` writes the same registry values the GUI does
+(`HKLM\SYSTEM\CurrentControlSet\Services\Tcpip\Parameters\Interfaces\{GUID}`,
+with `EnableDHCP = 0`), so it survives reboots, driver restarts and unplugging
+the adapter. One caveat for **USB Ethernet adapters**: the setting is bound to
+the adapter *instance* (its GUID), not to the friendly name. The same adapter
+keeps its instance across USB ports, but plugging in a *different* USB NIC
+creates a new instance (`Ethernet 9`, …) that starts out on DHCP — if a
+`169.254.x.x` address reappears after a hardware change, check
+`netsh interface ip show config` for which interface is actually being
+configured.
+
+#### Linux
+
+```sh
+sudo ip addr add 192.168.0.220/24 dev eth0     # adapter name from `ip link`
+```
+
+#### Verifying the link
+
+Two pings, each with its own diagnostic meaning:
+
+```sh
+ping 192.168.0.210     # eth1 (GMAC) answers -> cable and 100BASE-T link are up
+ping 192.168.0.200     # eth0 (LAN865x) answers -> the bridge really forwards to the T1S side
+```
+
+If the first succeeds and the second does not, the problem is no longer on the
+host side: check `stats` and the PLCA configuration
+([§5](#5-changing-ip-and-plca-configuration)).
 
 ### Console and cabling
 
@@ -418,13 +482,32 @@ MCC-generated file). Edit the macros, then rebuild + reflash in MPLAB X.
 | PLCA node id | `DRV_LAN865X_PLCA_NODE_ID_IDX0` | `7` |
 | PLCA node count | `DRV_LAN865X_PLCA_NODE_COUNT_IDX0` | `8` |
 
-The PLCA node-id macro is the single source of truth: `initialization.c` seeds
-the LAN865x driver from it and `app.c`'s `plca_node` command uses it as the
-runtime default, so changing the macro is enough.
+**These macros are only the fallback defaults — a stored `env` record wins.**
+`initialization.c` seeds the LAN865x driver from the PLCA macro at driver init,
+but once the stack is up, `env_apply()` ([`app.c`](firmware/src/app.c) →
+[`env.c`](firmware/src/env.c)) pushes the *persisted* configuration into the
+stack and calls `APP_ApplyPlca(env_plca_id(), env_plca_cnt())` on top of it. The
+macros are consulted only when the EEPROM record is missing, blank or fails its
+CRC check (e.g. on a virgin board or after `resetenv`).
+
+Two consequences worth knowing before you edit anything here:
+
+- Flashing with `flash.bat` uses pyOCD's default **sector** erase, and the
+  emulated EEPROM lives in the last 16 KB of flash (`0xFC000`), outside the hex
+  image. A saved configuration therefore **survives a rebuild and reflash** —
+  which is convenient, but it also means an edited macro can appear to have no
+  effect at all.
+- Run **`showenv`** to see what is actually in effect. To make macro changes take
+  hold, either `resetenv` (drops the stored record) or set the value directly
+  with `setenv` + `saveenv` as described in §5.2 — the latter needs no rebuild
+  and is the faster route for a single value.
 
 > **Keep both interfaces on the same subnet as the endpoint and the PC**, since
 > the MAC bridge makes them one L2 segment. If this board should be the PLCA
-> coordinator, set `DRV_LAN865X_PLCA_NODE_ID_IDX0` to `0`.
+> coordinator, set `DRV_LAN865X_PLCA_NODE_ID_IDX0` to `0` — and remember that a
+> stored `env` record overrides it, so check `showenv` afterwards. Note that
+> `plca_node 0` on the console is **volatile**: it is lost on the next reset,
+> including the reset that `flash.bat` performs after programming.
 >
 > **MCC note:** `configuration.h` is generated by MCC. A plain text edit +
 > rebuild is fully supported. Only if you *re-run MCC code generation* will it
@@ -503,11 +586,64 @@ A **MAC** change follows the same `setenv mac0 XX:XX:XX:XX:XX:XX` + `saveenv`
 pattern, but — unlike IP/PLCA — only takes effect after the *next* reset,
 since the TCP/IP stack reads the MAC once, at `TCPIP_STACK_Init()`.
 
-A **PLCA node id/count** change via `setenv plca_id`/`plca_cnt` + `saveenv`
-applies immediately (queued through the same LAN865x register write the
-`Test` group's `plca_node` command uses) *and* persists. The `Test` group's
-own bare `plca_node <id>` (§5.3) is a separate, quicker path for trying a
-node id **without** touching the EEPROM at all.
+#### PLCA node id: which command writes the PHY, and how to prove it
+
+A **PLCA node id/count** change persists *and* takes effect without a reset —
+but the two halves are done by two different commands, and it is worth knowing
+which is which:
+
+| Command | Effect |
+|---|---|
+| `setenv plca_id 0` | **RAM only.** Updates the shadow record and says so (`RAM only; 'saveenv' to persist`). No register is written, the PHY is untouched. |
+| `saveenv` | Writes the EEPROM **and** calls `env_apply()`, which calls `APP_ApplyPlca()` → a `PLCA_CTRL1` write to `0x0004CA02` (`NODE_CNT` in bits 15:8, `NODE_ID` in 7:0). This is the step that reaches the LAN865x. |
+
+So `saveenv` is what configures the PHY. On success the console prints:
+
+```text
+> setenv plca_id 0
+setenv: plca_id = 0 (RAM only; 'saveenv' to persist)
+
+> saveenv
+[PLCA] node ID set to 0 (NODE_CNT=8, reg=0x00000800)
+saveenv: persisted to EEPROM and applied (an IP change drops the current connection).
+```
+
+**Watch for the skip case.** `APP_ApplyPlca()` uses the same single-slot LAN
+register state machine as `lan_read`/`lan_write` (one operation at a time,
+serviced only in `APP_STATE_IDLE`, 200 ms timeout). If that machine is busy it
+returns without writing anything:
+
+```text
+[PLCA] LAN busy - apply skipped (retry when idle)
+```
+
+The EEPROM then holds the new node id while the PHY still runs the old one —
+persisted and live state diverge, and the mismatch silently repairs itself on
+the next reset, which makes it easy to misread. Simply repeat `saveenv` once the
+board is idle.
+
+**Verify with a register read, not with `plca_node`.** The bare `plca_node`
+query prints the driver-side `s_plca_node_id`, which is assigned *before* the
+register write is carried out — it reports the intent, not the state of the PHY.
+The authoritative check is:
+
+```text
+> lan_read 0x0004CA02
+```
+
+| Value | Meaning |
+|---|---|
+| `0x00000800` | `NODE_CNT` = 8, `NODE_ID` = 0 → this board is the PLCA coordinator |
+| `0x00000807` | still node id 7 → the write did not get through; repeat `saveenv` |
+
+Same principle as the transmitter test modes: the readback decides, not the
+confirmation message. Do not poll this during a throughput test — register
+access shares the SPI/TC6 service path with the data path.
+
+The `Test` group's own bare `plca_node <id>` (§5.3) is a separate, quicker path
+for trying a node id **without** touching the EEPROM at all — but it is
+volatile, and is lost on the next reset, including the one `flash.bat` performs
+after programming.
 
 ### 5.3 Volatile runtime via Harmony stack commands / `plca_node`
 
