@@ -29,7 +29,7 @@
 #include "config/default/system/console/sys_console.h"
 #include "system/command/sys_command.h"
 #include "config/default/library/emulated_eeprom/emulated_eeprom.h"
-#include "app.h"                                             /* APP_ApplyPlca() */
+#include "lan865x_diag.h"                                    /* LAN865X_DIAG_ApplyPlca() */
 #include "env.h"
 
 #define ENV_MAGIC    0x4C414E45u   /* 'LANE' */
@@ -169,8 +169,10 @@ void env_apply(void)
         if (dns.Val != 0u)
             (void)TCPIP_STACK_NetAddressDnsPrimarySet(nh, &dns);
     }
-    /* PLCA on eth0 (LAN865x) - queued via the app's LAN state machine. */
-    APP_ApplyPlca((uint8_t)s_env.plca_id, (uint8_t)s_env.plca_cnt);
+    /* PLCA on eth0 (LAN865x) - queued via the diagnostics module's register machine.
+     * This call is also what keeps that module's node-count shadow current, which is
+     * how 'plca_node <id>' knows the right count without depending on env. */
+    LAN865X_DIAG_ApplyPlca((uint8_t)s_env.plca_id, (uint8_t)s_env.plca_cnt);
 }
 
 uint8_t env_plca_id(void)  { return (uint8_t)s_env.plca_id;  }

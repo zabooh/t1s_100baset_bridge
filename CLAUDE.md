@@ -9,7 +9,8 @@
 
 | Datei | Zweck |
 |---|---|
-| `firmware\src\app.c` | App-Zustandsmaschine, **alle CLI-Kommandos**, Registerzugriff — hier passiert das Meiste |
+| `firmware\src\app.c` | App-Zustandsmaschine, Bridge/Mirror, Packet-Log, `stats`/`meminfo`/`noip_*` |
+| `firmware\src\lan865x_diag.c` `.h` | **Registerzugriff, Testmodi, PLCA** — `lan_read`/`lan_write`/`lan_rmw`/`testmode`/`plca_node`. Eigenständig und in andere Projekte kopierbar: hängt nur am LAN865x-Treiber und an SYS_CMD/SYS_TIME/SYS_CONSOLE |
 | `firmware\src\env.c` | Persistente Konfiguration (IP/MAC/PLCA) im Emulated EEPROM |
 | `firmware\T1S_100BaseT_Bridge.X\` | MPLAB-X-Projekt (Makefiles, `dist\`) |
 | `README.md` | Ausführliche Projektdoku (**englisch**): Hardware-BOM, Architektur, CLI, Mirror, iperf, `env` |
@@ -62,8 +63,15 @@ anhängen (`MSYS_NO_PATHCONV=1 cmd /c "C:\work\t1s_bridge\t1s_100baset_bridge\bu
 
 ## 3. Registerzugriff auf den LAN8651: `lan_read` / `lan_write`
 
+**Wohnort seit 2026-08-10: `firmware\src\lan865x_diag.c` — nicht mehr `app.c`.** Das Modul ist
+absichtlich eigenständig, damit es in ein anderes LAN865x-Projekt kopiert werden kann: zwei Dateien
+übernehmen, `LAN865X_DIAG_Initialize()` einmal und `LAN865X_DIAG_Tasks()` aus der Hauptschleife
+aufrufen — mehr enthält `app.c` dazu nicht. Neben der CLI gibt es eine programmatische Schnittstelle
+(`LAN865X_DIAG_Read/Write/Rmw/TestMode/ApplyPlca`, siehe Header).
+
 Die Firmware bietet **generischen** Registerzugriff über die serielle Konsole. Gruppenpräfix ist
-nicht nötig (`lan_read …` genügt, `Test lan_read …` geht auch).
+nicht nötig (`lan_read …` genügt); die Kommandos stehen jetzt in der Gruppe `lan`, **`lanhelp`**
+listet sie mit Kurzhilfe auf.
 
 ```
 lan_read  <addr_hex>
@@ -99,13 +107,13 @@ Beleg: `SET_VAL(HDR_C_MMS, (addr >> 16), tx_buf)` in
    es sieht dann aus, als passiere nichts.
 3. **Nur eine Operation gleichzeitig.** Ein zweites Kommando davor wird mit
    `ERROR: Previous LAN operation still in progress` **abgewiesen**, nicht eingereiht.
-4. **Timeout 200 ms** (`APP_LAN_TIMEOUT_MS` in `app.c`).
+4. **Timeout 200 ms** (`LAN_TIMEOUT_MS` in `lan865x_diag.c`).
 5. **Read-Modify-Write gibt es seit 2026-08-10: `lan_rmw <addr> <mask> <value>`.** Konvention
    `neu = (alt & ~mask) | value` — `value` wird vom Treiber **nicht** maskiert, Bits außerhalb der
    Maske landen ungefragt im Register (das Kommando warnt). Wichtig bei **T1SPMACTL**, wo mehrere
    Steuerbits in einem Wort liegen. Self-clearing Bits wie `RST` melden dabei zu Recht
    `[VERIFY] FAIL`.
-6. **Alle Zugriffe laufen `protected = true`** — Lesen *und* Schreiben (`app.c`). Falls anderswo
+6. **Alle Zugriffe laufen `protected = true`** — Lesen *und* Schreiben (`lan865x_diag.c`). Falls anderswo
    behauptet wird, Lesen liefe mit `false`: das gilt für diesen Code **nicht**.
 
 ---

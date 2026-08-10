@@ -29,7 +29,8 @@
   - [7.6 Mode 4 — transmitter high impedance](#76-mode-4--transmitter-high-impedance)
 - [8. Verifying the modes without an instrument](#8-verifying-the-modes-without-an-instrument)
 - [9. Operational notes and safety](#9-operational-notes-and-safety)
-- [10. Where the numbers come from](#10-where-the-numbers-come-from)
+- [10. Porting this to another project](#10-porting-this-to-another-project)
+- [11. Where the numbers come from](#11-where-the-numbers-come-from)
 
 ---
 
@@ -438,7 +439,54 @@ decoded on *every* read of the register, so a bare `lan_read 0x000308FB` reports
 
 ---
 
-## 10. Where the numbers come from
+## 10. Porting this to another project
+
+Everything described here lives in **one self-contained module**, on purpose:
+
+| File | Contents |
+|---|---|
+| [`firmware/src/lan865x_diag.h`](firmware/src/lan865x_diag.h) | the interface, plus named register and bit constants |
+| [`firmware/src/lan865x_diag.c`](firmware/src/lan865x_diag.c) | the single-slot register state machine, the verify follow-up, the test-mode auto-revert, PLCA, and the console commands |
+
+Its only dependencies are the Harmony **LAN865x driver** (`DRV_LAN865X_*`), **`SYS_CMD`** for the
+command group, **`SYS_TIME`** for the operation timeouts and **`SYS_CONSOLE`** for output. It does
+**not** touch the TCP/IP stack, any persistent-configuration layer, or the host application's state
+machine or data — so bringing it into a different LAN865x/LAN8651 project is three steps:
+
+1. Copy the two files into the project and add them to the build.
+2. Call `LAN865X_DIAG_Initialize()` once, after `SYS_CMD` is up.
+3. Call `LAN865X_DIAG_Tasks()` from the main loop or an idle state.
+
+The console then offers `lan_read`, `lan_write`, `lan_rmw`, `testmode`, `plca_node` and `lanhelp`.
+In this project that integration is the two calls in
+[`app.c`](firmware/src/app.c) — nothing else.
+
+Beyond the CLI there is a programmatic interface, so a test fixture or a startup sequence can drive
+the same machinery without going through the console:
+
+```c
+if (!LAN865X_DIAG_Busy()) {
+    LAN865X_DIAG_TestMode(1, 30);                       /* mode 1, auto-revert after 30 s */
+    LAN865X_DIAG_Rmw(LAN865X_T1SPMACTL,
+                     LAN865X_PMACTL_TXD, LAN865X_PMACTL_TXD);   /* transmit disable */
+    LAN865X_DIAG_ApplyPlca(0, 8);                       /* become PLCA coordinator */
+}
+```
+
+Each call queues a single operation and returns `false` if one is already in flight — there is
+exactly one slot and requests are rejected rather than queued, which is why `LAN865X_DIAG_Busy()`
+exists. Results are printed when `LAN865X_DIAG_Tasks()` sees the driver callback land.
+
+**One integration note if your project has persistent configuration.** The module keeps its own PLCA
+node-id/count shadow, seeded from `DRV_LAN865X_PLCA_NODE_ID_IDX0` /
+`DRV_LAN865X_PLCA_NODE_COUNT_IDX0`. That is what keeps it independent of any settings layer: call
+`LAN865X_DIAG_ApplyPlca(id, count)` from wherever your configuration is applied, and `plca_node <id>`
+will reuse the count you last supplied. In this project that call sits in `env_apply()`
+([`env.c`](firmware/src/env.c)).
+
+---
+
+## 11. Where the numbers come from
 
 This document deliberately does **not** reproduce limit values, pattern definitions or mask
 envelopes. Those are normative and belong to their sources:

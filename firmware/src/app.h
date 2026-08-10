@@ -172,10 +172,9 @@ void APP_Initialize ( void );
 
 void APP_Tasks( void );
 
-/* Apply PLCA settings to the LAN865x (eth0): set the driver node id and queue a
- * PLCA_CTRL1 write (NODE_CNT<<8 | NODE_ID) via the app's LAN state machine. Used by
- * the 'plca_node' command. No-op if a LAN register operation is already in progress. */
-void APP_ApplyPlca(uint8_t node_id, uint8_t node_cnt);
+/* LAN865x register access, transmitter test modes and PLCA are not part of this
+ * interface: they live in the self-contained lan865x_diag.c/.h module so they can
+ * be reused in another project. Use LAN865X_DIAG_ApplyPlca() for PLCA. */
 
 //DOM-IGNORE-BEGIN
 #ifdef __cplusplus

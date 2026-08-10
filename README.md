@@ -273,13 +273,22 @@ superloop (`SYS_Tasks()` in `main.c`); no RTOS, no threads, no locks.
 
 ### Application state machine (`app.c`)
 
-`APP_Initialize` registers the Telnet auth + a 1 s timer and calls
-`Command_Init()` to register the `Test` command group. `APP_Tasks` walks
+> **LAN865x register access, the transmitter test modes and PLCA are not in
+> `app.c`.** They live in a self-contained module,
+> [`firmware/src/lan865x_diag.c`](firmware/src/lan865x_diag.c) / [`.h`](firmware/src/lan865x_diag.h),
+> which depends only on the LAN865x driver and `SYS_CMD`/`SYS_TIME`/`SYS_CONSOLE`
+> so it can be lifted into another project unchanged — see
+> [§10 of the test-mode guide](LAN8651_TEST_MODES.md#10-porting-this-to-another-project).
+> `app.c` contributes exactly two calls to it, listed below.
+
+`APP_Initialize` registers the Telnet auth + a 1 s timer, calls
+`Command_Init()` to register the `Test` command group, and
+`LAN865X_DIAG_Initialize()` to register the `lan` group. `APP_Tasks` walks
 `INIT → WAIT → SERVICE_TASKS → IDLE`: in `SERVICE_TASKS` it registers the two
 packet handlers and calls `env_apply()` (push the persisted network config
-into the now-running TCP/IP stack); in `IDLE` it (1) services the async
-LAN865x register read/write state machine (`lan_read`/`lan_write`/
-`plca_node`), and (2) drains the deferred packet-log ring buffer to the
+into the now-running TCP/IP stack); in `IDLE` it (1) calls
+`LAN865X_DIAG_Tasks()` to service the async LAN865x register state machine,
+and (2) drains the deferred packet-log ring buffer to the
 console (≤10 entries/iteration, so logging never stalls the loop). Captured
 frame bytes go to a separate circular pool; the ring uses a lock-free
 single-producer/consumer pattern (handlers write, `APP_Tasks` reads).
@@ -336,13 +345,22 @@ Two command groups; type the command name directly (no group prefix needed).
 | `ipdump [0..3]` | dump RX frames (0=off, 1=eth0, 2=eth1, 3=both) |
 | `stats` | per-interface TX/RX software counters |
 | `meminfo` | free memory: C-runtime heap (total + largest free block) **and** TCP/IP heap (free/maxblock/highwater, like `heapinfo`) |
+| `noip_send <n> [gap_ms]` / `noip_stat` | raw-Ethernet (EtherType 0x88B5) loopback test + counters |
+| `dump <addr> <count>` | memory dump (hex) |
+| `logstat` / `logclear` | deferred packet-log statistics / clear |
+
+**`lan` group** — LAN865x registers, transmitter test modes and PLCA. Lives in the
+self-contained [`lan865x_diag.c`](firmware/src/lan865x_diag.c) module rather than in
+`app.c`, so it can be reused in another project
+(see [§10 of the test-mode guide](LAN8651_TEST_MODES.md#10-porting-this-to-another-project)):
+
+| Command | Description |
+|---|---|
+| `lanhelp` | list these commands with a short usage reminder |
 | `plca_node [id]` | get/set PLCA node id (0 = coordinator); no arg = show current — **volatile**, see [§5.3](#53-volatile-runtime-via-harmony-stack-commands--plca_node) |
 | `lan_read <addr>` / `lan_write <addr> <val>` | LAN865x register access (hex) |
 | `lan_rmw <addr> <mask> <val>` | read-modify-write a single register, then verify it: `new = (old & ~mask) \| val`. For registers where several control bits share one word, e.g. `T1SPMACTL` |
 | `testmode [0..4] [seconds]` | select an IEEE 802.3-2022 §147.5.2 transmitter test mode, verified by readback; no argument shows the current mode. The optional timeout reverts to normal operation on its own — see [§8](#8-transmitter-test-modes) |
-| `noip_send <n> [gap_ms]` / `noip_stat` | raw-Ethernet (EtherType 0x88B5) loopback test + counters |
-| `dump <addr> <count>` | memory dump (hex) |
-| `logstat` / `logclear` | deferred packet-log statistics / clear |
 
 **`env` group** — persistent config on the Emulated EEPROM (see [§5.2](#52-persistent-via-the-env-cli-group-recommended)):
 

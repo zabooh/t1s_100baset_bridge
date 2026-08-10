@@ -16,7 +16,8 @@
 void ENV_Init(void);
 
 /* Push the current config into the TCP/IP stack (TCPIP_STACK_NetAddressSet/...) and
- * the LAN865x PLCA (via APP_ApplyPlca). Call once the stack is up (APP_STATE_SERVICE_TASKS). */
+ * the LAN865x PLCA (via LAN865X_DIAG_ApplyPlca). Call once the stack is up
+ * (APP_STATE_SERVICE_TASKS). */
 void env_apply(void);
 
 /* Current PLCA node id / node count from the env (eth0 / LAN865x). */
