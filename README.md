@@ -935,7 +935,8 @@ analyser at the MDI.
 
 ### Further reading
 
-| Document | Language | Covers |
-|---|---|---|
-| **[`LAN8651_TEST_MODES.md`](LAN8651_TEST_MODES.md)** | English | What the four modes are and what each one qualifies; probing, termination and instrument setup per mode; what to disconnect on a shared bus; the generic register path versus the `testmode`/`lan_rmw` convenience commands; `T1SPMACTL` bits and PMA loopback |
-| **[`LAN8651_REGISTER_UND_TESTMODI.md`](LAN8651_REGISTER_UND_TESTMODI.md)** | German | Register-level reference with code locations, the target verification log, and the collection of corrected misconceptions — worth reading before touching the register path |
+**[`LAN8651_TEST_MODES.md`](LAN8651_TEST_MODES.md)** is the full guide: what the four
+modes are and what each one qualifies; probing, termination and instrument setup per
+mode; what to disconnect on a shared multidrop bus; the generic `lan_read`/`lan_write`
+register path versus the `testmode`/`lan_rmw` convenience commands; the `T1SPMACTL` bit
+map and PMA loopback; and the verification log for this hardware.

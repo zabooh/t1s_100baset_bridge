@@ -13,7 +13,7 @@
 | `firmware\src\env.c` | Persistente Konfiguration (IP/MAC/PLCA) im Emulated EEPROM |
 | `firmware\T1S_100BaseT_Bridge.X\` | MPLAB-X-Projekt (Makefiles, `dist\`) |
 | `README.md` | Ausführliche Projektdoku (**englisch**): Hardware-BOM, Architektur, CLI, Mirror, iperf, `env` |
-| `LAN8651_REGISTER_UND_TESTMODI.md` | **Vertiefung zu Abschnitt 3+4 dieser Datei** — Registerreferenz, Messrezepte, Messprotokoll |
+| `LAN8651_TEST_MODES.md` | **Vertiefung zu Abschnitt 3+4 dieser Datei** (**englisch**) — die vier Modi, Messaufbau am Bus, generischer Registerweg vs. `testmode`/`lan_rmw`, Messprotokoll |
 | `cli.py` | Kommandos über COM-Port schicken und Antworten einsammeln |
 
 **Hardware:** SAM E54 Curiosity Ultra (DM320210) + LAN8740A PHY Daughter Board (AC320004-3) an
@@ -117,11 +117,12 @@ erzeugen ein **dauerhaftes, definiertes Sendemuster ohne Nutzverkehr** — genau
 Pegel-, Jitter-, Droop- und Spektrumsmessungen braucht. Es sind reine Registerschreibzugriffe,
 **keine Firmware-Änderung nötig.**
 
-**Verifikationsstand (2026-08-10, an diesem Target):** Direkter MMS-3-Zugriff funktioniert —
-`lan_write 0x000308FB 0x2000` → `lan_read 0x000308FB` liefert `0x00002000`. Der **Readback** ist der
-Beweis, nicht die Write-Bestätigung. Getestet wurde bisher **nur Mode 1**; Modi 2–4 und Loopback
-sind registerseitig plausibel, aber nicht gegengeprüft. Signalform/Pegel/Spektrum sind damit
-ausdrücklich **nicht** belegt — das entscheidet das Messgerät.
+**Verifikationsstand (2026-08-10, an diesem Target):** Direkter MMS-3-Zugriff funktioniert, und
+**alle vier Modi sind verifiziert** — je auf drei Stufen: Readback, Verkehr des T1S-Endpoints hört
+auf, Verkehr kommt nach dem Revert wieder (19 Prüfungen, `test_lan8651.py`, Exitcode 0). Der
+**Readback** ist der Beweis, nicht die Write-Bestätigung. **Nicht** belegt: Signalform, Pegel,
+Jitter, Spektrum — das entscheidet das Messgerät. Ebenfalls offen: die Wirkung von `LBE`
+(PMA-Loopback) und `TXD`.
 
 ### T1STSTCTL — `0x000308FB`, Bits 15:13, Reset `0x0000`
 
@@ -174,8 +175,8 @@ lan_read  0x000308FB          # muss 0x00000000 zeigen
 Stufen — Readback, „Verkehr des T1S-Endpoints hört auf", „Verkehr kommt nach dem Revert wieder" — und
 endet bei jeder Abweichung mit Exitcode ≠ 0. Setzt voraus, dass die Bridge PLCA-Coordinator ist
 (Node-ID 0), sonst ist Stufe 2 wertlos; das Skript prüft es und bricht sonst ab. Stand 2026-08-10:
-alle vier Modi bestehen alle drei Stufen (19 Prüfungen). Details in
-`LAN8651_REGISTER_UND_TESTMODI.md` §4.1.
+alle vier Modi bestehen alle drei Stufen (19 Prüfungen). Messprotokoll und Messaufbau in
+`LAN8651_TEST_MODES.md` §7–§8.
 
 **Readback nach jedem Wechsel.** Weicht er ab, hat der PHY den Modus nicht übernommen — das sieht
 man sofort am Register, während man es am Oszilloskop leicht für ein Messproblem hält.
@@ -206,8 +207,9 @@ Verkabelungsproblem. Vorbedingungen:
 - **Ein vergessenes `TSTCTL ≠ 000` ist später schwer zu finden:** der Link kommt nicht hoch, und
   nichts im normalen Log deutet auf ein Testregister hin.
 
-Vertiefung — Registerreferenz, Messrezepte, vollständiges Messprotokoll, korrigierte Irrtümer:
-**`LAN8651_REGISTER_UND_TESTMODI.md`**
+Vertiefung — was die vier Modi qualifizieren, Sondierung/Terminierung/Instrument je Modus, was man
+vorher abklemmt, generischer Registerweg gegenüber den Komfort-Kommandos, Messprotokoll:
+**`LAN8651_TEST_MODES.md`** (englisch)
 
 ---
 
@@ -243,7 +245,18 @@ Erst zurückstellen, dann Verkehr messen.
   Recht 0 lesen — und schloss daraus fälschlich, MMS 3 brauche indirekte Adressierung. Richtig ist
   ein **Write-Readback auf ein beschreibbares Bit**.
 - **`LAN865X Write OK` heißt „Transaktion lief durch", nicht „Register hat den Wert".** Immer
-  zurücklesen.
+  zurücklesen. `testmode` und `lan_rmw` nehmen das ab, für Handzugriffe mit `lan_write` gilt es
+  weiter.
+- **2026-08-10 — `lan_write_callback()` verwirft den `value`-Parameter; für RMW ist das ein Fehler.**
+  Der Treiber liefert im Callback bei `DRV_LAN865X_ReadModifyWriteRegister()` **den tatsächlich
+  zurückgeschriebenen Wert** (`drv_lan865x.h`), aber `lan_write_callback()` ignoriert ihn. Beim
+  ersten Bau von `lan_rmw` diesen Callback benutzt → die `Final=`-Ausgabe zeigte
+  `app_lan_reg_read_value`, also den Wert des *vorherigen* Lesezugriffs: beim Setzen von Mode 1 stand
+  dort `0x00000000`, beim Zurückstellen `0x00002000`. Um eine Operation verschoben und jedes Mal
+  plausibel. Sichtbar wurde es erst im Vergleich zweier aufeinanderfolgender Kommandos.
+  **Lösung:** eigener `lan_rmw_callback()`, der `value` in `app_lan_rmw_final` ablegt.
+  **Merksatz:** ein Wert, der „fast richtig" aussieht, ist gefährlicher als einer, der offensichtlich
+  falsch ist — bei Callback-Ergebnissen prüfen, *welcher* Callback den Wert überhaupt speichert.
 - **`build.bat` ohne vorherigen IDE-Build** scheitert an fehlenden nbproject-Fragmenten (siehe
   Abschnitt 2), nicht an einem Codefehler.
 - **2026-08-10 — Host-PC am `eth1`-Port: `192.168.0.200` und `.210` sind vergeben, `.100` nehmen.**
@@ -273,8 +286,10 @@ Erst zurückstellen, dann Verkehr messen.
 das Projekt um, verwaist er. **Dauerhaft Wertvolles deshalb in Dateien im Repo ablegen, nicht nur
 ins Memory** (dann reist es auch mit einem Klon auf einen anderen Rechner):
 
-- **Test-Modi, Registerzugriff, Messverfahren** → Abschnitt „Fallstricke und korrigierte Irrtümer"
-  in `LAN8651_REGISTER_UND_TESTMODI.md`.
+- **Test-Modi und Messverfahren** (was gemessen wird, wie der Aufbau aussieht) → `LAN8651_TEST_MODES.md`
+  (englisch).
+- **Registerzugriff, Callback-/Treiber-Fallstricke, korrigierte Irrtümer** → Abschnitt 6 **dieser**
+  Datei. Es gibt kein separates deutsches Registerdokument mehr.
 - **Build-/Toolchain-/Flash-Fallstricke, CLI-Verhalten** → Abschnitt 2 bzw. 6 **dieser** Datei.
 - **Architektur, Hardware, Bedienung** → `README.md` (englisch).
 
@@ -283,5 +298,5 @@ Format: knapp, ein bis zwei Sätze je Erkenntnis, bei Bedarf ein Snippet, datier
 Besonders festhalten: **Fehler samt richtiger Lösung** und **Sackgassen** („Weg A geht nicht, weil …
 → nicht nochmal versuchen").
 
-**Sprachstand:** `README.md` ist englisch, `LAN8651_REGISTER_UND_TESTMODI.md` und diese Datei sind
+**Sprachstand:** `README.md` und `LAN8651_TEST_MODES.md` sind englisch, **nur diese Datei** ist
 deutsch. Beim Ergänzen die Sprache der jeweiligen Datei beibehalten.

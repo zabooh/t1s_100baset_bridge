@@ -9,9 +9,6 @@
 > to set that measurement up, and how the same thing is done both with the **generic
 > `lan_read`/`lan_write`** register commands and with the **`testmode` convenience
 > command** added on top of them.
->
-> German companion document with the register-level detail, the verification log and the
-> corrected misconceptions: **[`LAN8651_REGISTER_UND_TESTMODI.md`](LAN8651_REGISTER_UND_TESTMODI.md)**.
 
 ---
 
@@ -398,9 +395,26 @@ external coordinator the other node could keep transmitting and "traffic stopped
 longer say anything about *this* board's transmitter. It always restores normal operation in
 a `finally` block and reports whether that succeeded.
 
-Result on this hardware (2026-08-10, SAM E54 Curiosity Ultra + MIKROE-5543): all four modes
-pass all three levels — 19 checks, exit code 0. What this does **not** establish is anything
-about the waveform itself; that is what §7 is for.
+Result on this hardware — SAM E54 Curiosity Ultra + MIKROE-5543, T1S node at `192.168.0.54`,
+2026-08-10. Baseline before the run: `T1STSTCTL = 0x00000000`, `PLCA_CTRL1 = 0x00000800`
+(node id 0, node count 8), 4 frames in a 4 s window.
+
+| Mode | `T1STSTCTL` | Readback | Frames during mode | Frames after revert |
+|---|---|---|---|---|
+| 1 | `0x00002000` | PASS | 0 | 4 / 4 s |
+| 2 | `0x00004000` | PASS | 0 | 4 / 4 s |
+| 3 | `0x00006000` | PASS | 0 | 4 / 4 s |
+| 4 | `0x00008000` | PASS | 0 | 5 / 4 s |
+
+All four modes pass all three levels — 19 checks, exit code 0. Note what this establishes
+and what it does not: the PHY demonstrably changes its transmit state in every mode and
+returns cleanly, but nothing here says anything about the waveform itself. That is what §7
+is for.
+
+Two implementation details found while building this, in case the numbers ever look wrong:
+the readback is compared **masked** against `0xE000`, because the remaining bits of
+`T1STSTCTL` read as 0 and a full-word comparison would fail spuriously; and the mode is
+decoded on *every* read of the register, so a bare `lan_read 0x000308FB` reports it too.
 
 ---
 
@@ -443,6 +457,6 @@ Related documents in this repository:
 
 - **[`README.md`](README.md)** — hardware bill of materials, architecture, the full CLI
   reference, `env` configuration, port mirroring and iperf.
-- **[`LAN8651_REGISTER_UND_TESTMODI.md`](LAN8651_REGISTER_UND_TESTMODI.md)** *(German)* —
-  register-level reference, code locations, the target verification log, and a collection of
-  corrected misconceptions worth reading before touching the register path.
+- **[`test_lan8651.py`](test_lan8651.py)** — the verification harness described in §8.
+- **`CLAUDE.md`** *(German)* — working notes for this repository, including the register-path
+  pitfalls and corrected misconceptions worth knowing before touching that code.
