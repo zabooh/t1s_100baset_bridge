@@ -590,6 +590,7 @@
       <itemPath>../src/app.h</itemPath>
       <itemPath>../src/env.h</itemPath>
       <itemPath>../src/lan865x_diag.h</itemPath>
+      <itemPath>../src/port_mirror.h</itemPath>
     </logicalFolder>
     <logicalFolder name="ExternalFiles"
                    displayName="Important Files"
@@ -969,6 +970,7 @@
       <itemPath>../src/app.c</itemPath>
       <itemPath>../src/env.c</itemPath>
       <itemPath>../src/lan865x_diag.c</itemPath>
+      <itemPath>../src/port_mirror.c</itemPath>
       <itemPath>../src/main.c</itemPath>
       <itemPath>../src/config/default/pin_configurations.csv</itemPath>
     </logicalFolder>

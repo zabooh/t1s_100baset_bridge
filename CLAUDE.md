@@ -9,8 +9,9 @@
 
 | Datei | Zweck |
 |---|---|
-| `firmware\src\app.c` | App-Zustandsmaschine, Bridge/Mirror, Packet-Log, `stats`/`meminfo`/`noip_*` |
+| `firmware\src\app.c` | App-Zustandsmaschine, Packet-Handler, Packet-Log, `stats`/`meminfo`/`dump`/`noip_*` |
 | `firmware\src\lan865x_diag.c` `.h` | **Registerzugriff, Testmodi, PLCA** — `lan_read`/`lan_write`/`lan_rmw`/`testmode`/`plca_node`. Eigenständig und in andere Projekte kopierbar: hängt nur am LAN865x-Treiber und an SYS_CMD/SYS_TIME/SYS_CONSOLE |
+| `firmware\src\port_mirror.c` `.h` | **Port-Mirror/SPAN** `eth0` → `eth1` — Kommando `mirror`. **Nicht** frei portierbar: braucht den TCP/IP-Stack, `DRV_GMAC_PacketTx` und den gepatchten LAN865x-Treiber (siehe Abschnitt 6) |
 | `firmware\src\env.c` | Persistente Konfiguration (IP/MAC/PLCA) im Emulated EEPROM |
 | `firmware\T1S_100BaseT_Bridge.X\` | MPLAB-X-Projekt (Makefiles, `dist\`) |
 | `README.md` | Ausführliche Projektdoku (**englisch**): Hardware-BOM, Architektur, CLI, Mirror, iperf, `env` |
@@ -267,6 +268,21 @@ Erst zurückstellen, dann Verkehr messen.
   falsch ist — bei Callback-Ergebnissen prüfen, *welcher* Callback den Wert überhaupt speichert.
 - **`build.bat` ohne vorherigen IDE-Build** scheitert an fehlenden nbproject-Fragmenten (siehe
   Abschnitt 2), nicht an einem Codefehler.
+- **2026-08-10 — Der TX-Zweig des Port-Mirrors hängt an einem Patch in *generiertem* Code.**
+  `DRV_LAN865X_PacketTx()` in `drv_lan865x_api.c` deklariert `mirror_eth0_tx_hook` von Hand als
+  `extern` und ruft ihn (Zeile ~683). Zwei Folgen: (1) **der Symbolname ist nicht frei** — wer
+  `port_mirror.c` umbenennt oder die Funktion umbenennt, bricht den Link; (2) **ein erneutes
+  MCC „Generate Code" entfernt die Aufrufstelle lautlos.** Symptom danach: der Mirror zeigt noch
+  die Frames *vom* Bus, aber nicht mehr die eigenen des Bridge — sieht wie ein halb funktionierender
+  Mirror aus, nicht wie ein fehlender Patch. **`python test_mirror.py` prüft genau das** (Mirror aus
+  = 0 Frames, Mirror an > 0, beide Richtungen) und sollte nach jeder MCC-Regenerierung laufen.
+- **Ein neues `.c` in `firmware\src\` wird nur gebaut, wenn es in den Projektdateien steht.**
+  `nbproject\configurations.xml` ist **getrackt** und die Quelle der Wahrheit (je ein `<itemPath>`
+  für `.c` und `.h`, neben den bestehenden Einträgen). `nbproject\Makefile-*.mk` ist **generiert und
+  gitignored** — ohne IDE-Lauf muss es von Hand nachgezogen werden: je ein Token in den zwei
+  `SOURCEFILES`- und drei `OBJECTFILES`-Zeilen plus die zwei 5-zeiligen Compile-Regeln duplizieren
+  (Objektverzeichnis `_ext/1360937237` gilt für alles in `src\`). Selbstheilend: ein IDE-Öffnen
+  generiert es korrekt aus `configurations.xml` neu.
 - **2026-08-10 — Host-PC am `eth1`-Port: `192.168.0.200` und `.210` sind vergeben, `.100` nehmen.**
   Beide Bridge-Interfaces sind fest statisch konfiguriert (`TCPIP_NETWORK_CONFIG_IP_STATIC`,
   `configuration.h` IDX0 = `LAN865x`/`eth0` = `.200`, IDX1 = `GMAC`/`eth1` = `.210`) und geben ihre

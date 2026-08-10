@@ -45,6 +45,7 @@ host machine in between.
   - [6.2 What gets mirrored (both directions, MAC-filtered)](#62-what-gets-mirrored-both-directions-mac-filtered)
   - [6.3 Using it](#63-using-it)
   - [6.4 Limitations](#64-limitations)
+  - [6.5 Where the code lives, and one fragile coupling](#65-where-the-code-lives-and-one-fragile-coupling)
 - [7. Throughput testing with iperf](#7-throughput-testing-with-iperf)
   - [Commands](#commands)
   - [`iperf` options](#iperf-options)
@@ -249,7 +250,7 @@ superloop (`SYS_Tasks()` in `main.c`); no RTOS, no threads, no locks.
 ```
                        ┌──────────────────────────────────────────────┐
    serial CLI ───────► │ SYS_CMD console: "Test" + "env" groups       │
-   (EDBG COM)          │   (app.c / env.c)                            │
+   (EDBG COM)          │   (app.c / env.c / lan865x_diag / mirror)    │
                        ├──────────────────────────────────────────────┤
    T1S bus  ◄──────────┤ eth0: DRV_LAN865X ┐                          │
                        │                   ├─ TCPIP MAC bridge (L2) ─┐ │
@@ -312,8 +313,9 @@ including a per-board MAC derived from the SAME54's serial number.
 
 `mirror 1` turns on two clone paths so a PC capture on `eth1` sees the full T1S
 picture, each filtered by the bridge's own `eth0` MAC to stay duplicate-free:
-- **RX mirror** (`mirror_eth0_rx_to_eth1`, app.c): frames addressed to the
-  bridge (dst MAC == `eth0`) — the endpoint's replies — are cloned to `eth1`.
+- **RX mirror** (`MIRROR_Eth0Rx()`, called from `pktEth0Handler` in `app.c`):
+  frames addressed to the bridge (dst MAC == `eth0`) — the endpoint's replies —
+  are cloned to `eth1`.
 - **TX mirror** (`mirror_eth0_tx_hook`, called from the LAN865x egress
   `DRV_LAN865X_PacketTx`): frames the bridge itself originates (src MAC ==
   `eth0`) — its `ping`/ARP — are cloned to `eth1`, protocol-independent.
@@ -341,13 +343,19 @@ Two command groups; type the command name directly (no group prefix needed).
 |---|---|
 | `help` | show this list |
 | `timestamp` | firmware build timestamp |
-| `mirror [0\|1]` | SPAN: copy T1S (eth0) traffic — RX **and** the bridge's own TX — to eth1 for Wireshark |
 | `ipdump [0..3]` | dump RX frames (0=off, 1=eth0, 2=eth1, 3=both) |
 | `stats` | per-interface TX/RX software counters |
 | `meminfo` | free memory: C-runtime heap (total + largest free block) **and** TCP/IP heap (free/maxblock/highwater, like `heapinfo`) |
 | `noip_send <n> [gap_ms]` / `noip_stat` | raw-Ethernet (EtherType 0x88B5) loopback test + counters |
 | `dump <addr> <count>` | memory dump (hex) |
 | `logstat` / `logclear` | deferred packet-log statistics / clear |
+
+**`span` group** — the eth0 → eth1 port mirror, in
+[`port_mirror.c`](firmware/src/port_mirror.c) (see [§6.5](#65-where-the-code-lives-and-one-fragile-coupling)):
+
+| Command | Description |
+|---|---|
+| `mirror [0\|1]` | SPAN: copy T1S (eth0) traffic — RX **and** the bridge's own TX — to eth1 for Wireshark |
 
 **`lan` group** — LAN865x registers, transmitter test modes and PLCA. Lives in the
 self-contained [`lan865x_diag.c`](firmware/src/lan865x_diag.c) module rather than in
@@ -720,9 +728,9 @@ own `eth0` MAC** so the capture is **duplicate-free** — frames the MAC bridge
 merely *forwards* between the PC and the bus (which the PC already sees
 natively on `eth1`) are not mirrored.
 
-| Path | Hook (`app.c`) | Filter | What it captures |
+| Path | Hook (`port_mirror.c`) | Filter | What it captures |
 |---|---|---|---|
-| **RX mirror** | `mirror_eth0_rx_to_eth1()`, from `pktEth0Handler` | dst MAC **==** `eth0` MAC | frames addressed to the bridge itself — the endpoint's unicast replies to the firmware |
+| **RX mirror** | `MIRROR_Eth0Rx()`, from `pktEth0Handler` in `app.c` | dst MAC **==** `eth0` MAC | frames addressed to the bridge itself — the endpoint's unicast replies to the firmware |
 | **TX mirror** | `mirror_eth0_tx_hook()`, from `DRV_LAN865X_PacketTx` (the single `eth0` egress) | src MAC **==** `eth0` MAC | frames the bridge itself originates — the firmware's `ping`/ARP, regardless of protocol |
 
 Why this is duplicate-free, given the bridge does transparent L2 forwarding
@@ -781,6 +789,39 @@ mirror 0                # turn it off when done
   load.
 - Mirror state is a runtime toggle (like the §5.2 CLI settings) and defaults
   to **off** on every boot.
+
+### 6.5 Where the code lives, and one fragile coupling
+
+The mirror is a separate module,
+[`firmware/src/port_mirror.c`](firmware/src/port_mirror.c) /
+[`.h`](firmware/src/port_mirror.h). `app.c` contributes two things only:
+`MIRROR_Initialize()` at startup and `MIRROR_Eth0Rx()` from `pktEth0Handler`.
+
+Unlike the test-mode module ([§10 there](LAN8651_TEST_MODES.md#10-porting-this-to-another-project)),
+this one is **not** free-standing: it needs the Harmony TCP/IP stack for packet
+allocation and `TCPIP_NET_IF` internals, `DRV_GMAC_PacketTx` specifically as the
+mirror destination, and the LAN865x driver patched to call into it. It is
+reusable in another Harmony two-port bridge — adapt `MIRROR_SRC_IF` /
+`MIRROR_DST_IF` and the destination MAC driver — but not in an arbitrary project.
+
+> **The TX half depends on a patch inside MCC-generated code.**
+> `DRV_LAN865X_PacketTx()` in
+> `src/config/default/driver/lan865x/src/dynamic/drv_lan865x_api.c` declares
+> `mirror_eth0_tx_hook` as a local `extern` and calls it. Two consequences: the
+> function name is **not** free to change, and **re-running MCC code generation
+> removes the call site**. The symptom afterwards is subtle — the capture still
+> shows frames *from* the bus but none of the bridge's own, which looks like a
+> half-working mirror rather than a missing patch.
+>
+> **[`test_mirror.py`](test_mirror.py) checks exactly this** and is worth running
+> after any regeneration. It pings the T1S node from the board's own console and
+> counts the resulting ICMP on `eth1` with `tshark`: that conversation cannot
+> reach `eth1` by any route other than the mirror, so mirror-off must yield zero
+> frames and mirror-on must yield both directions.
+>
+> ```text
+> python test_mirror.py
+> ```
 
 ---
 

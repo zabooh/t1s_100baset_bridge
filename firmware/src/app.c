@@ -42,6 +42,7 @@
 #include "tcpip_manager_control.h"
 #include "env.h"
 #include "lan865x_diag.h"
+#include "port_mirror.h"
 
 
 // *****************************************************************************
@@ -91,7 +92,6 @@ void DumpMem(uint32_t addr, uint32_t count);
 bool Command_Init(void);
 
 uint32_t ipdump_mode = 0;
-uint32_t mirror_mode = 0;     /* eth0 (T1S) -> eth1 (100BASE-T) port mirror for Wireshark */
 uint32_t my_delay_time = 0;
 
 /* --- NoIP raw Ethernet test (EtherType 0x88B5 = IEEE 802 Local Experimental) --- */
@@ -259,7 +259,6 @@ static void test_help(SYS_CMD_DEVICE_NODE* pCmdIO, int argc, char** argv) {
     SYS_CONSOLE_PRINT("  help                         - Show this help\n\r");
     SYS_CONSOLE_PRINT("  timestamp                    - Show build timestamp\n\r");
     SYS_CONSOLE_PRINT("  ipdump <mode>                - Dump RX IP packets (0=off, 1=eth0, 2=eth1, 3=both)\n\r");
-    SYS_CONSOLE_PRINT("  mirror [0|1]                 - Mirror eth0(T1S) RX to eth1 for Wireshark\n\r");
     SYS_CONSOLE_PRINT("  stats                        - Show TX/RX software counters for eth0 and eth1\n\r");
     SYS_CONSOLE_PRINT("  dump <addr> <count>          - Dump memory (hex addr, count)\n\r");
     SYS_CONSOLE_PRINT("  noip_send <n> [gap_ms]       - Send N raw Ethernet frames (EtherType 0x88B5)\n\r");
@@ -340,6 +339,7 @@ void APP_Initialize(void) {
 
     Command_Init();
     LAN865X_DIAG_Initialize();
+    MIRROR_Initialize();
     /* TODO: Initialize your application's state machine and other
      * parameters.
      */
@@ -453,101 +453,14 @@ void APP_Tasks(void) {
     }
 }
 
-/* --- eth0 (T1S) <-> eth1 (100BASE-T) port mirror (SPAN) for Wireshark -------
- * When mirror_mode is on, the bridge<->bus conversation is cloned onto eth1 so
- * a PC on eth1 can capture the T1S traffic in Wireshark. BOTH directions are
- * mirrored, but each is filtered by the bridge's OWN eth0 MAC so the capture is
- * duplicate-free:
- *   - RX (bus -> bridge): only frames addressed TO the bridge (dst == eth0 MAC)
- *                         - i.e. the endpoint's replies to the firmware.
- *   - TX (bridge -> bus): only frames the bridge ITSELF originates (src == eth0
- *                         MAC) - the firmware's own ping/ARP.
- * Frames the MAC bridge merely FORWARDS between the PC and the bus keep their
- * original src/dst MAC and are already carried to/from eth1 natively; mirroring
- * them would duplicate them at the PC. Broadcast/multicast received on eth0 is
- * likewise left to the bridge (the PC sees it natively) - only the bridge's own
- * outgoing broadcast/multicast (src == eth0 MAC) is added by the TX path. */
-static void mirror_pkt_ack(TCPIP_MAC_PACKET *pkt, const void *param)
-{
-    (void)param;
-    TCPIP_PKT_PacketFree(pkt);
-}
-
-/* eth0 (T1S) interface MAC - the filter reference for both mirror directions. */
-static const uint8_t *eth0_own_mac(void)
-{
-    TCPIP_NET_HANDLE eth0 = TCPIP_STACK_IndexToNet(0);
-    return (eth0 != NULL) ? TCPIP_STACK_NetAddressMac(eth0) : NULL;
-}
-
-/* Clone a complete Ethernet frame onto eth1 for the PC-side capture. The caller
- * has already applied the own-MAC filter. Single-segment copy (bridge/stack
- * frames are single-segment); empty/oversize frames are dropped. */
-static void mirror_ethpkt_to_eth1(const uint8_t *frame, uint16_t flen)
-{
-    TCPIP_MAC_PACKET *pTx;
-    TCPIP_NET_HANDLE  eth1;
-
-    if (frame == NULL || flen == 0u || flen > 1518u) return;
-    pTx = TCPIP_PKT_PacketAlloc(sizeof(TCPIP_MAC_PACKET), flen, 0);   /* flags=0: same as the MAC bridge's own fwd alloc */
-    if (pTx == NULL) return;                         /* packet pool busy: drop the mirror copy */
-
-    pTx->pMacLayer = pTx->pDSeg->segLoad;
-    memcpy(pTx->pMacLayer, frame, flen);             /* full Ethernet frame (header + payload) */
-    pTx->pDSeg->segLen = flen;
-    pTx->pNetLayer = pTx->pMacLayer + sizeof(TCPIP_MAC_ETHERNET_HEADER);
-    pTx->ackFunc   = mirror_pkt_ack;                 /* freed by the MAC driver after TX */
-    pTx->ackParam  = NULL;
-
-    eth1 = TCPIP_STACK_IndexToNet(1);
-    if (eth1 != NULL) {
-        (void)DRV_GMAC_PacketTx(((TCPIP_NET_IF*)eth1)->hIfMac, pTx);
-    } else {
-        TCPIP_PKT_PacketFree(pTx);
-    }
-}
-
-/* RX mirror: a frame just arrived on eth0. Mirror it only if it is addressed to
- * the bridge itself (dst MAC == eth0 MAC). PC-bound unicast and broadcast/
- * multicast are forwarded to eth1 by the MAC bridge already - mirroring them
- * would duplicate them at the PC. */
-static void mirror_eth0_rx_to_eth1(struct _tag_TCPIP_MAC_PACKET *rxPkt)
-{
-    const uint8_t *frame = rxPkt->pMacLayer;
-    const uint8_t *mac   = eth0_own_mac();
-    if (mac == NULL || frame == NULL) return;
-    if (memcmp(frame, mac, 6) != 0) return;          /* dst MAC != eth0 -> not for us, skip */
-    mirror_ethpkt_to_eth1(frame, rxPkt->pDSeg->segLen);
-}
-
-/* TX mirror: called from DRV_LAN865X_PacketTx (the single eth0 egress point) for
- * every frame about to leave on eth0. Mirror it only if the bridge ITSELF
- * originated it (src MAC == eth0 MAC) - the firmware's own ping/ARP.
- * Frames forwarded from eth1 keep their original (PC) src MAC and are skipped;
- * the PC already has them. Non-static: the LAN865x driver calls it via an
- * extern declaration. The driver transmits from pDSeg->segLoad. */
-void mirror_eth0_tx_hook(struct _tag_TCPIP_MAC_PACKET *txPkt)
-{
-    const uint8_t *frame;
-    const uint8_t *mac;
-    if (!mirror_mode) return;
-    if (txPkt == NULL || txPkt->pDSeg == NULL) return;
-    frame = txPkt->pDSeg->segLoad;
-    if (frame == NULL) return;
-    mac = eth0_own_mac();
-    if (mac == NULL) return;
-    if (memcmp(frame + 6, mac, 6) != 0) return;      /* src MAC != eth0 -> forwarded, skip mirror */
-    mirror_ethpkt_to_eth1(frame, txPkt->pDSeg->segLen);
-}
-
 bool pktEth0Handler(TCPIP_NET_HANDLE hNet, struct _tag_TCPIP_MAC_PACKET* rxPkt, uint16_t frameType, const void* hParam) {
     static uint32_t packet_counter = 0;
 
     packet_counter++;
 
-    if (mirror_mode) {
-        mirror_eth0_rx_to_eth1(rxPkt);   /* clone endpoint->bridge frames to eth1 (dst-MAC filtered) */
-    }
+    /* Port mirror (SPAN) for Wireshark - see port_mirror.c. Checks the enable
+     * flag and the own-MAC filter itself. */
+    MIRROR_Eth0Rx(rxPkt);
 
     /* NoIP raw test frame (EtherType 0x88B5): increment counter + print, free buffer */
     if (frameType == NOIP_ETHERTYPE) {
@@ -682,20 +595,6 @@ static void my_dump(SYS_CMD_DEVICE_NODE* pCmdIO, int argc, char** argv) {
 
 }
 
-/* mirror [0|1] - copy every eth0 (T1S) RX frame out eth1 so a PC on eth1 can
- * sniff the T1S bus with Wireshark (e.g. the endpoint's replies to a firmware
- * CLI command). No argument shows the current state. */
-static void cmd_mirror(SYS_CMD_DEVICE_NODE* pCmdIO, int argc, char** argv) {
-    if (argc >= 2) {
-        mirror_mode = strtoul(argv[1], NULL, 0);
-    }
-    SYS_CONSOLE_PRINT("eth0(T1S)->eth1 mirror: %s\n\r", mirror_mode ? "ON" : "OFF");
-    if (mirror_mode) {
-        SYS_CONSOLE_PRINT("  Capture on the PC (eth1) in Wireshark to see the T1S bus traffic:\n\r");
-        SYS_CONSOLE_PRINT("  RX (endpoint -> bridge: replies/ARP) AND the bridge's own TX.\n\r");
-    }
-}
-
 // Memory dump command: dump <address> <count>
 static void cmd_mem_dump(SYS_CMD_DEVICE_NODE* pCmdIO, int argc, char** argv) {
     if (argc != 3) {
@@ -819,7 +718,6 @@ const SYS_CMD_DESCRIPTOR msd_cmd_tbl[] = {
     {"help", (SYS_CMD_FNC) test_help, ": show Test group commands"},
     {"timestamp", (SYS_CMD_FNC) show_timestamp, ": show build timestamp"},
     {"ipdump", (SYS_CMD_FNC) my_dump, ": dump rx ip packets (0:off 1:eth0 2:eth1 3:both)"},
-    {"mirror", (SYS_CMD_FNC) cmd_mirror, ": mirror eth0(T1S) RX to eth1 for Wireshark (mirror [0|1])"},
     {"stats", (SYS_CMD_FNC) cmd_stats, ": show TX/RX counters for eth0 and eth1"},
     {"meminfo", (SYS_CMD_FNC) cmd_meminfo, ": free memory on the C-runtime heap and the TCP/IP heap"},
     {"dump", (SYS_CMD_FNC) cmd_mem_dump, ": dump memory (dump <addr_hex> <count>)"},
