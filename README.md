@@ -52,6 +52,7 @@ host machine in between.
 - [8. Transmitter test modes](#8-transmitter-test-modes)
   - [The command](#the-command)
   - [Verifying without an oscilloscope](#verifying-without-an-oscilloscope)
+  - [Further reading](#further-reading)
 
 ---
 
@@ -843,6 +844,11 @@ the roles reversed — e.g. `iperf -s` on the board, then
 
 ## 8. Transmitter test modes
 
+> **Full guide: [`LAN8651_TEST_MODES.md`](LAN8651_TEST_MODES.md)** — what each mode
+> qualifies, how to probe and set up the measurement on the bus, what to disconnect
+> first, and how the same thing is done with the generic `lan_read`/`lan_write`
+> commands versus the `testmode` convenience wrapper. This section is the summary.
+
 The LAN8651 implements the transmitter test modes of **IEEE 802.3-2022
 §147.5.2** in hardware. They emit a defined, continuous pattern with no user
 traffic, which is what level, jitter, droop and spectrum measurements need.
@@ -927,5 +933,9 @@ checks, exit code 0. What this does **not** establish is whether the emitted
 waveform conforms to the standard; that still needs an oscilloscope or spectrum
 analyser at the MDI.
 
-Deeper reference — register maps, measurement recipes, the PMA loopback path and
-corrected earlier misconceptions: **`LAN8651_REGISTER_UND_TESTMODI.md`** (German).
+### Further reading
+
+| Document | Language | Covers |
+|---|---|---|
+| **[`LAN8651_TEST_MODES.md`](LAN8651_TEST_MODES.md)** | English | What the four modes are and what each one qualifies; probing, termination and instrument setup per mode; what to disconnect on a shared bus; the generic register path versus the `testmode`/`lan_rmw` convenience commands; `T1SPMACTL` bits and PMA loopback |
+| **[`LAN8651_REGISTER_UND_TESTMODI.md`](LAN8651_REGISTER_UND_TESTMODI.md)** | German | Register-level reference with code locations, the target verification log, and the collection of corrected misconceptions — worth reading before touching the register path |
