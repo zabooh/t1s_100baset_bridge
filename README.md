@@ -346,9 +346,19 @@ Two command groups; type the command name directly (no group prefix needed).
 | `ipdump [0..3]` | dump RX frames (0=off, 1=eth0, 2=eth1, 3=both) |
 | `stats` | per-interface TX/RX software counters |
 | `meminfo` | free memory: C-runtime heap (total + largest free block) **and** TCP/IP heap (free/maxblock/highwater, like `heapinfo`) |
-| `noip_send <n> [gap_ms]` / `noip_stat` | raw-Ethernet (EtherType 0x88B5) loopback test + counters |
 | `dump <addr> <count>` | memory dump (hex) |
 | `logstat` / `logclear` | deferred packet-log statistics / clear |
+
+**`noip` group** — raw Ethernet frame test with EtherType 0x88B5, bypassing the
+TCP/IP stack entirely, in [`noip_test.c`](firmware/src/noip_test.c). Deterministic
+frames (fixed 60-byte length, fixed payload, monotonic sequence number, chosen
+inter-frame gap) make this the best on-board source for reproducible oscilloscope
+captures and for separating a bus problem from an IP-configuration problem:
+
+| Command | Description |
+|---|---|
+| `noip_send <n> [gap_ms]` | send `n` frames (1..100) with an optional gap of 0..1000 ms |
+| `noip_stat` | TX/RX counters, independent of any protocol state |
 
 **`span` group** — the eth0 → eth1 port mirror, in
 [`port_mirror.c`](firmware/src/port_mirror.c) (see [§6.5](#65-where-the-code-lives-and-one-fragile-coupling)):

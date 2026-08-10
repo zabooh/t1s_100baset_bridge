@@ -43,6 +43,7 @@
 #include "env.h"
 #include "lan865x_diag.h"
 #include "port_mirror.h"
+#include "noip_test.h"
 
 
 // *****************************************************************************
@@ -94,10 +95,6 @@ bool Command_Init(void);
 uint32_t ipdump_mode = 0;
 uint32_t my_delay_time = 0;
 
-/* --- NoIP raw Ethernet test (EtherType 0x88B5 = IEEE 802 Local Experimental) --- */
-#define NOIP_ETHERTYPE  0x88B5u
-static uint32_t noip_tx_cnt = 0u;
-static uint32_t noip_rx_cnt = 0u;
 SYS_TIME_HANDLE timerHandle;
 
 /* =========================================================
@@ -232,14 +229,6 @@ static bool PktLog_Read(PKT_LOG_ENTRY *entry)
     return true;
 }
 
-static void app_wait_ms(uint32_t ms)
-{
-    uint64_t start = SYS_TIME_Counter64Get();
-    uint64_t ticks = ((uint64_t)SYS_TIME_FrequencyGet() * (uint64_t)ms) / 1000ULL;
-    while ((SYS_TIME_Counter64Get() - start) < ticks) {
-    }
-}
-
 /* LAN865x register access, transmitter test modes and PLCA live in their own,
  * self-contained module so they can be lifted into another project unchanged:
  * see lan865x_diag.c/.h. This file only calls LAN865X_DIAG_Initialize() and
@@ -261,8 +250,6 @@ static void test_help(SYS_CMD_DEVICE_NODE* pCmdIO, int argc, char** argv) {
     SYS_CONSOLE_PRINT("  ipdump <mode>                - Dump RX IP packets (0=off, 1=eth0, 2=eth1, 3=both)\n\r");
     SYS_CONSOLE_PRINT("  stats                        - Show TX/RX software counters for eth0 and eth1\n\r");
     SYS_CONSOLE_PRINT("  dump <addr> <count>          - Dump memory (hex addr, count)\n\r");
-    SYS_CONSOLE_PRINT("  noip_send <n> [gap_ms]       - Send N raw Ethernet frames (EtherType 0x88B5)\n\r");
-    SYS_CONSOLE_PRINT("  noip_stat                    - Show NoIP TX/RX counters\n\r");
     SYS_CONSOLE_PRINT("  logclear                     - Clear deferred packet log buffer\n\r");
     SYS_CONSOLE_PRINT("  logstat                      - Show deferred log statistics\n\r");
     SYS_CONSOLE_PRINT("\n\rLAN865x registers, test modes, PLCA: see 'lanhelp'\n\r");
@@ -340,6 +327,7 @@ void APP_Initialize(void) {
     Command_Init();
     LAN865X_DIAG_Initialize();
     MIRROR_Initialize();
+    NOIP_Initialize();
     /* TODO: Initialize your application's state machine and other
      * parameters.
      */
@@ -409,11 +397,8 @@ void APP_Tasks(void) {
                     uint64_t ts_ms = log_e.timestamp / ticks_per_ms;
                     switch (log_e.log_type) {
                         case PKT_LOG_NOIP:
-                            SYS_CONSOLE_PRINT("[NoIP-RX] #%u seq=%u from %02X:%02X:%02X:%02X:%02X:%02X len=%d ts=%llu ms\r\n",
-                                (unsigned)log_e.pkt_counter, (unsigned)log_e.noip_seq,
-                                log_e.mac_src[0], log_e.mac_src[1], log_e.mac_src[2],
-                                log_e.mac_src[3], log_e.mac_src[4], log_e.mac_src[5],
-                                (int)log_e.length, (unsigned long long)ts_ms);
+                            NOIP_PrintRxLine(log_e.pkt_counter, log_e.noip_seq,
+                                             log_e.mac_src, log_e.length, ts_ms);
                             if (log_e.data_len > 0u) {
                                 DumpMem((uint32_t)&frame_data_pool.pool[log_e.data_offset], log_e.data_len);
                             }
@@ -462,16 +447,15 @@ bool pktEth0Handler(TCPIP_NET_HANDLE hNet, struct _tag_TCPIP_MAC_PACKET* rxPkt, 
      * flag and the own-MAC filter itself. */
     MIRROR_Eth0Rx(rxPkt);
 
-    /* NoIP raw test frame (EtherType 0x88B5): increment counter + print, free buffer */
-    if (frameType == NOIP_ETHERTYPE) {
-        noip_rx_cnt++;
+    /* NoIP raw test frame: the module owns the EtherType, the frame layout and
+     * the counters. The deferred log ring buffer stays here because ipdump shares
+     * it, so the printing happens later in the drain loop (see PKT_LOG_NOIP). */
+    if (NOIP_IsNoIpFrame(frameType)) {
         const uint8_t *p = rxPkt->pMacLayer;
-        uint32_t seq = ((uint32_t)p[14] << 24) | ((uint32_t)p[15] << 16)
-                     | ((uint32_t)p[16] <<  8) |  (uint32_t)p[17];
         PKT_LOG_ENTRY log_e = {0};
         log_e.timestamp   = SYS_TIME_Counter64Get();
-        log_e.pkt_counter = noip_rx_cnt;
-        log_e.noip_seq    = seq;
+        log_e.pkt_counter = NOIP_CountRx();
+        log_e.noip_seq    = NOIP_SeqFromFrame(p);
         log_e.frame_type  = frameType;
         log_e.length      = rxPkt->pDSeg->segLen;
         log_e.iface       = 0u;
@@ -615,67 +599,6 @@ static void cmd_mem_dump(SYS_CMD_DEVICE_NODE* pCmdIO, int argc, char** argv) {
     DumpMem(addr, count);
 }
 
-uint8_t frame[60];
-
-/* noip_send <n> [gap_ms]  — send N raw Ethernet frames (EtherType 0x88B5) on eth0/T1S */
-static void cmd_noip_send(SYS_CMD_DEVICE_NODE *pCmdIO, int argc, char **argv)
-{
-    uint32_t count = 5u;
-    uint32_t gap_ms = 0u;
-    if (argc >= 2) { count = (uint32_t)strtoul(argv[1], NULL, 10); }
-    if (argc >= 3) { gap_ms = (uint32_t)strtoul(argv[2], NULL, 10); }
-    if (count == 0u || count > 100u) {
-        SYS_CONSOLE_PRINT("[NoIP] count must be 1..100\r\n");
-        return;
-    }
-    if (gap_ms > 1000u) {
-        SYS_CONSOLE_PRINT("[NoIP] gap_ms must be 0..1000\r\n");
-        return;
-    }
-
-    SYS_CONSOLE_PRINT("[NoIP-TX] start count=%u gap_ms=%u\r\n", (unsigned)count, (unsigned)gap_ms);
-
-    /* Get our MAC from the T1S interface (index 0 = eth0) */
-    TCPIP_NET_HANDLE netH = TCPIP_STACK_IndexToNet(0);
-    const uint8_t  *pMac  = TCPIP_STACK_NetAddressMac(netH);
-
-
-    /* DST: Layer-2 broadcast */
-    frame[0]=0xFFu; frame[1]=0xFFu; frame[2]=0xFFu;
-    frame[3]=0xFFu; frame[4]=0xFFu; frame[5]=0xFFu;
-    /* SRC: our MAC */
-    if (pMac != NULL) { memcpy(&frame[6], pMac, 6u); }
-    else              { memset(&frame[6], 0u,   6u); }
-    /* EtherType 0x88B5 */
-    frame[12] = (uint8_t)((NOIP_ETHERTYPE >> 8u) & 0xFFu);
-    frame[13] = (uint8_t)( NOIP_ETHERTYPE        & 0xFFu);
-    /* Payload: 4-byte sequence + 42-byte fill to reach 60-byte min frame */
-    memset(&frame[14], 0xAAu, 46u);
-
-    uint32_t i;
-    for (i = 0u; i < count; i++) {
-        noip_tx_cnt++;
-        frame[14] = (uint8_t)((noip_tx_cnt >> 24u) & 0xFFu);
-        frame[15] = (uint8_t)((noip_tx_cnt >> 16u) & 0xFFu);
-        frame[16] = (uint8_t)((noip_tx_cnt >>  8u) & 0xFFu);
-        frame[17] = (uint8_t)( noip_tx_cnt          & 0xFFu);
-        if (!DRV_LAN865X_SendRawEthFrame(0u, frame, (uint16_t)sizeof(frame), 0x00u, NULL, NULL)) {
-            SYS_CONSOLE_PRINT("[NoIP-TX] send failed at seq=%u\r\n", (unsigned)noip_tx_cnt);
-            noip_tx_cnt--;
-            break;
-        }
-        SYS_CONSOLE_PRINT("[NoIP-TX] sent seq=%u\r\n", (unsigned)noip_tx_cnt);
-        if (gap_ms > 0u) {
-            app_wait_ms(gap_ms);
-        }
-    }
-}
-
-static void cmd_noip_stat(SYS_CMD_DEVICE_NODE *pCmdIO, int argc, char **argv)
-{
-    SYS_CONSOLE_PRINT("[NoIP] TX=%u  RX=%u\r\n", (unsigned)noip_tx_cnt, (unsigned)noip_rx_cnt);
-}
-
 /* meminfo: free memory on BOTH heaps.
  *  - C-runtime heap: XC32 uses nano-malloc (no mallinfo, and the whole heap is
  *    sbrk'd up front with free blocks tracked internally), so we report the total
@@ -721,8 +644,6 @@ const SYS_CMD_DESCRIPTOR msd_cmd_tbl[] = {
     {"stats", (SYS_CMD_FNC) cmd_stats, ": show TX/RX counters for eth0 and eth1"},
     {"meminfo", (SYS_CMD_FNC) cmd_meminfo, ": free memory on the C-runtime heap and the TCP/IP heap"},
     {"dump", (SYS_CMD_FNC) cmd_mem_dump, ": dump memory (dump <addr_hex> <count>)"},
-    {"noip_send",    (SYS_CMD_FNC) cmd_noip_send,    ": send N raw Ethernet frames bypassing TCP stack (noip_send <n> [gap_ms])"},
-    {"noip_stat",    (SYS_CMD_FNC) cmd_noip_stat,    ": show NoIP TX/RX counters"},
     {"logclear",     (SYS_CMD_FNC) cmd_logclear,     ": clear deferred packet log buffer"},
     {"logstat",      (SYS_CMD_FNC) cmd_logstat,      ": show deferred log statistics (total, pending, overflows)"},
 };
