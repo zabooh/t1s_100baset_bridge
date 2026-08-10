@@ -119,8 +119,12 @@ echo.
 echo BUILD SUCCESSFUL.
 if exist "%HEX_PATH%" (
     echo HEX: %HEX_PATH%
-    rem Copy the HEX into a tracked release dir so a fresh clone can flash
-    rem without building - dist/ is gitignored.
+    rem Copy the HEX into release\ so a fresh clone can flash without building.
+    rem NOTE: only this script does that copy - a build from inside the MPLAB X
+    rem IDE leaves release\ stale. flash.bat programs the dist\ HEX, not this one,
+    rem so release\ is not a record of what is on the target. The guard below is
+    rem "if exist", not a freshness check: a HEX that survived from an earlier
+    rem build gets copied as-is.
     if not exist "%SCRIPT_DIR%release" mkdir "%SCRIPT_DIR%release"
     copy /Y "%HEX_PATH%" "%SCRIPT_DIR%release\T1S_100BaseT_Bridge.hex" >nul
     echo Released: %SCRIPT_DIR%release\T1S_100BaseT_Bridge.hex
