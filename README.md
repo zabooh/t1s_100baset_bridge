@@ -49,6 +49,9 @@ host machine in between.
   - [Commands](#commands)
   - [`iperf` options](#iperf-options)
   - [Examples](#examples)
+- [8. Transmitter test modes](#8-transmitter-test-modes)
+  - [The command](#the-command)
+  - [Verifying without an oscilloscope](#verifying-without-an-oscilloscope)
 
 ---
 
@@ -334,6 +337,8 @@ Two command groups; type the command name directly (no group prefix needed).
 | `meminfo` | free memory: C-runtime heap (total + largest free block) **and** TCP/IP heap (free/maxblock/highwater, like `heapinfo`) |
 | `plca_node [id]` | get/set PLCA node id (0 = coordinator); no arg = show current — **volatile**, see [§5.3](#53-volatile-runtime-via-harmony-stack-commands--plca_node) |
 | `lan_read <addr>` / `lan_write <addr> <val>` | LAN865x register access (hex) |
+| `lan_rmw <addr> <mask> <val>` | read-modify-write a single register, then verify it: `new = (old & ~mask) \| val`. For registers where several control bits share one word, e.g. `T1SPMACTL` |
+| `testmode [0..4] [seconds]` | select an IEEE 802.3-2022 §147.5.2 transmitter test mode, verified by readback; no argument shows the current mode. The optional timeout reverts to normal operation on its own — see [§8](#8-transmitter-test-modes) |
 | `noip_send <n> [gap_ms]` / `noip_stat` | raw-Ethernet (EtherType 0x88B5) loopback test + counters |
 | `dump <addr> <count>` | memory dump (hex) |
 | `logstat` / `logclear` | deferred packet-log statistics / clear |
@@ -833,3 +838,94 @@ Testing the bridge path from the **PC side** works the same way, just with
 the roles reversed — e.g. `iperf -s` on the board, then
 `iperf2 -c 192.168.0.210` from the PC (through `eth1` → MAC bridge → `eth0`
 → endpoint), or vice versa with the endpoint as the counterpart.
+
+---
+
+## 8. Transmitter test modes
+
+The LAN8651 implements the transmitter test modes of **IEEE 802.3-2022
+§147.5.2** in hardware. They emit a defined, continuous pattern with no user
+traffic, which is what level, jitter, droop and spectrum measurements need.
+Selecting one is a plain register write — no firmware change required.
+
+### The command
+
+```text
+testmode              # show the current mode, decoded
+testmode 1            # enter test mode 1, verified by readback
+testmode 1 30         # ... and revert to normal operation after 30 s
+testmode 0            # back to normal operation
+```
+
+| Mode | Purpose | Instrument |
+|---|---|---|
+| 0 | normal operation | — |
+| 1 | output voltage, timing jitter | oscilloscope |
+| 2 | output droop | oscilloscope |
+| 3 | PSD mask / transmitter distortion | spectrum analyser |
+| 4 | transmitter high impedance | measure the bus *without* this transmitter |
+
+The command writes `T1STSTCTL` (`0x000308FB`, mode in bits 15:13) and then
+**reads it back automatically**, reporting `[VERIFY] PASS` or `[VERIFY] FAIL`.
+That readback is the actual evidence: `LAN865X Write OK` only says the TC6
+transaction completed, not that the register kept the value.
+
+```text
+> testmode 1 5
+[TESTMODE] requesting 1 - test mode 1 (output voltage / timing jitter) (T1STSTCTL=0x00002000)
+[TESTMODE] the T1S link is down while this mode is active
+[TESTMODE] auto-revert armed in 5 s
+LAN865X Write OK: Addr=0x000308FB Value=0x00002000
+LAN865X Read OK: Addr=0x000308FB Value=0x00002000
+[VERIFY] PASS addr=0x000308FB masked=0x00002000 (mask 0x0000E000)
+[TESTMODE] now 1 - test mode 1 (output voltage / timing jitter)
+[TESTMODE] auto-revert: restoring normal operation
+LAN865X Write OK: Addr=0x000308FB Value=0x00000000
+LAN865X Read OK: Addr=0x000308FB Value=0x00000000
+[VERIFY] PASS addr=0x000308FB masked=0x00000000 (mask 0x0000E000)
+[TESTMODE] now 0 - normal operation
+```
+
+Modes 1–4 **take the T1S link down** by design, so the bridged connection is
+dead while one is active. The CLI itself is unaffected — it runs over the EDBG
+UART, not over T1S, so the way back to normal operation is always available.
+Use the optional timeout when in doubt: a forgotten test mode later presents as
+a link that will not come up, with nothing in the ordinary log pointing at a
+test register.
+
+### Verifying without an oscilloscope
+
+`test_lan8651.py` checks each mode on three independent levels and exits
+non-zero if any of them fails:
+
+1. **Register readback** — the firmware's own `[VERIFY]` verdict on `T1STSTCTL`.
+2. **Traffic stops** — the endpoint's periodic frames stop arriving on `eth1`.
+3. **Traffic resumes** — and come back after reverting.
+
+Level 1 alone only proves the register latched the value; levels 2 and 3 show
+the PHY actually changed state. The traffic oracle is whatever the T1S endpoint
+transmits by itself — by default its SOME/IP-SD OFFER multicast at 1 Hz —
+counted with `tshark` on the `eth1` adapter. Nothing is generated on the host,
+so the measurement does not perturb the bus the way polling registers during a
+throughput test would.
+
+```text
+python test_lan8651.py --port COM8
+python test_lan8651.py --port COM8 --modes 1,2 --window 6
+python test_lan8651.py --list-interfaces
+```
+
+The script **requires this board to be the PLCA coordinator** (node id 0) and
+refuses to run otherwise: with an external coordinator the endpoint could keep
+transmitting, and "traffic stopped" would no longer say anything about this
+board's transmitter. It also always restores normal operation in a `finally`
+block and reports whether that succeeded.
+
+Result on this hardware (2026-08-10, SAM E54 Curiosity Ultra + MIKROE-5543,
+endpoint at `192.168.0.54`): all four modes PASS on all three levels — 19
+checks, exit code 0. What this does **not** establish is whether the emitted
+waveform conforms to the standard; that still needs an oscilloscope or spectrum
+analyser at the MDI.
+
+Deeper reference — register maps, measurement recipes, the PMA loopback path and
+corrected earlier misconceptions: **`LAN8651_REGISTER_UND_TESTMODI.md`** (German).

@@ -249,15 +249,47 @@ volatile uint32_t app_lan_reg_read_value = 0;
 typedef enum {
     APP_LAN_IDLE,
     APP_LAN_WAIT_READ,
-    APP_LAN_WAIT_WRITE
+    APP_LAN_WAIT_WRITE,
+    APP_LAN_WAIT_RMW
 } app_lan_state_t;
 
 static app_lan_state_t app_lan_state   = APP_LAN_IDLE;
 static uint8_t         s_plca_node_id  = DRV_LAN865X_PLCA_NODE_ID_IDX0;
 static uint32_t        app_lan_addr    = 0u;
 static uint32_t        app_lan_value   = 0u;
+static uint32_t        app_lan_mask    = 0u;        /* read-modify-write bit mask (APP_LAN_WAIT_RMW) */
+static uint32_t        app_lan_rmw_final = 0u;      /* word the driver actually wrote back on RMW    */
 static uint64_t        app_lan_expire_tick = 0u;    /* SYS_TIME tick at which the operation times out */
 static bool            app_lan_op_initiated = false;
+
+/* --- Transmitter test modes (IEEE 802.3-2022 §147.5.2), PHY PMA/PMD bank = MMS 3 --- */
+#define LAN_T1STSTCTL        0x000308FBu   /* Test mode control, mode in bits 15:13     */
+#define LAN_T1STSTCTL_MASK   0x0000E000u   /* only those three bits read back           */
+#define LAN_T1SPMACTL        0x000308F9u   /* PMA control (RST/TXD/LPE/MDE/LBE)         */
+#define LAN_TESTMODE_MAX     4u
+
+/* A write on its own only proves the TC6 transaction ran, not that the register kept the
+ * value. These let a completed write chain into a verifying read of the same address, so
+ * every mode change reports its own readback. Cleared once the verdict is printed. */
+static bool     app_lan_verify_armed   = false;   /* after this write, read the addr back  */
+static bool     app_lan_verify_pending = false;   /* the following read is that readback   */
+static uint32_t app_lan_verify_expect  = 0u;
+static uint32_t app_lan_verify_mask    = 0u;
+
+/* Optional auto-revert so a forgotten test mode cannot silently keep the link down. */
+static bool     app_testmode_revert_armed = false;
+static uint64_t app_testmode_revert_tick  = 0u;
+
+static const char *app_testmode_name(uint32_t mode) {
+    switch (mode) {
+        case 0u:  return "normal operation";
+        case 1u:  return "test mode 1 (output voltage / timing jitter)";
+        case 2u:  return "test mode 2 (output droop)";
+        case 3u:  return "test mode 3 (PSD mask / transmitter distortion)";
+        case 4u:  return "test mode 4 (transmitter high impedance)";
+        default:  return "reserved";
+    }
+}
 
 /* TODO:  Add any necessary local functions.
  */
@@ -280,6 +312,16 @@ void lan_write_callback(void *reserved1, bool success, uint32_t addr, uint32_t v
     app_lan_reg_operation_complete = true;
 }
 
+/* LAN865X callback for read-modify-write. Unlike a plain write, the driver documents
+ * `value` here as the word actually written back into the PHY (drv_lan865x.h), which is
+ * worth keeping - lan_write_callback() would discard it and leave the previous read
+ * value standing, which then gets reported as the RMW result. */
+void lan_rmw_callback(void *reserved1, bool success, uint32_t addr, uint32_t value, void *pTag, void *reserved2) {
+    app_lan_reg_operation_success = success;
+    app_lan_rmw_final = value;
+    app_lan_reg_operation_complete = true;
+}
+
 // Help command for Test group
 static void test_help(SYS_CMD_DEVICE_NODE* pCmdIO, int argc, char** argv) {
     SYS_CONSOLE_PRINT("Test group commands:\n\r");
@@ -290,6 +332,8 @@ static void test_help(SYS_CMD_DEVICE_NODE* pCmdIO, int argc, char** argv) {
     SYS_CONSOLE_PRINT("  stats                        - Show TX/RX software counters for eth0 and eth1\n\r");
     SYS_CONSOLE_PRINT("  lan_read  <addr>             - Read  LAN865X register (hex address)\n\r");
     SYS_CONSOLE_PRINT("  lan_write <addr> <value>     - Write LAN865X register (hex addr, hex value)\n\r");
+    SYS_CONSOLE_PRINT("  lan_rmw <addr> <mask> <val>  - Read-modify-write + verify: new=(old&~mask)|val\n\r");
+    SYS_CONSOLE_PRINT("  testmode [0..4] [seconds]    - IEEE TX test mode, verified by readback (no arg = show)\n\r");
     SYS_CONSOLE_PRINT("  dump <addr> <count>          - Dump memory (hex addr, count)\n\r");
     SYS_CONSOLE_PRINT("  plca_node [id]               - Get/set PLCA node ID (no arg = show current)\n\r");
     SYS_CONSOLE_PRINT("  noip_send <n> [gap_ms]       - Send N raw Ethernet frames (EtherType 0x88B5)\n\r");
@@ -456,8 +500,34 @@ void APP_Tasks(void) {
                         if (app_lan_reg_operation_success) {
                             SYS_CONSOLE_PRINT("LAN865X Read OK: Addr=0x%08X Value=0x%08X\n\r",
                                               (unsigned int)app_lan_addr, (unsigned int)app_lan_reg_read_value);
+                            if (app_lan_verify_pending) {
+                                uint32_t got  = app_lan_reg_read_value & app_lan_verify_mask;
+                                uint32_t want = app_lan_verify_expect  & app_lan_verify_mask;
+                                if (got == want) {
+                                    SYS_CONSOLE_PRINT("[VERIFY] PASS addr=0x%08X masked=0x%08X (mask 0x%08X)\n\r",
+                                                      (unsigned int)app_lan_addr, (unsigned int)got,
+                                                      (unsigned int)app_lan_verify_mask);
+                                } else {
+                                    SYS_CONSOLE_PRINT("[VERIFY] FAIL addr=0x%08X expected=0x%08X got=0x%08X (mask 0x%08X)\n\r",
+                                                      (unsigned int)app_lan_addr, (unsigned int)want,
+                                                      (unsigned int)got, (unsigned int)app_lan_verify_mask);
+                                }
+                                app_lan_verify_pending = false;
+                            }
+                            /* Decode the test mode for any read of T1STSTCTL, including a
+                             * bare 'lan_read 0x000308FB' or the 'testmode' query. */
+                            if (app_lan_addr == LAN_T1STSTCTL) {
+                                uint32_t m = (app_lan_reg_read_value & LAN_T1STSTCTL_MASK) >> 13u;
+                                SYS_CONSOLE_PRINT("[TESTMODE] now %u - %s\n\r",
+                                                  (unsigned int)m, app_testmode_name(m));
+                            }
                         } else {
                             SYS_CONSOLE_PRINT("LAN865X Read failed for addr=0x%08X\n\r", (unsigned int)app_lan_addr);
+                            if (app_lan_verify_pending) {
+                                SYS_CONSOLE_PRINT("[VERIFY] FAIL addr=0x%08X - readback did not complete\n\r",
+                                                  (unsigned int)app_lan_addr);
+                                app_lan_verify_pending = false;
+                            }
                         }
                         app_lan_state = APP_LAN_IDLE;
                         app_lan_op_initiated = false;
@@ -488,14 +558,84 @@ void APP_Tasks(void) {
                                               (unsigned int)app_lan_addr, (unsigned int)app_lan_value);
                         } else {
                             SYS_CONSOLE_PRINT("LAN865X Write failed for addr=0x%08X\n\r", (unsigned int)app_lan_addr);
+                            app_lan_verify_armed = false;   /* nothing worth reading back */
                         }
-                        app_lan_state = APP_LAN_IDLE;
                         app_lan_op_initiated = false;
+                        if (app_lan_verify_armed) {
+                            /* Chain straight into the readback of the same address. */
+                            app_lan_verify_armed   = false;
+                            app_lan_verify_pending = true;
+                            app_lan_reg_operation_complete = false;
+                            app_lan_state = APP_LAN_WAIT_READ;
+                        } else {
+                            app_lan_state = APP_LAN_IDLE;
+                        }
+                    }
+                    break;
+
+                case APP_LAN_WAIT_RMW:
+                    if (!app_lan_reg_operation_complete) {
+                        if (!app_lan_op_initiated) {
+                            TCPIP_MAC_RES result = DRV_LAN865X_ReadModifyWriteRegister(0, app_lan_addr, app_lan_value,
+                                                                                       app_lan_mask, true,
+                                                                                       lan_rmw_callback, NULL);
+                            if (result != TCPIP_MAC_RES_OK) {
+                                SYS_CONSOLE_PRINT("LAN865X RMW failed to start: result=%d\n\r", result);
+                                app_lan_verify_armed = false;
+                                app_lan_state = APP_LAN_IDLE;
+                            } else {
+                                app_lan_expire_tick = SYS_TIME_Counter64Get() + (uint64_t)APP_LAN_TIMEOUT_MS * ticks_per_ms;
+                                app_lan_op_initiated = true;
+                            }
+                        } else {
+                            if ((int64_t)(SYS_TIME_Counter64Get() - app_lan_expire_tick) >= 0) {
+                                SYS_CONSOLE_PRINT("LAN865X RMW timeout for addr=0x%08X\n\r", (unsigned int)app_lan_addr);
+                                app_lan_verify_armed = false;
+                                app_lan_state = APP_LAN_IDLE;
+                                app_lan_op_initiated = false;
+                            }
+                        }
+                    } else {
+                        if (app_lan_reg_operation_success) {
+                            /* app_lan_rmw_final comes from lan_rmw_callback: the word the
+                             * driver actually wrote back, not the previous read value. */
+                            SYS_CONSOLE_PRINT("LAN865X RMW OK: Addr=0x%08X Mask=0x%08X Value=0x%08X Final=0x%08X\n\r",
+                                              (unsigned int)app_lan_addr, (unsigned int)app_lan_mask,
+                                              (unsigned int)app_lan_value, (unsigned int)app_lan_rmw_final);
+                        } else {
+                            SYS_CONSOLE_PRINT("LAN865X RMW failed for addr=0x%08X\n\r", (unsigned int)app_lan_addr);
+                            app_lan_verify_armed = false;
+                        }
+                        app_lan_op_initiated = false;
+                        if (app_lan_verify_armed) {
+                            app_lan_verify_armed   = false;
+                            app_lan_verify_pending = true;
+                            app_lan_reg_operation_complete = false;
+                            app_lan_state = APP_LAN_WAIT_READ;
+                        } else {
+                            app_lan_state = APP_LAN_IDLE;
+                        }
                     }
                     break;
 
                 default:
                     break;
+            }
+
+            /* Auto-revert of a test mode, if 'testmode <n> <seconds>' armed one. Only fires
+             * while the register machine is free, so it never collides with a pending op. */
+            if (app_testmode_revert_armed && (app_lan_state == APP_LAN_IDLE) &&
+                ((int64_t)(SYS_TIME_Counter64Get() - app_testmode_revert_tick) >= 0)) {
+                app_testmode_revert_armed = false;
+                SYS_CONSOLE_PRINT("[TESTMODE] auto-revert: restoring normal operation\n\r");
+                app_lan_addr          = LAN_T1STSTCTL;
+                app_lan_value         = 0u;
+                app_lan_verify_expect = 0u;
+                app_lan_verify_mask   = LAN_T1STSTCTL_MASK;
+                app_lan_verify_armed  = true;
+                app_lan_reg_operation_complete = false;
+                app_lan_op_initiated  = false;
+                app_lan_state         = APP_LAN_WAIT_WRITE;
             }
 
             /* === Deferred packet log output (max 10 entries per APP_Tasks iteration) === */
@@ -852,6 +992,116 @@ static void lan_write(SYS_CMD_DEVICE_NODE* pCmdIO, int argc, char** argv) {
     app_lan_state = APP_LAN_WAIT_WRITE;
 }
 
+/* lan_rmw <addr> <mask> <value> - read-modify-write a single register, then verify.
+ * Driver semantics (tc6.c): new = (old & ~mask) | value. Note that 'value' is NOT
+ * masked by the driver, so bits outside the mask are set unconditionally - hence the
+ * warning below. Exists so that single bits in registers such as T1SPMACTL can be
+ * changed without the host having to read, combine and write the whole word. */
+static void cmd_lan_rmw(SYS_CMD_DEVICE_NODE* pCmdIO, int argc, char** argv) {
+    if (argc != 4) {
+        SYS_CONSOLE_PRINT("Usage: lan_rmw <addr_hex> <mask_hex> <value_hex>\n\r");
+        SYS_CONSOLE_PRINT("       new = (old & ~mask) | value\n\r");
+        SYS_CONSOLE_PRINT("Example: lan_rmw 0x000308F9 0x00000001 0x00000001   (set LBE)\n\r");
+        SYS_CONSOLE_PRINT("Example: lan_rmw 0x000308F9 0x00000001 0x00000000   (clear LBE)\n\r");
+        return;
+    }
+
+    if (app_lan_state != APP_LAN_IDLE) {
+        SYS_CONSOLE_PRINT("ERROR: Previous LAN operation still in progress\n\r");
+        return;
+    }
+
+    app_lan_addr  = strtoul(argv[1], NULL, 0);
+    app_lan_mask  = strtoul(argv[2], NULL, 0);
+    app_lan_value = strtoul(argv[3], NULL, 0);
+
+    if (app_lan_mask == 0u) {
+        SYS_CONSOLE_PRINT("lan_rmw: mask is 0 - nothing would change, use lan_write instead\n\r");
+        return;
+    }
+    if ((app_lan_value & ~app_lan_mask) != 0u) {
+        SYS_CONSOLE_PRINT("lan_rmw: WARNING value has bits outside the mask (0x%08X); "
+                          "the driver ORs them in regardless\n\r",
+                          (unsigned int)(app_lan_value & ~app_lan_mask));
+    }
+
+    /* Verify the masked field only; bits elsewhere in the register are none of our business.
+     * Self-clearing bits (e.g. T1SPMACTL.RST) will legitimately report FAIL here. */
+    app_lan_verify_expect  = app_lan_value;
+    app_lan_verify_mask    = app_lan_mask;
+    app_lan_verify_armed   = true;
+    app_lan_verify_pending = false;
+    app_lan_reg_operation_complete = false;
+    app_lan_op_initiated = false;
+    app_lan_state = APP_LAN_WAIT_RMW;
+}
+
+/* testmode [0..4] [seconds] - select an IEEE 802.3-2022 §147.5.2 transmitter test mode.
+ * Without arguments it only reads T1STSTCTL back and reports the decoded current mode.
+ * Modes 1..4 stop normal traffic by design, so the bridged link goes down; the optional
+ * timeout restores normal operation on its own, which keeps a forgotten test mode from
+ * looking like a broken board later. */
+static void cmd_testmode(SYS_CMD_DEVICE_NODE* pCmdIO, int argc, char** argv) {
+    if (app_lan_state != APP_LAN_IDLE) {
+        SYS_CONSOLE_PRINT("ERROR: Previous LAN operation still in progress\n\r");
+        return;
+    }
+
+    if (argc < 2) {
+        /* Query only - the read path decodes T1STSTCTL by itself. */
+        app_lan_addr           = LAN_T1STSTCTL;
+        app_lan_verify_pending = false;
+        app_lan_reg_operation_complete = false;
+        app_lan_op_initiated   = false;
+        app_lan_state          = APP_LAN_WAIT_READ;
+        return;
+    }
+
+    uint32_t mode = (uint32_t)strtoul(argv[1], NULL, 0);
+    if (mode > LAN_TESTMODE_MAX) {
+        SYS_CONSOLE_PRINT("Usage: testmode [0..%u] [seconds]\n\r", (unsigned int)LAN_TESTMODE_MAX);
+        SYS_CONSOLE_PRINT("  0 = normal, 1 = voltage/jitter, 2 = droop, 3 = PSD mask, 4 = TX high-Z\n\r");
+        SYS_CONSOLE_PRINT("  no argument = show the current mode\n\r");
+        return;
+    }
+
+    uint32_t secs = 0u;
+    if (argc >= 3) {
+        secs = (uint32_t)strtoul(argv[2], NULL, 0);
+        if ((secs < 1u) || (secs > 600u)) {
+            SYS_CONSOLE_PRINT("testmode: seconds must be 1..600\n\r");
+            return;
+        }
+    }
+
+    app_lan_addr          = LAN_T1STSTCTL;
+    app_lan_value         = (mode & 0x7u) << 13u;
+    app_lan_verify_expect = app_lan_value;
+    app_lan_verify_mask   = LAN_T1STSTCTL_MASK;
+    app_lan_verify_armed  = true;          /* chain into the readback - the actual proof */
+    app_lan_verify_pending = false;
+    app_lan_reg_operation_complete = false;
+    app_lan_op_initiated  = false;
+    app_lan_state         = APP_LAN_WAIT_WRITE;
+
+    SYS_CONSOLE_PRINT("[TESTMODE] requesting %u - %s (T1STSTCTL=0x%08X)\n\r",
+                      (unsigned int)mode, app_testmode_name(mode), (unsigned int)app_lan_value);
+
+    if (mode == 0u) {
+        app_testmode_revert_armed = false;
+    } else {
+        SYS_CONSOLE_PRINT("[TESTMODE] the T1S link is down while this mode is active\n\r");
+        if (secs > 0u) {
+            app_testmode_revert_tick  = SYS_TIME_Counter64Get() +
+                                        (uint64_t)secs * (uint64_t)SYS_TIME_FrequencyGet();
+            app_testmode_revert_armed = true;
+            SYS_CONSOLE_PRINT("[TESTMODE] auto-revert armed in %u s\n\r", (unsigned int)secs);
+        } else {
+            SYS_CONSOLE_PRINT("[TESTMODE] no timeout given - revert with 'testmode 0'\n\r");
+        }
+    }
+}
+
 
 /* Apply PLCA node id + node count to the LAN865x. Sets the driver node id and queues
  * the PLCA_CTRL1 register write via the app's LAN state machine. Shared by cmd_plca_node.
@@ -994,6 +1244,8 @@ const SYS_CMD_DESCRIPTOR msd_cmd_tbl[] = {
     {"meminfo", (SYS_CMD_FNC) cmd_meminfo, ": free memory on the C-runtime heap and the TCP/IP heap"},
     {"lan_read", (SYS_CMD_FNC) lan_read, ": read LAN865X register (lan_read <addr_hex>)"},
     {"lan_write", (SYS_CMD_FNC) lan_write, ": write LAN865X register (lan_write <addr_hex> <value_hex>)"},
+    {"lan_rmw", (SYS_CMD_FNC) cmd_lan_rmw, ": read-modify-write + verify (lan_rmw <addr> <mask> <value>)"},
+    {"testmode", (SYS_CMD_FNC) cmd_testmode, ": IEEE transmitter test mode (testmode [0..4] [seconds], no arg = show)"},
     {"dump", (SYS_CMD_FNC) cmd_mem_dump, ": dump memory (dump <addr_hex> <count>)"},
     {"plca_node",    (SYS_CMD_FNC) cmd_plca_node,    ": get/set PLCA node ID (plca_node [id], no arg: show current)"},
     {"noip_send",    (SYS_CMD_FNC) cmd_noip_send,    ": send N raw Ethernet frames bypassing TCP stack (noip_send <n> [gap_ms])"},

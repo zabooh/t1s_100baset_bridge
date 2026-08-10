@@ -47,7 +47,10 @@ setup.bat                 :: einmalig pro Rechner
   fehlerfrei durch, dann „file not found"). Der Kommentar dazu steht in `build.bat`.
 - Ergebnis: `firmware\T1S_100BaseT_Bridge.X\dist\default\production\T1S_100BaseT_Bridge.X.production.hex`,
   zusätzlich kopiert nach `release\T1S_100BaseT_Bridge.hex` (getrackt, damit ein frischer Klon ohne
-  Build flashen kann — `dist\` ist gitignored).
+  Build flashen kann). **Achtung, 2026-08-10 korrigiert: `dist\` ist *nicht* gitignored** —
+  `.hex`, `.elf` und `.map` dort sind seit `6e73b22` getrackt (`git check-ignore` liefert nichts).
+  Jeder Build macht sie also „modified", und jeder Commit schleppt einen ~22 000-Zeilen-Hex-Diff mit.
+  Offen, ob das so bleiben soll; solange es so ist, mitcommitten, sonst ist der Baum dauerhaft dreckig.
 - Nach dem Build läuft `build_summary.py` (Flash/RAM, Heap, Interrupt-Handler).
 - **Konsole:** EDBG-COM-Port, **115200 8N1**. Host-seitig: `python cli.py --port COM8 --read 1 "<cmd>"`.
 
@@ -97,9 +100,11 @@ Beleg: `SET_VAL(HDR_C_MMS, (addr >> 16), tx_buf)` in
 3. **Nur eine Operation gleichzeitig.** Ein zweites Kommando davor wird mit
    `ERROR: Previous LAN operation still in progress` **abgewiesen**, nicht eingereiht.
 4. **Timeout 200 ms** (`APP_LAN_TIMEOUT_MS` in `app.c`).
-5. **Kein Read-Modify-Write in der CLI.** `DRV_LAN865X_ReadModifyWriteRegister()` existiert im
-   Treiber, ist aber nicht exponiert. Einzelne Bits ändern = lesen, host-seitig verknüpfen, ganzes
-   Wort schreiben. **Wichtig bei T1SPMACTL**, wo mehrere Steuerbits in einem Register liegen.
+5. **Read-Modify-Write gibt es seit 2026-08-10: `lan_rmw <addr> <mask> <value>`.** Konvention
+   `neu = (alt & ~mask) | value` — `value` wird vom Treiber **nicht** maskiert, Bits außerhalb der
+   Maske landen ungefragt im Register (das Kommando warnt). Wichtig bei **T1SPMACTL**, wo mehrere
+   Steuerbits in einem Wort liegen. Self-clearing Bits wie `RST` melden dabei zu Recht
+   `[VERIFY] FAIL`.
 6. **Alle Zugriffe laufen `protected = true`** — Lesen *und* Schreiben (`app.c`). Falls anderswo
    behauptet wird, Lesen liefe mit `false`: das gilt für diesen Code **nicht**.
 
@@ -142,25 +147,35 @@ ausdrücklich **nicht** belegt — das entscheidet das Messgerät.
 
 `T1SPMASTS` = `0x000308FA` (read-only).
 
-### Ablauf
+### Ablauf — bevorzugt `testmode`
+
+Seit 2026-08-10 gibt es ein dediziertes Kommando, das den Readback selbst anhängt und
+`[VERIFY] PASS`/`FAIL` plus den dekodierten Modus ausgibt:
 
 ```
-# 1. Ausgangszustand aufnehmen
-lan_read  0x000308FB          # erwartet 0x00000000
-lan_read  0x000308F9          # erwartet 0x00000000
+testmode              # aktuellen Modus zeigen
+testmode 1            # Mode 1, mit automatischem Verify
+testmode 1 30         # ... und Auto-Revert nach 30 s
+testmode 0            # zurück in den Normalbetrieb
+```
 
-# 2. Modus setzen
+Der rohe Weg bleibt gültig und ist der, mit dem ursprünglich verifiziert wurde:
+
+```
+lan_read  0x000308FB          # Ausgangszustand, erwartet 0x00000000
 lan_write 0x000308FB 0x2000   # Mode 1
-
-# 3. IMMER kontrollieren
-lan_read  0x000308FB          # muss den geschriebenen Wert zeigen
-
-# 4. messen ...
-
-# 5. aufräumen, mit Kontrolle
+lan_read  0x000308FB          # IMMER kontrollieren
+# ... messen ...
 lan_write 0x000308FB 0x0000
 lan_read  0x000308FB          # muss 0x00000000 zeigen
 ```
+
+**Verifikation ohne Oszilloskop:** `python test_lan8651.py --port COM8` prüft jeden Modus auf drei
+Stufen — Readback, „Verkehr des T1S-Endpoints hört auf", „Verkehr kommt nach dem Revert wieder" — und
+endet bei jeder Abweichung mit Exitcode ≠ 0. Setzt voraus, dass die Bridge PLCA-Coordinator ist
+(Node-ID 0), sonst ist Stufe 2 wertlos; das Skript prüft es und bricht sonst ab. Stand 2026-08-10:
+alle vier Modi bestehen alle drei Stufen (19 Prüfungen). Details in
+`LAN8651_REGISTER_UND_TESTMODI.md` §4.1.
 
 **Readback nach jedem Wechsel.** Weicht er ab, hat der PHY den Modus nicht übernommen — das sieht
 man sofort am Register, während man es am Oszilloskop leicht für ein Messproblem hält.
@@ -200,6 +215,10 @@ Vertiefung — Registerreferenz, Messrezepte, vollständiges Messprotokoll, korr
 
 | Mittel | Kommando | Eignung |
 |---|---|---|
+| IEEE-Test-Modi | `testmode [0..4] [sek]` | setzt + verifiziert + dekodiert, optionaler Auto-Revert |
+| Einzelne Bits setzen | `lan_rmw <addr> <mask> <val>` | `neu = (alt & ~mask) \| val`, danach maskierter Verify |
+| Test-Modi automatisch prüfen | `python test_lan8651.py --port COM8` | Readback + Verkehr-stoppt + Verkehr-kommt-wieder, Exitcode ≠ 0 bei Abweichung |
+| Endpoint-Verkehr zählen | `tshark` auf dem `eth1`-Adapter | der Endpoint sendet SOME/IP-SD mit 1 Hz von selbst — bestes Oracle ohne Messgerät |
 | Rohe Ethernet-Frames | `noip_send <n> [gap_ms]` / `noip_stat` | EtherType `0x88B5`, umgeht den TCP/IP-Stack — **bestes Mittel für reproduzierbare Scope-Bilder** |
 | SPAN nach `eth1` | `mirror [0\|1]` | T1S-Verkehr in Wireshark mitlesen |
 | Zähler | `stats` | belastet den SPI-Pfad nicht |

@@ -6,8 +6,13 @@
 > dabei zu beachten ist.
 >
 > **Status: am 2026-08-10 am Target verifiziert**, auf dem diese Firmware läuft. Das Messprotokoll
-> steht in [§4](#4-verifikation-am-target-2026-08-10). Es sind **keine Firmware-Änderungen nötig** —
-> die vorhandene Register-CLI genügt.
+> steht in [§4](#4-verifikation-am-target-2026-08-10), der automatisierte Nachweis aller vier Modi
+> in [§4.1](#41-nachtrag-alle-vier-modi-funktional-verifiziert-2026-08-10-später-am-tag).
+>
+> Für die Test-Modi sind **keine Firmware-Änderungen nötig** — `lan_read`/`lan_write` genügen, und
+> so wurde es auch verifiziert. Seit 2026-08-10 gibt es zusätzlich die bequemeren Kommandos
+> **`testmode`** und **`lan_rmw`** ([§8.1](#81-umgesetzt-am-2026-08-10)); der rohe Registerweg
+> bleibt daneben unverändert gültig.
 >
 > Erstellt 2026-08-10 durch Quellcode-Analyse dieses Projekts plus Verifikation am Gerät.
 
@@ -29,6 +34,7 @@
   - [3.3 T1SPMASTS — PMA Status](#33-t1spmasts--pma-status)
   - [3.4 Fertige Kommandos zum Kopieren](#34-fertige-kommandos-zum-kopieren)
 - [4. Verifikation am Target (2026-08-10)](#4-verifikation-am-target-2026-08-10)
+  - [4.1 Nachtrag: alle vier Modi funktional verifiziert](#41-nachtrag-alle-vier-modi-funktional-verifiziert-2026-08-10-später-am-tag)
 - [5. Messrezepte](#5-messrezepte)
   - [5.1 Sender-Compliance: Mode 1, 2, 3](#51-sender-compliance-mode-1-2-3)
   - [5.2 Mode 4 und TXD: den Bus *ohne* diesen Sender messen](#52-mode-4-und-txd-den-bus-ohne-diesen-sender-messen)
@@ -36,7 +42,11 @@
   - [5.4 Deterministischen Verkehr erzeugen](#54-deterministischen-verkehr-erzeugen)
 - [6. Betrieb und Sicherheit](#6-betrieb-und-sicherheit)
 - [7. Fallstricke und korrigierte Irrtümer](#7-fallstricke-und-korrigierte-irrtümer)
-- [8. Was hier fehlt — mögliche Ausbauschritte](#8-was-hier-fehlt--mögliche-ausbauschritte)
+  - [7.6 `lan_write_callback()` verwirft den `value`-Parameter](#76-lan_write_callback-verwirft-den-value-parameter)
+  - [7.7 RMW-Maske: `value` wird nicht maskiert](#77-rmw-maske-value-wird-nicht-maskiert)
+- [8. Ausbaustand und was noch fehlt](#8-ausbaustand-und-was-noch-fehlt)
+  - [8.1 Umgesetzt am 2026-08-10](#81-umgesetzt-am-2026-08-10)
+  - [8.2 Weiterhin offen](#82-weiterhin-offen)
 - [9. Referenzen](#9-referenzen)
 
 ---
@@ -46,7 +56,7 @@
 | Frage | Antwort |
 |---|---|
 | **Test-Modi über die CLI aktivierbar?** | **Ja, verifiziert.** `lan_write 0x000308FB 0x2000` → Readback `0x00002000` ([§4](#4-verifikation-am-target-2026-08-10)) |
-| **Firmware-Änderung nötig?** | **Nein.** Die Test-Modi sind reine Registerschreibzugriffe; `lan_read`/`lan_write` genügen |
+| **Firmware-Änderung nötig?** | **Nein.** Die Test-Modi sind reine Registerschreibzugriffe; `lan_read`/`lan_write` genügen. Komfort-Kommando `testmode` seit 2026-08-10 vorhanden |
 | **Indirekte Adressierung (Clause 22) nötig?** | **Nein.** Direkter MMS-3-Zugriff funktioniert |
 | **Welche Register?** | `0x000308FB` T1STSTCTL (Modi 1–4), `0x000308F9` T1SPMACTL (Loopback, TX-Disable), `0x000308FA` T1SPMASTS |
 | **Bricht das den Link?** | Ja — beabsichtigt. Der Steuerkanal bleibt, weil die CLI über UART läuft, nicht über T1S |
@@ -86,28 +96,36 @@ Register-CLI-Modul.
 
 | Element | Stelle | Bemerkung |
 |---|---|---|
-| `lan_read()` Kommando-Handler | [app.c:817](firmware/src/app.c#L817) | prüft Argumente, setzt nur den Zustand |
-| `lan_write()` Kommando-Handler | [app.c:836](firmware/src/app.c#L836) | dito, zusätzlich Wert |
-| `lan_read_callback()` | [app.c:271](firmware/src/app.c#L271) | übernimmt `success` + gelesenen Wert |
-| `lan_write_callback()` | [app.c:278](firmware/src/app.c#L278) | übernimmt `success` |
-| Zustandsmaschine | [app.c:432 ff.](firmware/src/app.c#L432) | im Zweig `APP_STATE_IDLE` der App-Task |
-| Treiberaufruf Lesen | [app.c:440](firmware/src/app.c#L440) | `DRV_LAN865X_ReadRegister(0, addr, true, …)` |
-| Treiberaufruf Schreiben | [app.c:470](firmware/src/app.c#L470) | `DRV_LAN865X_WriteRegister(0, addr, value, true, …)` |
+| `lan_read()` Kommando-Handler | [app.c:957](firmware/src/app.c#L957) | prüft Argumente, setzt nur den Zustand |
+| `lan_write()` Kommando-Handler | [app.c:976](firmware/src/app.c#L976) | dito, zusätzlich Wert |
+| `cmd_lan_rmw()` Kommando-Handler | [app.c:1000](firmware/src/app.c#L1000) | Read-Modify-Write, verifiziert maskiert |
+| `cmd_testmode()` Kommando-Handler | [app.c:1044](firmware/src/app.c#L1044) | Testmodus setzen/abfragen, mit Auto-Revert |
+| `lan_read_callback()` | [app.c:303](firmware/src/app.c#L303) | übernimmt `success` + gelesenen Wert |
+| `lan_write_callback()` | [app.c:310](firmware/src/app.c#L310) | übernimmt **nur** `success`, verwirft `value` — siehe [§7.6](#76-lan_write_callback-verwirft-den-value-parameter) |
+| `lan_rmw_callback()` | [app.c:319](firmware/src/app.c#L319) | übernimmt zusätzlich den zurückgeschriebenen Wert |
+| Zustandsmaschine | [app.c:469 ff.](firmware/src/app.c#L469) | im Zweig `APP_STATE_IDLE` der App-Task |
+| Treiberaufruf Lesen | [app.c:484](firmware/src/app.c#L484) | `DRV_LAN865X_ReadRegister(0, addr, true, …)` |
+| Treiberaufruf Schreiben | [app.c:540](firmware/src/app.c#L540) | `DRV_LAN865X_WriteRegister(0, addr, value, true, …)` |
+| Treiberaufruf RMW | [app.c:579](firmware/src/app.c#L579) | `DRV_LAN865X_ReadModifyWriteRegister(0, addr, value, mask, true, …)` |
 | Timeout-Konstante | [app.c:247](firmware/src/app.c#L247) | `APP_LAN_TIMEOUT_MS  200u` |
-| Zustands-Enum / -Variable | [app.c:249](firmware/src/app.c#L249) / [app.c:255](firmware/src/app.c#L255) | `APP_LAN_IDLE`, `APP_LAN_WAIT_READ`, `APP_LAN_WAIT_WRITE` |
-| Eintrag in `msd_cmd_tbl` | [app.c:995](firmware/src/app.c#L995) | Kommandogruppe `Test`, registriert in `Command_Init()` |
-| Hilfetext | [app.c:291](firmware/src/app.c#L291) | erscheint bei `help` |
+| Zustands-Enum / -Variable | [app.c:249](firmware/src/app.c#L249) / [app.c:256](firmware/src/app.c#L256) | `APP_LAN_IDLE`, `APP_LAN_WAIT_READ`, `APP_LAN_WAIT_WRITE`, `APP_LAN_WAIT_RMW` |
+| Eintrag in `msd_cmd_tbl` | [app.c:1245 ff.](firmware/src/app.c#L1245) | Kommandogruppe `Test`, registriert in `Command_Init()` |
+
+> **Zeilennummern altern.** Sie stimmen für den Stand vom 2026-08-10 (Commit mit `testmode`/`lan_rmw`).
+> Bei Abweichung nach Symbolnamen greppen, nicht der Zahl folgen.
 
 ### 2.2 Kommandos
 
 ```
 lan_read  <addr_hex>
 lan_write <addr_hex> <value_hex>
+lan_rmw   <addr_hex> <mask_hex> <value_hex>     # neu 2026-08-10, verifiziert maskiert
+testmode  [0..4] [sekunden]                     # neu 2026-08-10, verifiziert per Readback
 ```
 
 Die Kommandos gehören zur Gruppe **`Test`**. Wie im [README](README.md#cli-commands) vermerkt, ist
 das Gruppenpräfix **nicht erforderlich** — `lan_read 0x000308FB` funktioniert genauso wie
-`Test lan_read 0x000308FB`. Der Hilfetext in [app.c:301](firmware/src/app.c#L301) zeigt die
+`Test lan_read 0x000308FB`. Der Hilfetext in [app.c:345](firmware/src/app.c#L345) zeigt die
 Langform, das ist kein Widerspruch.
 
 **Erfolgsausgaben:**
@@ -324,12 +342,53 @@ anschließende Lesen. Damit ist belegt:
 |---|---|
 | Adressbildung für MMS 3 ist richtig | dass der Sender daraufhin das IEEE-Muster tatsächlich ausgibt |
 | Register ist beschreibbar und hält den Wert | Signalform, Pegel, Jitter, Spektrum |
-| Kein indirekter Zugriffspfad erforderlich | Verhalten der Modi 2, 3 und 4 (nur Mode 1 gesetzt) |
-| Reset-Default von T1SPMACTL ist `0x0000` | Wirkung von `LBE`/`TXD` |
+| Kein indirekter Zugriffspfad erforderlich | Wirkung von `LBE`/`TXD` |
+| Reset-Default von T1SPMACTL ist `0x0000` | |
 
 Der Registerpfad war die eigentliche Unsicherheit — die ist beseitigt. Was bleibt, ist eine reine
 Messaufgabe am MDI. Ein PHY, der den geschriebenen Modus zurückliest, hat ihn übernommen; ob das
 Sendesignal der Norm entspricht, entscheidet danach das Messgerät, nicht mehr das Register.
+
+### 4.1 Nachtrag: alle vier Modi funktional verifiziert (2026-08-10, später am Tag)
+
+Der obige Stand ließ „Verhalten der Modi 2, 3 und 4" offen, weil nur Mode 1 gesetzt worden war. Das
+ist inzwischen erledigt, und zwar **ohne Oszilloskop** — über eine Beobachtung, die den Readback um
+eine funktionale Stufe ergänzt.
+
+**Der Trick ist ein Oracle, das der Endpoint von selbst liefert.** Am T1S-Bus hängt ein Endpoint
+(`192.168.0.54`), der zyklisch **SOME/IP-SD-OFFER-Multicasts mit 1 Hz** sendet. Diese Frames laufen
+durch die Bridge und sind auf dem `eth1`-Adapter des PCs direkt sichtbar. Damit ergibt sich eine
+dreistufige Beweiskette je Modus:
+
+| Stufe | Beobachtung | Beweist |
+|---|---|---|
+| 1 | `[VERIFY] PASS` auf `T1STSTCTL`, maskiert mit `0xE000` | Adressbildung, Register hält den Wert |
+| 2 | Frames des Endpoints hören auf einzutreffen | Der PHY hat den Zustand **übernommen**, nicht nur gelatcht |
+| 3 | Frames kommen nach `testmode 0` wieder | Rückweg in den Normalbetrieb funktioniert vollständig |
+
+Stufe 2 ist der eigentliche Gewinn: sie schließt die Lücke zwischen „Register beschreibbar" und
+„Sender reagiert". Automatisiert in **`test_lan8651.py`** (Repo-Wurzel), das die Frames per `tshark`
+zählt und bei jeder Abweichung mit Exitcode ≠ 0 endet.
+
+**Ergebnis:** alle vier Modi bestehen alle drei Stufen — 19 Prüfungen, Exitcode 0.
+
+| Modus | `T1STSTCTL` | Readback | Verkehr während | Verkehr nach Revert |
+|---|---|---|---|---|
+| 1 | `0x00002000` | PASS | 0 Frames | 4 Frames / 4 s |
+| 2 | `0x00004000` | PASS | 0 Frames | 4 Frames / 4 s |
+| 3 | `0x00006000` | PASS | 0 Frames | 4 Frames / 4 s |
+| 4 | `0x00008000` | PASS | 0 Frames | 5 Frames / 4 s |
+
+Baseline vor dem Lauf: `T1STSTCTL = 0x00000000`, `PLCA_CTRL1 = 0x00000800` (Node-ID 0, Node-Count 8),
+4 Frames in 4 s.
+
+**Voraussetzung, ohne die Stufe 2 nichts aussagt: die Bridge muss PLCA-Coordinator sein (Node-ID 0).**
+Mit einem externen Coordinator dürfte der Endpoint weitersenden, und „kein Verkehr" wäre dann keine
+Aussage über *diesen* Sender. `test_lan8651.py` prüft das über `PLCA_CTRL1` und bricht sonst ab.
+
+Weiterhin **nicht** belegt: Signalform, Pegel, Jitter und Spektrum. Das bleibt Messaufgabe. Was jetzt
+zusätzlich belegt ist: der PHY wechselt in allen vier Modi tatsächlich seinen Sendezustand und kommt
+sauber zurück.
 
 ---
 
@@ -498,28 +557,72 @@ Architekturursache (gemeinsamer TC6-Pfad, kleine Queues) gilt aber unverändert 
 `LAN865X Write OK` bedeutet „Transaktion lief durch", nicht „Register hat den Wert". Bei jedem
 Test-Mode-Wechsel danach lesen. Kostet ein Kommando und erspart die Fehlersuche am falschen Ende.
 
+**Seit 2026-08-10 nimmt `testmode` einem das ab:** es hängt den Verify-Read selbst an den Write und
+gibt `[VERIFY] PASS`/`FAIL` aus. Für Handzugriffe mit `lan_write` gilt die Regel unverändert.
+
+### 7.6 `lan_write_callback()` verwirft den `value`-Parameter
+
+Beim Bau von `lan_rmw` zunächst `lan_write_callback` als Callback benutzt — der Treiber liefert dort
+laut [drv_lan865x.h:680](firmware/src/config/default/driver/lan865x/drv_lan865x.h#L680) für einen RMW
+**den tatsächlich zurückgeschriebenen Wert**, aber dieser Callback ignoriert `value`
+([app.c:310](firmware/src/app.c#L310)). Ergebnis: die Ausgabe zeigte `app_lan_reg_read_value`, also
+den Wert des *vorherigen* Lesezugriffs — beim Setzen von Mode 1 stand dort `0x00000000`, beim
+Zurückstellen `0x00002000`. Beides sah plausibel aus und war um eine Operation verschoben.
+
+**Lösung:** eigener `lan_rmw_callback()` ([app.c:319](firmware/src/app.c#L319)), der `value` in
+`app_lan_rmw_final` ablegt. **Merksatz:** ein Wert, der „fast richtig" aussieht, ist der gefährlichste
+— hier hat erst der Vergleich zweier aufeinanderfolgender Kommandos den Versatz sichtbar gemacht.
+
+### 7.7 RMW-Maske: `value` wird **nicht** maskiert
+
+Die Konvention des Treibers ist `neu = (alt & ~mask) | value`
+([tc6.c:691](firmware/src/config/default/driver/lan865x/src/dynamic/tc6/tc6.c#L691)). Der `value`
+wird dabei **nicht** mit der Maske verknüpft: Bits außerhalb der Maske landen ungefragt im Register.
+Wer `mask = 0xE000` und `value = 0x2001` übergibt, setzt zusätzlich Bit 0. `lan_rmw` warnt deshalb,
+wenn `value & ~mask` ungleich 0 ist, führt den Zugriff aber aus.
+
+Zweiter Punkt zur Verifikation von RMW-Zugriffen: **self-clearing Bits melden zu Recht `FAIL`.**
+`T1SPMACTL.RST` (Bit 15) liest nach dem Schreiben 0 zurück — das ist korrektes Verhalten, kein
+Fehler. Solche Bits nicht über den Verify-Pfad prüfen.
+
 ---
 
-## 8. Was hier fehlt — mögliche Ausbauschritte
+## 8. Ausbaustand und was noch fehlt
 
-Bewusst als Vorschläge notiert, **nicht umgesetzt**:
+### 8.1 Umgesetzt am 2026-08-10
 
-- **Ein `testmode`-Kommando.** Ein CLI-Befehl `testmode [0..4]`, der `TSTCTL` setzt, zurückliest und
-  dekodiert ausgibt, wäre bedienfreundlicher als hexadezimale Direktzugriffe und würde das
-  Aufräumen erzwingen (z. B. automatisches Zurückstellen nach einer Zeitspanne). Anzusiedeln bei den
-  übrigen Test-Kommandos in [app.c:995](firmware/src/app.c#L995).
-- **Read-Modify-Write in der CLI.** `DRV_LAN865X_ReadModifyWriteRegister()` ist im Treiber
-  vorhanden, aber nicht exponiert. Ein `lan_rmw <addr> <mask> <value>` würde die
-  T1SPMACTL-Bitfalle aus [§3.2](#32-t1spmactl--pma-control) entschärfen.
-- **SQI-Auslesung.** Die Init-Sequenz konfiguriert SQI bereits
-  (`0x000400B0 = 0x00000103` in
-  [drv_lan865x_api.c:1696](firmware/src/config/default/driver/lan865x/src/dynamic/drv_lan865x_api.c#L1696),
-  Read-Modify-Write auf `0x000400AD` bei
-  [Zeile 1863](firmware/src/config/default/driver/lan865x/src/dynamic/drv_lan865x_api.c#L1863)),
-  aber es gibt keinen Pfad, der einen SQI-Wert (0–7) auf der Konsole meldet. Für Dauerüberwachung
-  der Signalqualität wäre das die naheliegendste Ergänzung — und sie belastet den Bus nicht, im
-  Gegensatz zu Test-Modi.
+- **`testmode [0..4] [sekunden]`** — setzt `T1STSTCTL`, liest **automatisch zurück**, gibt
+  `[VERIFY] PASS`/`FAIL` und den dekodierten Modus aus. Ohne Argument nur Abfrage. Die optionale
+  Zeitangabe (1–600 s) bewaffnet einen Auto-Revert, damit ein vergessener Testmodus nicht später als
+  defekte Hardware erscheint. Umgesetzt in `app.c`; der Verify-Read ist als Followup an den
+  Write-Zustand der bestehenden Einzelslot-Maschine gehängt, es kam kein zweiter Mechanismus dazu.
+- **`lan_rmw <addr> <mask> <value>`** — exponiert `DRV_LAN865X_ReadModifyWriteRegister()` und
+  verifiziert anschließend maskiert. Damit ist die `T1SPMACTL`-Bitfalle aus
+  [§3.2](#32-t1spmactl--pma-control) entschärft.
+- **`test_lan8651.py`** — Host-Skript, das die dreistufige Beweiskette aus
+  [§4.1](#41-nachtrag-alle-vier-modi-funktional-verifiziert-2026-08-10-später-am-tag) automatisiert.
+
+Zwei Fallstricke, die dabei aufgefallen sind und in [§7](#7-fallstricke-und-korrigierte-irrtümer)
+ausführlicher stehen: die Masken-Konvention des Treibers ist `neu = (alt & ~mask) | value` — `value`
+wird **nicht** mit der Maske verknüpft; und `lan_write_callback()` verwirft den `value`-Parameter,
+weshalb ein RMW-Ergebnis, das diesen Callback benutzt, den *vorherigen* Lesewert anzeigt.
+
+### 8.2 Weiterhin offen
+
+- **SQI-Auslesung.** Bleibt offen, und zwar bewusst: **die frühere Behauptung an dieser Stelle, die
+  Init-Sequenz konfiguriere SQI bereits über `0x000400B0 = 0x00000103`, ist nicht belegt.** Eine
+  Prüfung des Treibers am 2026-08-10 ergibt, dass `0x000400B0`–`0x000400B4` Teil einer
+  undokumentierten Init-Tabelle sind (`MemOp_Write`-Einträge mit Magic-Werten, ohne jeden Bezug zu
+  SQI im Code — eine Suche nach „sqi" in `drv_lan865x_api.c` findet **nichts**). Auch `0x000400AD`
+  ist dort nur ein Config-Read ohne SQI-Label. Ein `sqi`-Kommando auf dieser Grundlage würde eine
+  Zahl liefern, deren Herkunft nicht nachweisbar ist — das ist schlechter als kein Kommando.
+  **Voraussetzung für eine Umsetzung: die Registerdefinition des SQI-Ergebnisses aus dem
+  LAN8650/51-Datenblatt.** Danach ist es ein reiner `lan_read`-Pfad und belastet den Bus nicht.
 - **Kabeldiagnose (CFD).** Ebenfalls in MMS 4 vorhanden, hier nicht angebunden.
+- **PMA-Loopback (`LBE`) funktional prüfen.** Registerseitig über `lan_rmw 0x000308F9 0x1 0x1`
+  jetzt bequem erreichbar, aber die Wirkung ist noch nicht nachgewiesen. Der Nachweis liefe über
+  `noip_send`/`noip_stat` statt über den Endpoint-Verkehr — offen ist dabei, ob der MAC ein Frame
+  mit der eigenen Source-MAC annimmt (`noip_send` sendet L2-Broadcast mit eigener MAC als Source).
 
 Im Arbeitsverzeichnis `c:\work\ptp\AN1847\t1s_100baset_bridge\firmware\T1S_100BaseT_Bridge.X\`
 existiert eine ältere, experimentelle Sammlung dazu: eine Tkinter-GUI mit Test-Mode-Reiter
