@@ -7,7 +7,7 @@ Ethernet, so any device on the T1S side becomes reachable — and reachable
 Ethernet switch. It ships with on-board diagnostics for the bridge itself
 (packet mirroring, register access, PLCA control, a raw-Ethernet loopback
 test, an `iperf` throughput tester) plus **persistent network/PLCA
-configuration** on an Emulated EEPROM (§5.2).
+configuration** on an Emulated EEPROM (§6.2).
 
 Unlike a USB-to-T1S dongle (which only gives the *host PC's own software* a
 window onto the bus), this bridge puts the T1S segment directly onto an IP
@@ -18,16 +18,25 @@ host machine in between.
 
 ---
 
+---
+
 ## Contents
 
 - [1. What this firmware is for](#1-what-this-firmware-is-for)
-- [2. Hardware setup](#2-hardware-setup)
+- [2. Features](#2-features)
+  - [Bridging (core function)](#bridging-core-function)
+  - [Diagnostics and bus analysis](#diagnostics-and-bus-analysis)
+  - [LAN8651 register and PHY access](#lan8651-register-and-phy-access-lan865x_diagc-portable-module)
+  - [Persistent configuration (`env` group)](#persistent-configuration-env-group-emulated-eeprom)
+  - [Throughput testing](#throughput-testing)
+  - [Host-side tooling and build system](#host-side-tooling-and-build-system)
+- [3. Hardware setup](#3-hardware-setup)
   - [Bridge board: bill of materials](#bridge-board-bill-of-materials)
   - [How `eth0` (LAN865x) is wired](#how-eth0-lan865x-is-wired-from-the-firmware-config)
   - [Network and addressing (default)](#network-and-addressing-default)
   - [Host PC: giving the `eth1` adapter a static address](#host-pc-giving-the-eth1-adapter-a-static-address)
   - [Console and cabling](#console-and-cabling)
-- [3. Firmware architecture](#3-firmware-architecture)
+- [4. Firmware architecture](#4-firmware-architecture)
   - [Block view](#block-view)
   - [The bridge data path](#the-bridge-data-path)
   - [Application state machine (`app.c`)](#application-state-machine-appc)
@@ -35,22 +44,22 @@ host machine in between.
   - [Port mirror and SPAN (Wireshark)](#port-mirror-and-span-wireshark)
   - [Throughput testing (iperf)](#throughput-testing-iperf)
   - [CLI commands](#cli-commands)
-- [4. Building it yourself](#4-building-it-yourself)
-- [5. Changing IP and PLCA configuration](#5-changing-ip-and-plca-configuration)
-  - [5.1 Persistent: edit the build config and rebuild](#51-persistent-edit-the-build-config-and-rebuild)
-  - [5.2 Persistent via the `env` CLI group (recommended)](#52-persistent-via-the-env-cli-group-recommended)
-  - [5.3 Volatile runtime via Harmony stack commands](#53-volatile-runtime-via-harmony-stack-commands--plca_node)
-- [6. Port mirror: capturing the T1S bus in Wireshark](#6-port-mirror-capturing-the-t1s-bus-in-wireshark)
-  - [6.1 Why a mirror is needed](#61-why-a-mirror-is-needed)
-  - [6.2 What gets mirrored (both directions, MAC-filtered)](#62-what-gets-mirrored-both-directions-mac-filtered)
-  - [6.3 Using it](#63-using-it)
-  - [6.4 Limitations](#64-limitations)
-  - [6.5 Where the code lives, and one fragile coupling](#65-where-the-code-lives-and-one-fragile-coupling)
-- [7. Throughput testing with iperf](#7-throughput-testing-with-iperf)
+- [5. Building it yourself](#5-building-it-yourself)
+- [6. Changing IP and PLCA configuration](#6-changing-ip-and-plca-configuration)
+  - [6.1 Persistent: edit the build config and rebuild](#61-persistent-edit-the-build-config-and-rebuild)
+  - [6.2 Persistent via the `env` CLI group (recommended)](#62-persistent-via-the-env-cli-group-recommended)
+  - [6.3 Volatile runtime via Harmony stack commands](#63-volatile-runtime-via-harmony-stack-commands--plca_node)
+- [7. Port mirror: capturing the T1S bus in Wireshark](#7-port-mirror-capturing-the-t1s-bus-in-wireshark)
+  - [7.1 Why a mirror is needed](#71-why-a-mirror-is-needed)
+  - [7.2 What gets mirrored (both directions, MAC-filtered)](#72-what-gets-mirrored-both-directions-mac-filtered)
+  - [7.3 Using it](#73-using-it)
+  - [7.4 Limitations](#74-limitations)
+  - [7.5 Where the code lives, and one fragile coupling](#75-where-the-code-lives-and-one-fragile-coupling)
+- [8. Throughput testing with iperf](#8-throughput-testing-with-iperf)
   - [Commands](#commands)
   - [`iperf` options](#iperf-options)
   - [Examples](#examples)
-- [8. Transmitter test modes](#8-transmitter-test-modes)
+- [9. Transmitter test modes](#9-transmitter-test-modes)
   - [The command](#the-command)
   - [Verifying without an oscilloscope](#verifying-without-an-oscilloscope)
   - [Further reading](#further-reading)
@@ -93,7 +102,100 @@ raw-Ethernet loopback test (`noip_send`), LAN865x register peek/poke
 
 ---
 
-## 2. Hardware setup
+## 2. Features
+
+### Bridging (core function)
+
+- Transparent 10BASE-T1S ↔ 100BASE-T Layer-2 bridge on the ATSAME54P20A:
+  `eth0` (LAN8651 T1S MAC-PHY) and `eth1` (GMAC + LAN8740A) joined into one L2
+  segment.
+- Hardware/stack-level forwarding via the Harmony MAC bridge (2 ports, 17-entry
+  FDB, dedicated packet pool) with MAC learning — no manual forwarding in
+  application code.
+- Bidirectional, protocol-agnostic: ARP, ICMP, mDNS, arbitrary IP traffic pass
+  both ways; a T1S node is reachable from the LAN exactly as if plugged into an
+  Ethernet switch.
+- Real internet reachability for T1S nodes — plug `eth1` into a DHCP/routed
+  network and every node on the two-wire segment can talk to outside servers,
+  with no PC, dongle driver, or host software in the path.
+
+### Diagnostics and bus analysis
+
+- **Port mirror / SPAN** (`mirror [0|1]`): copies T1S traffic to `eth1` for
+  Wireshark, in both directions — RX (endpoint replies addressed to the bridge)
+  and TX (the bridge's own outgoing frames, hooked at the LAN865x egress).
+  MAC-filtered so the capture is duplicate-free; verbatim L2 frames.
+- **Raw-frame test** (`noip_send <n> [gap_ms]`, `noip_stat`): deterministic
+  EtherType `0x88B5` frames (fixed 60 bytes, fixed payload, monotonic sequence,
+  chosen inter-frame gap) that bypass the TCP/IP stack — the best on-board
+  source for reproducible oscilloscope captures and for separating a bus problem
+  from an IP-config problem.
+- **Packet logging** (`ipdump [0..3]`, `logstat`, `logclear`): deferred
+  ring-buffer RX dump per interface, drained ≤10 entries per loop iteration so
+  logging never stalls the superloop.
+- **Counters and memory** (`stats`, `meminfo`, `dump <addr> <count>`):
+  per-interface TX/RX counters that don't touch the SPI path, plus C-runtime and
+  TCP/IP heap figures.
+
+### LAN8651 register and PHY access (`lan865x_diag.c`, portable module)
+
+- Generic register peek/poke (`lan_read`, `lan_write`) across all MMS banks,
+  address = `MMS<<16 | offset`.
+- Read-modify-write with masked verify (`lan_rmw <addr> <mask> <val>`), for
+  registers where several control bits share one word (e.g. `T1SPMACTL`).
+- IEEE 802.3-2022 §147.5.2 transmitter test modes (`testmode [0..4] [seconds]`):
+  output voltage/jitter, droop, PSD mask, high impedance — each set with
+  automatic readback verification (`[VERIFY] PASS/FAIL`), decoded mode display,
+  and an optional auto-revert timeout so a forgotten test mode can't strand the
+  link.
+- PLCA node-ID control (`plca_node [id]`, 0 = coordinator), volatile runtime
+  path.
+- Self-contained and portable: two files, depends only on the LAN865x driver
+  plus SYS_CMD/SYS_TIME/SYS_CONSOLE; drops into another project with one init
+  and one tasks call.
+
+### Persistent configuration (`env` group, Emulated EEPROM)
+
+- Versioned, CRC-protected record in the last 16 KB of flash: per-interface
+  IP/mask/gateway/DNS, both MACs, PLCA node id/count.
+- CLI-editable, no rebuild (`showenv`, `setenv`, `saveenv`, `readenv`,
+  `resetenv`) — IP and PLCA apply live, MAC at next reset.
+- Loaded before the stack: `ENV_Init()` runs ahead of `TCPIP_STACK_Init()`, so a
+  persisted MAC is in effect when interfaces bind.
+- Per-board unique MAC derived from the SAME54's 128-bit serial number, seeded
+  on first boot from the compiled defaults — one firmware image, distinct
+  boards.
+- Survives reflash (emulated EEPROM lies outside the hex image).
+
+### Throughput testing
+
+- Built-in iperf2-compatible tester (`iperf`, `iperfk`, `iperfi`, `iperfs`):
+  TCP/UDP, server or client, bandwidth/duration/datagram-size/MSS/ToS options —
+  measures end-to-end throughput across the bridge path (PC → `eth1` → MAC
+  bridge → `eth0` → endpoint).
+
+### Host-side tooling and build system
+
+- `build.bat` / `flash.bat` / `setup.bat`: headless MPLAB-X build wrapper plus a
+  pyOCD flasher with probe auto-detect — no MPLAB X needed just to program the
+  board.
+- Committed HEX under `release/` — a fresh clone can flash without building.
+- Build summary after every build (flash/RAM usage, heap, interrupt handlers).
+- `cli.py` — send CLI commands and collect answers over the EDBG COM port
+  (115200 8N1).
+- Automated test scripts with non-zero exit on failure:
+  - `test_lan8651.py` — verifies all four test modes on three independent levels
+    (register readback, endpoint traffic stops, traffic resumes), using the
+    endpoint's own periodic frames counted by `tshark` as the oracle; enforces
+    PLCA-coordinator role and always restores normal operation.
+  - `test_mirror.py` — guards the fragile MCC-generated TX-mirror patch (mirror
+    off = 0 frames, on = both directions).
+  - `smoketest.py` — bridge reachability, L2 forwarding to the endpoint, and
+    console liveness.
+
+---
+
+## 3. Hardware setup
 
 The bridge node is built from a Microchip SAM E54 Curiosity board with one
 MikroElektronika Click add-on. Whatever device(s) sit on the T1S side is a
@@ -162,7 +264,7 @@ including to servers outside the local network.
 > **PLCA coordinator.** If the T1S side is meant to run with this board as
 > coordinator, set the node id to **0** (`plca_node 0` at runtime, or
 > `DRV_LAN865X_PLCA_NODE_ID_IDX0` in `configuration.h` for a persistent
-> change) — see [§5](#5-changing-ip-and-plca-configuration).
+> change) — see [§6](#6-changing-ip-and-plca-configuration).
 
 ### Host PC: giving the `eth1` adapter a static address
 
@@ -225,7 +327,7 @@ ping 192.168.0.200     # eth0 (LAN865x) answers -> the bridge really forwards to
 
 If the first succeeds and the second does not, the problem is no longer on the
 host side: check `stats` and the PLCA configuration
-([§5](#5-changing-ip-and-plca-configuration)).
+([§6](#6-changing-ip-and-plca-configuration)).
 
 ### Console and cabling
 
@@ -240,7 +342,7 @@ host side: check `stats` and the PLCA configuration
 
 ---
 
-## 3. Firmware architecture
+## 4. Firmware architecture
 
 Built on **MPLAB Harmony 3** for the ATSAME54P20A. Single-threaded cooperative
 superloop (`SYS_Tasks()` in `main.c`); no RTOS, no threads, no locks.
@@ -296,7 +398,7 @@ single-producer/consumer pattern (handlers write, `APP_Tasks` reads).
 
 ### Persistent config (`env.c`, Emulated EEPROM)
 
-*(Full walkthrough in [§5.2](#52-persistent-via-the-env-cli-group-recommended).)*
+*(Full walkthrough in [§6.2](#62-persistent-via-the-env-cli-group-recommended).)*
 
 A versioned, CRC-protected record (per-interface IP/mask/gateway/DNS, both
 MACs, PLCA node id/count) lives in the **Emulated EEPROM** Harmony library
@@ -309,7 +411,7 @@ including a per-board MAC derived from the SAME54's serial number.
 
 ### Port mirror and SPAN (Wireshark)
 
-*(Full walkthrough and limitations in [§6](#6-port-mirror-capturing-the-t1s-bus-in-wireshark).)*
+*(Full walkthrough and limitations in [§7](#7-port-mirror-capturing-the-t1s-bus-in-wireshark).)*
 
 `mirror 1` turns on two clone paths so a PC capture on `eth1` sees the full T1S
 picture, each filtered by the bridge's own `eth0` MAC to stay duplicate-free:
@@ -324,7 +426,7 @@ picture, each filtered by the bridge's own `eth0` MAC to stay duplicate-free:
 
 ### Throughput testing (iperf)
 
-*(Full option reference and examples in [§7](#7-throughput-testing-with-iperf).)*
+*(Full option reference and examples in [§8](#8-throughput-testing-with-iperf).)*
 
 `iperf`/`iperfk`/`iperfi`/`iperfs` are the Harmony TCP/IP stack's **built-in**
 iperf2-protocol-compatible throughput tester (`library/tcpip/src/iperf.c`,
@@ -361,7 +463,7 @@ captures and for separating a bus problem from an IP-configuration problem:
 | `noip_stat` | TX/RX counters, independent of any protocol state |
 
 **`span` group** — the eth0 → eth1 port mirror, in
-[`port_mirror.c`](firmware/src/port_mirror.c) (see [§6.5](#65-where-the-code-lives-and-one-fragile-coupling)):
+[`port_mirror.c`](firmware/src/port_mirror.c) (see [§7.5](#75-where-the-code-lives-and-one-fragile-coupling)):
 
 | Command | Description |
 |---|---|
@@ -375,12 +477,12 @@ self-contained [`lan865x_diag.c`](firmware/src/lan865x_diag.c) module rather tha
 | Command | Description |
 |---|---|
 | `lanhelp` | list these commands with a short usage reminder |
-| `plca_node [id]` | get/set PLCA node id (0 = coordinator); no arg = show current — **volatile**, see [§5.3](#53-volatile-runtime-via-harmony-stack-commands--plca_node) |
+| `plca_node [id]` | get/set PLCA node id (0 = coordinator); no arg = show current — **volatile**, see [§6.3](#63-volatile-runtime-via-harmony-stack-commands--plca_node) |
 | `lan_read <addr>` / `lan_write <addr> <val>` | LAN865x register access (hex) |
 | `lan_rmw <addr> <mask> <val>` | read-modify-write a single register, then verify it: `new = (old & ~mask) \| val`. For registers where several control bits share one word, e.g. `T1SPMACTL` |
-| `testmode [0..4] [seconds]` | select an IEEE 802.3-2022 §147.5.2 transmitter test mode, verified by readback; no argument shows the current mode. The optional timeout reverts to normal operation on its own — see [§8](#8-transmitter-test-modes) |
+| `testmode [0..4] [seconds]` | select an IEEE 802.3-2022 §147.5.2 transmitter test mode, verified by readback; no argument shows the current mode. The optional timeout reverts to normal operation on its own — see [§9](#9-transmitter-test-modes) |
 
-**`env` group** — persistent config on the Emulated EEPROM (see [§5.2](#52-persistent-via-the-env-cli-group-recommended)):
+**`env` group** — persistent config on the Emulated EEPROM (see [§6.2](#62-persistent-via-the-env-cli-group-recommended)):
 
 | Command | Description |
 |---|---|
@@ -390,7 +492,7 @@ self-contained [`lan865x_diag.c`](firmware/src/lan865x_diag.c) module rather tha
 | `readenv` | reload from EEPROM and apply (discard unsaved edits) |
 | `resetenv` | restore the compiled defaults, persist and apply |
 
-**`iperf` group** — Harmony's built-in throughput tester (see [§7](#7-throughput-testing-with-iperf)):
+**`iperf` group** — Harmony's built-in throughput tester (see [§8](#8-throughput-testing-with-iperf)):
 
 | Command | Description |
 |---|---|
@@ -404,22 +506,22 @@ also available.
 
 ---
 
-## 4. Building it yourself
+## 5. Building it yourself
 
 This is a plain **MPLAB X** project (no CMake/Ninja) with a thin shell wrapper
 around MPLAB X's own build, plus a **pyOCD**-based flash tool (no MDB/MPLAB X
 needed just to program the board).
 
-### 4.1 Tool prerequisites (per machine)
+### 5.1 Tool prerequisites (per machine)
 
 | Requirement | Notes |
 |---|---|
-| **MPLAB X IDE** | needed once to generate the project's build files (see 4.2) and for the SAME54_DFP device pack |
+| **MPLAB X IDE** | needed once to generate the project's build files (see 5.2) and for the SAME54_DFP device pack |
 | **MPLAB XC32** | this firmware was built with XC32 v4.60, under `C:\Program Files\Microchip\xc32\` |
 | **Python 3.9+** | `pyserial` for `cli.py`/`smoketest.py`, `pyocd` for `flash.bat` (installed by setup) |
 | **Terminal** | the board's EDBG virtual COM port, 115200 8N1 |
 
-### 4.2 One-time setup after cloning
+### 5.2 One-time setup after cloning
 
 ```bat
 git clone https://github.com/zabooh/t1s_100baset_bridge.git
@@ -442,7 +544,7 @@ generated Makefile headlessly afterwards. So once per machine:
 
 After that, `build.bat` works without reopening the IDE.
 
-### 4.3 Build and flash
+### 5.3 Build and flash
 
 ```bat
 build.bat            :: incremental build  (build.bat rebuild = clean build, build.bat help)
@@ -468,7 +570,7 @@ SWD with **pyOCD** and resets the board so it starts immediately.
 `flash.bat --list` lists connected probes; `install.bat` checks/installs
 pyOCD and reports whether a probe and the device pack are visible.
 
-### 4.4 Smoke test
+### 5.4 Smoke test
 
 After flashing, verify the bridge end to end from the PC:
 
@@ -485,7 +587,7 @@ bridge), and — if `--com` is given — that the on-board console answers
 
 ### First bring-up checklist
 
-1. `setup.bat` → open+build once in MPLAB X (4.2) → `build.bat` → `flash.bat`.
+1. `setup.bat` → open+build once in MPLAB X (5.2) → `build.bat` → `flash.bat`.
 2. Open the EDBG COM port at 115200 8N1; you should see the build banner.
 3. `stats` — confirm `eth0`/`eth1` exist and counters move.
 4. `plca_node` — reports the configured node id.
@@ -494,19 +596,19 @@ bridge), and — if `--com` is given — that the on-board console answers
 
 ---
 
-## 5. Changing IP and PLCA configuration
+## 6. Changing IP and PLCA configuration
 
 The IP addresses (`eth0` = 192.168.0.200, `eth1` = 192.168.0.210) and the PLCA
 parameters can be changed two ways:
 
-- **Persistent, no rebuild — the `env` command group (§5.2).** Backed by the
-  Emulated EEPROM (see [§3](#3-firmware-architecture)); survives reset/power-cycle.
+- **Persistent, no rebuild — the `env` command group (§6.2).** Backed by the
+  Emulated EEPROM (see [§4](#4-firmware-architecture)); survives reset/power-cycle.
   This is the recommended way to change a board's config.
-- **Persistent, requires rebuild — edit `configuration.h` (§5.1).** Only
+- **Persistent, requires rebuild — edit `configuration.h` (§6.1).** Only
   matters for the *compiled-in* defaults that `env` seeds a blank/freshly
   flashed EEPROM from (`resetenv` also restores these).
 
-### 5.1 Persistent: edit the build config and rebuild
+### 6.1 Persistent: edit the build config and rebuild
 
 All defaults live in **`firmware/src/config/default/configuration.h`** (an
 MCC-generated file). Edit the macros, then rebuild + reflash in MPLAB X.
@@ -516,7 +618,7 @@ MCC-generated file). Edit the macros, then rebuild + reflash in MPLAB X.
 | eth0 (T1S) IP | `TCPIP_NETWORK_DEFAULT_IP_ADDRESS_IDX0` | `"192.168.0.200"` |
 | eth0 subnet mask | `TCPIP_NETWORK_DEFAULT_IP_MASK_IDX0` | `"255.255.255.0"` |
 | eth0 gateway | `TCPIP_NETWORK_DEFAULT_GATEWAY_IDX0` | `"192.168.0.1"` |
-| eth0 MAC | `TCPIP_NETWORK_DEFAULT_MAC_ADDR_IDX0` | `"00:04:25:01:02:03"` (fallback only — `env` derives the real per-board MAC from the SAME54 serial number, see §3) |
+| eth0 MAC | `TCPIP_NETWORK_DEFAULT_MAC_ADDR_IDX0` | `"00:04:25:01:02:03"` (fallback only — `env` derives the real per-board MAC from the SAME54 serial number, see §4) |
 | eth1 (100BASE-T) IP | `TCPIP_NETWORK_DEFAULT_IP_ADDRESS_IDX1` | `"192.168.0.210"` |
 | eth1 subnet mask | `TCPIP_NETWORK_DEFAULT_IP_MASK_IDX1` | `"255.255.255.0"` |
 | eth1 gateway | `TCPIP_NETWORK_DEFAULT_GATEWAY_IDX1` | `"192.168.0.1"` |
@@ -541,7 +643,7 @@ Two consequences worth knowing before you edit anything here:
   effect at all.
 - Run **`showenv`** to see what is actually in effect. To make macro changes take
   hold, either `resetenv` (drops the stored record) or set the value directly
-  with `setenv` + `saveenv` as described in §5.2 — the latter needs no rebuild
+  with `setenv` + `saveenv` as described in §6.2 — the latter needs no rebuild
   and is the faster route for a single value.
 
 > **Keep both interfaces on the same subnet as the endpoint and the PC**, since
@@ -556,7 +658,7 @@ Two consequences worth knowing before you edit anything here:
 > be overwritten — in that case make the change in the MCC project (TCP/IP
 > network config / LAN865x PLCA) instead.
 
-### 5.2 Persistent via the `env` CLI group (recommended)
+### 6.2 Persistent via the `env` CLI group (recommended)
 
 The `env` group (`env.c`) keeps a versioned, CRC-protected copy of the
 per-interface IP/mask/gateway/DNS, both MACs, and the PLCA node id/count in
@@ -567,8 +669,8 @@ already in effect when the stack binds its interfaces.
 
 On first boot (blank/corrupt EEPROM, e.g. right after flashing this firmware
 for the first time) `ENV_Init()` seeds the record from the `configuration.h`
-defaults (§5.1) — including a **per-board MAC** derived from the SAME54's
-128-bit serial number (see [§3](#persistent-config-envc-emulated-eeprom)), so
+defaults (§6.1) — including a **per-board MAC** derived from the SAME54's
+128-bit serial number (see [§4](#persistent-config-envc-emulated-eeprom)), so
 every board is unique from one firmware image.
 
 #### `setenv` keys
@@ -682,12 +784,12 @@ Same principle as the transmitter test modes: the readback decides, not the
 confirmation message. Do not poll this during a throughput test — register
 access shares the SPI/TC6 service path with the data path.
 
-The `Test` group's own bare `plca_node <id>` (§5.3) is a separate, quicker path
+The `Test` group's own bare `plca_node <id>` (§6.3) is a separate, quicker path
 for trying a node id **without** touching the EEPROM at all — but it is
 volatile, and is lost on the next reset, including the one `flash.bat` performs
 after programming.
 
-### 5.3 Volatile runtime via Harmony stack commands / `plca_node`
+### 6.3 Volatile runtime via Harmony stack commands / `plca_node`
 
 The Harmony TCP/IP stack commands and `plca_node` (in the `Test` group) let
 you try a value without touching the EEPROM at all. Run `netinfo` first to
@@ -704,19 +806,19 @@ plca_node                                  # (no arg) read back the current node
 
 > ⚠️ **These specific commands are volatile.** Anything set with `setip`/
 > `setgw`/bare `plca_node <id>` is lost on the next reset or power-cycle — the
-> board boots back to whatever `env` has persisted (§5.2), which itself
-> defaults to the `configuration.h` values (§5.1) on a blank EEPROM. Use these
+> board boots back to whatever `env` has persisted (§6.2), which itself
+> defaults to the `configuration.h` values (§6.1) on a blank EEPROM. Use these
 > only to try a value before persisting it with `setenv`/`saveenv`.
 
 ---
 
-## 6. Port mirror: capturing the T1S bus in Wireshark
+## 7. Port mirror: capturing the T1S bus in Wireshark
 
 The `mirror` command turns the bridge into a SPAN/monitor port: it copies T1S
 (`eth0`) traffic onto `eth1` so a PC running Wireshark on its Fast-Ethernet
 adapter can see the two-wire bus.
 
-### 6.1 Why a mirror is needed
+### 7.1 Why a mirror is needed
 
 Two things are otherwise invisible to a PC capture on `eth1`:
 
@@ -731,7 +833,7 @@ The mirror reconstructs **both** directions onto `eth1`, protocol-independent,
 so a firmware-originated `ping` to the endpoint is visible in full (request
 *and* reply).
 
-### 6.2 What gets mirrored (both directions, MAC-filtered)
+### 7.2 What gets mirrored (both directions, MAC-filtered)
 
 Both directions are cloned to `eth1`, but each is **filtered by the bridge's
 own `eth0` MAC** so the capture is **duplicate-free** — frames the MAC bridge
@@ -766,7 +868,7 @@ for `eth1` and leaves the bus frame for normal local/bridge processing.
 > *through* the bridge is not mirrored — the PC already has both halves on
 > `eth1`.)
 
-### 6.3 Using it
+### 7.3 Using it
 
 1. On the PC, start **Wireshark** on the Fast-Ethernet adapter connected to
    the bridge's `eth1` (the LAN8740A PHY Daughter Board's RJ45).
@@ -782,7 +884,7 @@ ping 192.168.0.54        # now visible on eth1 in Wireshark: request + reply
 mirror 0                # turn it off when done
 ```
 
-### 6.4 Limitations
+### 7.4 Limitations
 
 - **Exact L2 frames:** both directions clone the real Ethernet frame verbatim
   (header + payload), so MACs and checksums are exactly what went on the wire.
@@ -793,14 +895,14 @@ mirror 0                # turn it off when done
   The bridge/stack frames involved are single-segment; a hypothetical
   multi-segment frame would be truncated.
 - **Broadcast/multicast received on `eth0` is not mirrored** — the bridge
-  already forwards it to `eth1`, where the PC sees it natively (see §6.2).
+  already forwards it to `eth1`, where the PC sees it natively (see §7.2).
 - Mirroring adds one cloned `eth1` transmit per matching frame. It is meant
   for diagnostics — leave it **off** for normal bridging to avoid the extra
   load.
-- Mirror state is a runtime toggle (like the §5.2 CLI settings) and defaults
+- Mirror state is a runtime toggle (like the §6.2 CLI settings) and defaults
   to **off** on every boot.
 
-### 6.5 Where the code lives, and one fragile coupling
+### 7.5 Where the code lives, and one fragile coupling
 
 The mirror is a separate module,
 [`firmware/src/port_mirror.c`](firmware/src/port_mirror.c) /
@@ -835,7 +937,7 @@ reusable in another Harmony two-port bridge — adapt `MIRROR_SRC_IF` /
 
 ---
 
-## 7. Throughput testing with iperf
+## 8. Throughput testing with iperf
 
 `iperf`/`iperfk`/`iperfi`/`iperfs` are **not** a bridge-specific feature —
 they're the Harmony TCP/IP stack's own built-in throughput tester
@@ -911,7 +1013,7 @@ the roles reversed — e.g. `iperf -s` on the board, then
 
 ---
 
-## 8. Transmitter test modes
+## 9. Transmitter test modes
 
 > **Full guide: [`LAN8651_TEST_MODES.md`](LAN8651_TEST_MODES.md)** — what each mode
 > qualifies, how to probe and set up the measurement on the bus, what to disconnect
