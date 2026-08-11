@@ -235,6 +235,8 @@ vorher abklemmt, generischer Registerweg gegenüber den Komfort-Kommandos, Messp
 | IEEE-Test-Modi | `testmode [0..4] [sek]` | setzt + verifiziert + dekodiert, optionaler Auto-Revert |
 | Einzelne Bits setzen | `lan_rmw <addr> <mask> <val>` | `neu = (alt & ~mask) \| val`, danach maskierter Verify |
 | Test-Modi automatisch prüfen | `python test_lan8651.py --port COM8` | Readback + Verkehr-stoppt + Verkehr-kommt-wieder, Exitcode ≠ 0 bei Abweichung |
+| Mirror prüfen (Stackweg) | `python test_mirror.py` | nach jedem MCC „Generate Code", siehe Abschnitt 6 |
+| Mirror prüfen (Rohweg) | `python test_rawtx_mirror.py` | `MIRROR_RawTx()`: `mirror 0` → 0 Frames, `mirror 1` → Frames mit aufsteigender Sequenz |
 | Endpoint-Verkehr zählen | `tshark` auf dem `eth1`-Adapter | der Endpoint sendet SOME/IP-SD mit 1 Hz von selbst — bestes Oracle ohne Messgerät |
 | Rohe Ethernet-Frames | `noip_send <n> [gap_ms]` / `noip_stat` | EtherType `0x88B5`, umgeht den TCP/IP-Stack — **bestes Mittel für reproduzierbare Scope-Bilder** |
 | SPAN nach `eth1` | `mirror [0\|1]` | T1S-Verkehr in Wireshark mitlesen |
@@ -351,6 +353,28 @@ Erst zurückstellen, dann Verkehr messen.
   weil der Aufrufer den Frame gebaut hat. Der frühere Rat, dafür die private
   `mirror_ethpkt_to_eth1()` zu rufen, ist damit überholt. **Merksatz:**
   „die Bridge flutet Broadcasts" gilt für *durchlaufenden* Verkehr, nicht für selbst erzeugten.
+- **2026-08-11 — `MIRROR_RawTx()` ist auf der Hardware verifiziert (Branch `ptp-time-sync`),
+  Regressionstest `python test_rawtx_mirror.py`.** Gemessen
+  mit `tshark` auf dem `eth1`-Adapter: bei `mirror 0` kommen **0** Frames an, bei `mirror 1` erscheinen
+  sie mit Quell-MAC `00:04:25:ca:ce:d9` (der eigenen), `eth.type 0x88b5`, aufsteigender Sequenznummer
+  im Payload und Abständen von 99,78/99,85/99,89 ms bei kommandierten 100 ms. Damit steht der
+  Aufnahmeweg, auf dem die ganze PTP-Teststrategie aufsetzt. **Zwei Einschränkungen mitlesen:** die
+  Zeitstempel auf `eth1` datieren den **Mirror-Klon**, nicht den T1S-Abgang; und der Klon ist
+  best-effort (bei belegtem Packet-Pool fällt er aus) — über Kadenz deshalb nach dem **Median** der
+  Abstände urteilen, nie nach dem Maximum.
+- **2026-08-11 — `noip_send` bekommt pro Kommando nie mehr als 5 Frames weg, egal was man anfordert.**
+  `NOIP_MAX_COUNT 100u` verspricht mehr, als der Weg hergibt: `noip_send 6 0`, `noip_send 20 0` und
+  `noip_send 5 200` zeigen reproduzierbar `[NoIP-TX] send failed at seq=…` **beim sechsten** Frame,
+  unabhängig vom `gap_ms`. Ursache ist nicht der Bus, sondern die Rohsende-Queue:
+  `TC6_TX_ETH_QSIZE = 4` (`tc6-conf.h:131`) — ein Frame geht über das `serviceData()` innerhalb von
+  `TC6_SendRawEthernetPacket()` (`tc6.c:280`) synchron raus, vier belegen die Queue, das sechste wird
+  abgewiesen. Geleert wird die Queue erst, wenn die Hauptschleife `SYS_Tasks()` wieder bedient
+  (`main.c:45`), und der Busy-Wait in `cmd_noip_send()` bedient **nichts** — die Schleife kehrt nie
+  zurück, also läuft der Puffer voll. **Konsequenz für jeden neuen Rohsender (PTP-Grandmaster!):
+  höchstens ein bis zwei Frames pro Task-Durchlauf, dann zurück in die Hauptschleife**, statt in einer
+  Schleife zu senden; genau das schreibt `PTP_IMPLEMENTATION_PLAN.md` §1.3 vor. Am `noip_test.c`
+  selbst ist bisher **nichts** geändert (offen: `NOIP_MAX_COUNT` auf 5 begrenzen oder den Treiber im
+  Warten bedienen).
 
 ---
 

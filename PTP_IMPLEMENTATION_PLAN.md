@@ -107,6 +107,15 @@ darf — *ob* gesendet wird, *wie oft*, und *ob das einen Reset überlebt*.
 nächsten Zyklus und setzt die `sequenceId` **nicht** zurück; ein Follower, der die Sequenz beobachtet,
 sieht dadurch keine Lücke.
 
+> **Das ist keine Stilfrage, sondern am 2026-08-11 nachgemessen.** Der Rohsende-Weg hat eine Queue
+> von vier Einträgen (`TC6_TX_ETH_QSIZE = 4` in `tc6-conf.h`), und geleert wird sie erst, wenn die
+> Hauptschleife den Treiber wieder bedient. Eine Sendeschleife, die nicht zurückkehrt, bekommt
+> deshalb **genau fünf Frames weg** — eines geht synchron über das `serviceData()` innerhalb von
+> `TC6_SendRawEthernetPacket()` raus, vier belegen die Queue, das sechste scheitert. `noip_send 20`
+> bricht reproduzierbar beim sechsten ab, unabhängig vom `gap_ms` (der Busy-Wait bedient nichts).
+> Für den Grandmaster heißt das: **höchstens ein `Sync` + ein `Follow_Up` pro Task-Durchlauf**, dann
+> zurück in die Hauptschleife. Zwei Frames passen bequem, ein Burst nicht.
+
 > **Ein Nebeneffekt, der beim Testen mit fremden Werkzeugen auffällt:** das Feld
 > `logMessageInterval` im `Sync`-Frame ist ein **Zweierlogarithmus** und kann ein beliebiges
 > Millisekundenintervall gar nicht ausdrücken. Der eigene Servo braucht es nicht — er misst den
@@ -409,3 +418,4 @@ schuld ist. Die Stufung als Tabelle steht in
 | Mitschnittweg angenommen statt gebaut | leerer Mitschnitt wird als „Grandmaster sendet nicht" gelesen, Fehlersuche am falschen Ende | **erledigt:** `MIRROR_RawTx()` steht und `noip_send` nutzt ihn, siehe 1.6. Default trotzdem über den Zähler prüfen, nicht über Stille |
 | `mirror 1` vergessen, bevor gemessen wird | derselbe leere Mitschnitt, derselbe Fehlschluss | `test_ptp.py` setzt den Schalter selbst und prüft die Antwortzeile, siehe 1.7 |
 | Kadenz gegen den größten Frameabstand geprüft | eine fehlende best-effort-Klonkopie lässt einen korrekten Grandmaster durchfallen | über den Median urteilen, Toleranz großzügig, siehe 1.7 |
+| Mehrere Frames in einer Schleife senden, ohne zur Hauptschleife zurückzukehren | ab dem sechsten Frame `send failed`, Rohsende-Queue hat vier Plätze | ein `Sync` + ein `Follow_Up` je `PTP_GM_Tasks()`-Durchlauf, siehe 1.3 |
