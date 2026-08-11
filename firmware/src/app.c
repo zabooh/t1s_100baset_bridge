@@ -46,6 +46,13 @@
 #include "noip_test.h"
 #include "ptp_gm.h"
 
+/* Banner printed once at start-up and by the 'timestamp' command. It names the
+ * firmware and the role, because a demo runs two boards side by side and the
+ * console is the only thing that tells them apart. */
+#define APP_FW_NAME   "T1S Bridge + PTP Grandmaster"
+#define APP_FW_ROLE   "10BASE-T1S (eth0) <-> 100BASE-T (eth1) L2 bridge, PTP master on eth0"
+#define APP_FW_HELP   "help | lanhelp | ptp status | mirror | stats | showenv"
+
 
 // *****************************************************************************
 // *****************************************************************************
@@ -283,10 +290,11 @@ static void cmd_stats(SYS_CMD_DEVICE_NODE* pCmdIO, int argc, char** argv) {
 
 // Timestamp command to show build info
 static void show_timestamp(SYS_CMD_DEVICE_NODE* pCmdIO, int argc, char** argv) {
-    SYS_CONSOLE_PRINT("======================================\n\r");
-    SYS_CONSOLE_PRINT("T1S Packet Sniffer - Build Info\n\r");
-    SYS_CONSOLE_PRINT("Build Timestamp: "__DATE__" "__TIME__"\n\r");
-    SYS_CONSOLE_PRINT("======================================\n\r");
+    SYS_CONSOLE_PRINT("======================================================\n\r");
+    SYS_CONSOLE_PRINT(" %s\n\r", APP_FW_NAME);
+    SYS_CONSOLE_PRINT(" %s\n\r", APP_FW_ROLE);
+    SYS_CONSOLE_PRINT(" Build: "__DATE__" "__TIME__"\n\r");
+    SYS_CONSOLE_PRINT("======================================================\n\r");
 }
 
 bool TelnetAuthenticationHandler(const char* user, const char* password, const TCPIP_TELNET_CONN_INFO* pInfo, const void* hParam) {
@@ -368,9 +376,12 @@ void APP_Tasks(void) {
 
         case APP_STATE_SERVICE_TASKS:
         {
-            SYS_CONSOLE_PRINT("======================================\n\r ");
-            SYS_CONSOLE_PRINT("T1S Packet Sniffer\n\r ");
-            SYS_CONSOLE_PRINT("Build Timestamp: "__DATE__" "__TIME__"\n\r" );
+            SYS_CONSOLE_PRINT("\n\r======================================================\n\r");
+            SYS_CONSOLE_PRINT(" %s\n\r", APP_FW_NAME);
+            SYS_CONSOLE_PRINT(" %s\n\r", APP_FW_ROLE);
+            SYS_CONSOLE_PRINT(" Build: "__DATE__" "__TIME__"\n\r");
+            SYS_CONSOLE_PRINT(" Commands: %s\n\r", APP_FW_HELP);
+            SYS_CONSOLE_PRINT("======================================================\n\r");
             TCPIP_NET_HANDLE eth0_net_hd = TCPIP_STACK_IndexToNet(0);
             TCPIP_STACK_PacketHandlerRegister(eth0_net_hd, pktEth0Handler, MyEth0HandlerParam);
             TCPIP_NET_HANDLE eth1_net_hd = TCPIP_STACK_IndexToNet(1);

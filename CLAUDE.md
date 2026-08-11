@@ -237,6 +237,8 @@ vorher abklemmt, generischer Registerweg gegenüber den Komfort-Kommandos, Messp
 | Test-Modi automatisch prüfen | `python test_lan8651.py --port COM8` | Readback + Verkehr-stoppt + Verkehr-kommt-wieder, Exitcode ≠ 0 bei Abweichung |
 | Mirror prüfen (Stackweg) | `python test_mirror.py` | nach jedem MCC „Generate Code", siehe Abschnitt 6 |
 | Mirror prüfen (Rohweg) | `python test_rawtx_mirror.py` | `MIRROR_RawTx()`: `mirror 0` → 0 Frames, `mirror 1` → Frames mit aufsteigender Sequenz |
+| Vorführung, Schritt für Schritt | `PTP_DEMO.md` | Bedienungsanleitung für die Konsole: Aufbau, beide Demos, Erwartungswerte, Störungssuche (**deutsch**) |
+| Konsole mitlesen, die von selbst redet | `python serial_capture.py <port> <sek>` | `cli.py` hängt bei Dauerausgabe (`ptpf log on`) |
 | PTP-Grandmaster | `ptp start` / `stop` / `interval [ms]` / `status` | `Sync` + `Follow_Up` auf `eth0` mit Hardware-TX-Timestamp; Default aus, Autostart über `setenv ptp_auto 1` |
 | Grandmaster prüfen | `python test_ptp.py` | pyshark dissektiert die Frames auf Feldebene: Version, Typen, Paarung, Sequenz, Timestamp, Kadenz, Exitcode ≠ 0 bei Abweichung |
 | Endpoint-Verkehr zählen | `tshark` auf dem `eth1`-Adapter | der Endpoint sendet SOME/IP-SD mit 1 Hz von selbst — bestes Oracle ohne Messgerät |
