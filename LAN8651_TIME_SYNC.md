@@ -541,10 +541,12 @@ is a genuine constant, handled as one compile-time value in the same class as
 `PTP_GM_STATIC_OFFSET`. Cable length enters at roughly **5 ns per metre**, so even a 25 m run adds
 only 125 ns.
 
-Calibrate it once rather than guessing: either run the two-way exchange as a **bring-up
-measurement only** and keep the resulting number, or compare the 1PPS outputs of master and
-follower on a scope, which the `FINE` state already provides on DIOA4 (section 2, `PPSCTL` /
-`PADCTRL`). After that it is a `#define`.
+It is deliberately **assumed, not measured**: the reference number goes into a `#define` and stays
+there. No delay request is implemented at any stage — not even temporarily as a bring-up
+measurement, because that would drag exactly the machinery back in that one-way sync exists to
+avoid. If the absolute value ever needs checking, the code-free route is to compare the 1PPS
+outputs of master and follower on a scope, which the `FINE` state already provides on DIOA4
+(section 2, `PPSCTL` / `PADCTRL`), and adjust the constant.
 
 **What it does *not* cost — the two things that usually matter more.**
 
