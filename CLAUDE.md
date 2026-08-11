@@ -237,6 +237,8 @@ vorher abklemmt, generischer Registerweg gegenüber den Komfort-Kommandos, Messp
 | Test-Modi automatisch prüfen | `python test_lan8651.py --port COM8` | Readback + Verkehr-stoppt + Verkehr-kommt-wieder, Exitcode ≠ 0 bei Abweichung |
 | Mirror prüfen (Stackweg) | `python test_mirror.py` | nach jedem MCC „Generate Code", siehe Abschnitt 6 |
 | Mirror prüfen (Rohweg) | `python test_rawtx_mirror.py` | `MIRROR_RawTx()`: `mirror 0` → 0 Frames, `mirror 1` → Frames mit aufsteigender Sequenz |
+| PTP-Grandmaster | `ptp start` / `stop` / `interval [ms]` / `status` | `Sync` + `Follow_Up` auf `eth0` mit Hardware-TX-Timestamp; Default aus, Autostart über `setenv ptp_auto 1` |
+| Grandmaster prüfen | `python test_ptp.py` | pyshark dissektiert die Frames auf Feldebene: Version, Typen, Paarung, Sequenz, Timestamp, Kadenz, Exitcode ≠ 0 bei Abweichung |
 | Endpoint-Verkehr zählen | `tshark` auf dem `eth1`-Adapter | der Endpoint sendet SOME/IP-SD mit 1 Hz von selbst — bestes Oracle ohne Messgerät |
 | Rohe Ethernet-Frames | `noip_send <n> [gap_ms]` / `noip_stat` | EtherType `0x88B5`, umgeht den TCP/IP-Stack — **bestes Mittel für reproduzierbare Scope-Bilder** |
 | SPAN nach `eth1` | `mirror [0\|1]` | T1S-Verkehr in Wireshark mitlesen |
@@ -290,7 +292,10 @@ Erst zurückstellen, dann Verkehr messen.
   gitignored** — ohne IDE-Lauf muss es von Hand nachgezogen werden: je ein Token in den zwei
   `SOURCEFILES`- und drei `OBJECTFILES`-Zeilen plus die zwei 5-zeiligen Compile-Regeln duplizieren
   (Objektverzeichnis `_ext/1360937237` gilt für alles in `src\`). Selbstheilend: ein IDE-Öffnen
-  generiert es korrekt aus `configurations.xml` neu.
+  generiert es korrekt aus `configurations.xml` neu. **Den Makefile-Teil macht seit 2026-08-11
+  `python add_source_to_mk.py <neues-modul> [<vorlagen-modul>]`** — idempotent, bricht ab statt zu
+  raten, und ersetzt nur den generierten Teil: die `<itemPath>`-Einträge in `configurations.xml`
+  bleiben Handarbeit, weil genau die eine Regenerierung überleben.
 - **2026-08-10 — Host-PC am `eth1`-Port: `192.168.0.200` und `.210` sind vergeben, `.100` nehmen.**
   Beide Bridge-Interfaces sind fest statisch konfiguriert (`TCPIP_NETWORK_CONFIG_IP_STATIC`,
   `configuration.h` IDX0 = `LAN865x`/`eth0` = `.200`, IDX1 = `GMAC`/`eth1` = `.210`) und geben ihre
@@ -375,6 +380,44 @@ Erst zurückstellen, dann Verkehr messen.
   Schleife zu senden; genau das schreibt `PTP_IMPLEMENTATION_PLAN.md` §1.3 vor. Am `noip_test.c`
   selbst ist bisher **nichts** geändert (offen: `NOIP_MAX_COUNT` auf 5 begrenzen oder den Treiber im
   Warten bedienen).
+- **2026-08-11 — `FTSE` ist kein RX-Bit: ohne es gibt es auch keinen TX-Timestamp.** Datenblatt
+  §5.2.5.1: „Transmit timestamping is enabled by setting the Frame Timestamp Enable (FTSE) bit …
+  When the TSC header field is zero **or frame timestamping is disabled**, no frame egress timestamp
+  will be captured." Wer `tsc = 1` setzt und `FTSE` für reine Empfangssache hält, liest ein
+  unverändertes Capture-Register und sucht den Fehler beim Pattern-Matcher. Immer **`FTSE` und
+  `FTSS` zusammen** (`lan_rmw 0x00000004 0xC0 0xC0`) — `FTSE` allein lässt den RX-Pfad vier Byte
+  Nutzlast auffressen. Der Grandmaster macht das beim `ptp start` und nimmt es beim `ptp stop`
+  zurück.
+- **2026-08-11 — Der TX-Pattern-Matcher ist vom Treiber schon fertig konfiguriert; „pro `Sync`
+  armen" ist ein Missverständnis.** `drv_lan865x_api.c` (~Zeile 1683–1690) schreibt in der
+  Init-Tabelle `TXMMSKH/L = 0xFF/0xFFFF`, `TXMLOC = 0`, `TXMCTL = 0x0002` (`TXME`) und dasselbe für
+  RX. **Maskenbits heißen „ignorieren"**, alles auf 1 ist also „jeder Frame, gestempelt am SFD" — die
+  im Datenblatt §4.5.2.2 dokumentierte Voreinstellung *aller* Microchip-Treiber. Gestempelt wird
+  trotzdem nur, was mit `TSC ≠ 0` gesendet wird, Stackverkehr bleibt also unberührt. `TXME` ist R/W
+  und **nicht** selbstlöschend (nur `TXPMDET` ist read-clear), ein Re-Arm pro Frame wäre reine
+  SPI-Last. Ein auf PTP verengter Matcher (`TXMLOC = 30`, Muster `0x88F710`) wäre eine Einschränkung,
+  kein Gewinn — und das letzte Nibble ist `transportSpecific|messageType`, hängt also am eigenen
+  Frameaufbau.
+- **2026-08-11 — `OA_STATUS0.TTSCAA` taugt nicht als Handshake: der Treiber löscht es.**
+  `_OnStatus0()` liest `OA_STATUS0` bei jedem Extended-Status-Ereignis und schreibt es unverändert
+  zurück, was write-1-clear bedeutet. Anwendungscode, der auf das Bit wartet, verliert das Rennen
+  sporadisch — Symptom: gelegentlich fehlender Timestamp, ohne Fehlermeldung. Die Funktion ist
+  `static` in generiertem Code, also kein Anknüpfungspunkt. **Verlässlich ist ein Frischevergleich:**
+  das 64-Bit-Capture gegen den Vorzykluswert prüfen, ein nicht erfolgtes Capture liefert
+  zwangsläufig den alten Wert. Der Vergleichsschatten muss `stop`/`start` überleben, sonst wird ein
+  alter Zeitstempel dem ersten `Sync` des neuen Laufs zugeschrieben.
+- **2026-08-11 — `ENV_VERSION` erhöhen kostet die PLCA-Rolle, und das fällt erst am toten Bus auf.**
+  Für die zwei PTP-Schlüssel wurde `env_t` erweitert und `ENV_VERSION` von 3 auf 4 gezogen; der alte
+  EEPROM-Datensatz gilt damit als ungültig und wird durch die Compile-Defaults ersetzt. Das ist
+  dokumentiert und gewollt — **die praktische Folge war aber, dass `plca_id` von 0 auf den
+  Compile-Default 7 sprang und die Bridge damit kein Koordinator mehr war.** Ohne Koordinator sendet
+  der T1S-Endpoint nichts: `stats` zeigte `eth0 RX: ok=0`, was wie ein defekter Endpoint aussieht.
+  Reparatur: `plca_node 0` (sofort) bzw. `setenv plca_id 0` + `saveenv` (dauerhaft). **Merksatz:**
+  nach jeder Änderung an `env_t` daran denken, dass *alle* persistenten Werte weg sind — IPs, MACs,
+  PLCA — und `showenv` gegen die Erwartung prüfen, bevor man Messfehler bei der Hardware sucht. Der
+  Nebeneffekt ist auch ein Beleg dafür, dass die Frames tatsächlich den Draht erreichen: das
+  TX-Capture entsteht am Ende des SFD auf dem MDI, ein frisches Capture pro Zyklus kann es ohne
+  echten Sendevorgang nicht geben — der Mirror-Klon allein würde das nicht zeigen.
 
 ---
 

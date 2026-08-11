@@ -44,6 +44,7 @@
 #include "lan865x_diag.h"
 #include "port_mirror.h"
 #include "noip_test.h"
+#include "ptp_gm.h"
 
 
 // *****************************************************************************
@@ -328,6 +329,7 @@ void APP_Initialize(void) {
     LAN865X_DIAG_Initialize();
     MIRROR_Initialize();
     NOIP_Initialize();
+    PTP_GM_Initialize();
     /* TODO: Initialize your application's state machine and other
      * parameters.
      */
@@ -388,6 +390,9 @@ void APP_Tasks(void) {
 
             /* Register access / test modes / PLCA - see lan865x_diag.c */
             LAN865X_DIAG_Tasks();
+
+            /* PTP grandmaster send cycle - see ptp_gm.c. Idle unless started. */
+            PTP_GM_Tasks();
 
             /* === Deferred packet log output (max 10 entries per APP_Tasks iteration) === */
             if (ticks_per_ms > 0u) {

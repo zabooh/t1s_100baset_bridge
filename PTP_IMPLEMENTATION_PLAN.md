@@ -39,8 +39,16 @@ Drei Konsequenzen, die den ganzen Plan prägen — sie sind der Grund, warum Pha
 1. **Die Bridge braucht keinen RX-Timestamp.** Damit bleibt der einzige unvermeidliche
    Treiber-Patch ([drv_lan865x_api.c:1348](firmware/src/config/default/driver/lan865x/src/dynamic/drv_lan865x_api.c#L1348))
    vollständig auf der Follower-Seite. **Dieses Repo bekommt keine Änderung in generiertem Code.**
-2. **`FTSE`/`FTSS` sind reine RX-Bits** und gehören deshalb nicht in Phase 1 — siehe
-   [§10 Enabling frame timestamps](LAN8651_TIME_SYNC.md#10-enabling-frame-timestamps-two-ways-in).
+2. ~~**`FTSE`/`FTSS` sind reine RX-Bits** und gehören deshalb nicht in Phase 1.~~ **Falsch, korrigiert
+   am 2026-08-11 beim Bauen von Phase 1.** Das Datenblatt ist in §5.2.5.1 eindeutig: „Transmit
+   timestamping is enabled by setting the Frame Timestamp Enable (FTSE) bit … When the TSC header
+   field is zero **or frame timestamping is disabled**, no frame egress timestamp will be captured."
+   Ohne `FTSE` bleibt das Capture-Register also leer, egal was in `TSC` steht. Der Grandmaster setzt
+   `FTSE` **und** `FTSS` beim Start (`lan_rmw 0x00000004 0xC0 0xC0`, siehe
+   [§10.1](LAN8651_TIME_SYNC.md#101-from-application-code-at-runtime--preferred)) und nimmt sie beim
+   Stoppen zurück — `FTSS` zwingend mit, sonst frisst der RX-Pfad vier Byte Nutzlast
+   ([§10.3](LAN8651_TIME_SYNC.md#103-two-traps-that-apply-either-way)). Das bleibt Anwendungscode,
+   Punkt 1 gilt unverändert.
 3. **Die Buslast hängt nicht an der Zahl der Follower**: zwei Frames pro Intervall, egal wie viele
    Knoten mithören.
 
@@ -74,17 +82,43 @@ zwei `SOURCEFILES`-Zeilen, drei `OBJECTFILES`-Zeilen, zwei Compile-Regeln, Objek
 
 | Was | Zweck |
 |---|---|
-| TX-Matcher-Block, `TXMLOC` / `TXMPATH` / `TXMPATL`, Masken auf 0 | erkennt EtherType `0x88F7` an der richtigen Byteposition |
-| `MAC_TI` (+ kalibriertes `MAC_TISUBN`) | Tickweite der Wallclock, 25 MHz entspricht 40 ns |
+| `FTSE` + `FTSS` in `OA_CONFIG0`, RMW mit Maske `0xC0` | schaltet Frame-Timestamping überhaupt ein — **auch für TX**, siehe die Korrektur in Abschnitt 0 |
+| **nichts** am TX-Matcher | der Treiber konfiguriert ihn bereits, siehe unten |
+| `MAC_TI` (+ kalibriertes `MAC_TISUBN`) | Tickweite der Wallclock, 25 MHz entspricht 40 ns — auf diesem Board schon `0x28`, also nichts zu tun |
 | optional `PADCTRL` + `PPSCTL` | 1PPS auf DIOA4 als sichtbare Referenz fürs Oszilloskop |
-| **nicht** `FTSE`/`FTSS` | RX-only, hier wirkungslos — siehe Punkt 2 in Abschnitt 0 |
 
-**1.4 Sendezyklus.** Matcher armen, `Sync` über `DRV_LAN865X_SendRawEthFrame(..., tsc = 1, ...)`
-senden, auf die Timestamp-Verfügbarkeit **über den vorhandenen `_OnStatus0`-Callback** warten,
-Timestamp lesen, Write-1-Clear, dann `Follow_Up` mit `tsc = 0` und
+> **Der TX-Matcher braucht keinen einzigen Schreibzugriff — nachgesehen am 2026-08-11.** Die
+> Init-Tabelle des Treibers (`drv_lan865x_api.c`, Zeilen ~1683–1690) schreibt bereits
+> `TXMMSKH = 0xFF`, `TXMMSKL = 0xFFFF`, `TXMLOC = 0` und `TXMCTL = 0x0002` (`TXME`), ebenso das
+> RX-Pendant. Das ist genau die im Datenblatt §4.5.2.2 beschriebene Standardeinstellung „match every
+> packet at the SFD", die *alle* Microchip-Treiber setzen: **Maskenbits bedeuten „ignorieren"**, alle
+> auf 1 heißt also „Muster ganz egal". Damit wird jeder Frame gestempelt, **für den `TSC ≠ 0`
+> angefordert wird** — normaler Stackverkehr läuft mit `TSC = 0` und bleibt unberührt. Zwei
+> Folgerungen: die Vorstellung, man müsse den Detektor **pro `Sync` neu armen**, ist falsch (`TXME`
+> ist R/W und nicht selbstlöschend; nur `TXPMDET` ist read-clear), und ein auf PTP verengter Matcher
+> wäre eine *Einschränkung*, kein Gewinn. Falls er später doch gewünscht ist: `TXMLOC = 30` (Nibble
+> nach dem Muster), Muster `0x88F710` — die 24 Bit umfassen EtherType **plus** das Byte
+> `transportSpecific|messageType`, weshalb der Wert von `PTP_TRANSPORT_SPECIFIC` mitentscheidet.
+
+**1.4 Sendezyklus.** `Sync` über `DRV_LAN865X_SendRawEthFrame(..., tsc = 1, ...)` senden, den
+Timestamp aus `TTSCAH`/`TTSCAL` holen, dann `Follow_Up` mit `tsc = 0` und
 `preciseOriginTimestamp = t1 + PTP_GM_STATIC_OFFSET`. Ablauf und Begründung des Zwei-Schritt-Verfahrens:
 [§5](LAN8651_TIME_SYNC.md#5-why-it-is-two-step-sync--follow_up) und
 [§11.2](LAN8651_TIME_SYNC.md#112-what-this-bridge-already-brings).
+
+> **Nicht über `TTSCAA` in `OA_STATUS0` synchronisieren, und der `_OnStatus0`-Callback steht nicht zur
+> Verfügung — beides am 2026-08-11 im Treiber nachgelesen.** `_OnStatus0()` ist `static` in
+> `drv_lan865x_api.c`, also generierter Code, den Phase 1 ausdrücklich nicht anfasst; er liest
+> `OA_STATUS0` bei jedem Extended-Status-Ereignis und **schreibt es unverändert zurück**, was
+> `TTSCAA` als Write-1-Clear löscht. Ein Verbraucher hier läuft also gegen den Treiber um dasselbe
+> Bit — und verliert gelegentlich, was als sporadisch fehlender Timestamp erscheint. Stattdessen
+> entscheidet ein **Frischevergleich**: das 64-Bit-Capture wird gegen den Wert des Vorzyklus geprüft,
+> ein noch nicht erfolgtes Capture liefert zwangsläufig den alten. Dieser Schatten überlebt
+> `stop`/`start` absichtlich — genau das verhindert, dass ein alter Zeitstempel dem ersten `Sync`
+> eines neuen Laufs zugeschrieben wird, also den Fehler, den 1.5 beschreibt.
+> Nebenbei: der Treiber druckt bei jedem Ereignis ratenbegrenzt
+> `Status0.Transmit Timestamp Capture Available A` — bei 1 s Intervall etwa eine Zeile pro Sekunde.
+> Das ist erwartetes Rauschen, kein Fehler, und ohne Eingriff in generierten Code nicht abstellbar.
 
 > **Nicht** zyklisch `lan_read` pollen. Registerzugriffe teilen die TC6/SPI-Service-Logik mit dem
 > Datenpfad; gemessen wurden dadurch rund 5 % UDP-Paketverlust unter Last (`CLAUDE.md` Abschnitt 4).
@@ -287,6 +321,35 @@ Zusätzlich, weil ohne Mitschnitt beantwortbar und deshalb der erste Griff bei e
 **Fertig, wenn** `test_ptp.py` mit Exitcode 0 durchläuft, Start/Stop/Intervall/Autostart sich wie
 oben verhalten und der Durchsatz unverändert ist. Bis hierher wurde **keine** generierte Datei
 angefasst.
+
+### 1.8 Stand: Phase 1 läuft (2026-08-11)
+
+Umgesetzt in [ptp_gm.c](firmware/src/ptp_gm.c) / [ptp_gm.h](firmware/src/ptp_gm.h), Prüfskript
+[test_ptp.py](test_ptp.py). Gemessen am Target, `tshark`/pyshark auf dem `eth1`-Adapter:
+
+| Prüfung | Ergebnis |
+|---|---|
+| `test_ptp.py`, alle 11 Zusicherungen | Exitcode **0**, zweimal gefahren (Bus ohne und mit Koordinator) |
+| Frames | 18 `Sync` + 17 `Follow_Up` im Fenster, EtherType `0x88F7`, Quell-MAC die eigene |
+| `versionptp` / `messagetype` / `twostep` | 2 / `0x00` und `0x08` / auf `Sync` gesetzt |
+| Paarung und Sequenz | je `sequenceId` genau ein Paar, `Sync` zuerst, lückenlos aufsteigend |
+| `preciseOriginTimestamp` | echt und laufend, z. B. 152,788900720 s → 156,785543920 s |
+| Kadenz | Median 249,79 ms Ankunftsabstand bei 250 ms; Timestamp-Delta Median 249,790 ms |
+| `logMessageInterval` | 0 bei 1000 ms, −1 bei 500 ms — Feld und Realität stimmen dort exakt |
+| Zyklen ohne Fehler | 364 Zyklen bei **50 ms** (kleinstes Intervall): 0 Timeouts, 0 Sendefehler, 0 Registerfehler, `eth0 TX err=0 qFull=0` |
+| Start/Stop mehrfach | Sequenz läuft weiter (kein Reset), Capture springt nicht zurück |
+| Autostart | `ptp_auto 1` + Reset sendet von selbst mit `ptp_ival`; `ptp_auto 0` + Reset bleibt still |
+| Abstand `Sync` → `Follow_Up` | 0,1–0,3 ms, das ist der SPI-Rückweg für den Timestamp |
+
+Zwei Dinge, die das ausdrücklich **mit**beweist: der Timestamp entsteht am Ende des SFD **auf dem
+MDI**, ein frisches Capture pro Zyklus ist also der Beleg, dass der Frame den Draht wirklich
+erreicht hat — der Mirror-Klon allein könnte das nicht zeigen (1.6, letzter Absatz). Und der
+Nanosekundenwert wandert um etwa 1,02 ms pro Sekunde gegen das Sendeintervall: erwartetes Verhalten,
+weil `SYS_TIME` des SAME54 und die Wallclock des LAN8651 zwei unabhängige Quarze sind. Genau diese
+Differenz ist das, was der Servo eines Followers später wegregelt.
+
+**Offen aus 1.7:** der Lasttest mit `iperf` parallel (Punkt 5 der Liste) ist nicht gefahren — belegt
+ist nur, dass 20 Zyklen/s ohne Fehler und ohne `qFull` laufen, nicht der Durchsatz unter Volllast.
 
 ---
 

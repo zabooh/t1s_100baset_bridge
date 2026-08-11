@@ -30,10 +30,11 @@
 #include "system/command/sys_command.h"
 #include "config/default/library/emulated_eeprom/emulated_eeprom.h"
 #include "lan865x_diag.h"                                    /* LAN865X_DIAG_ApplyPlca() */
+#include "ptp_gm.h"                                          /* PTP_GM_ConfigureAutoStart() */
 #include "env.h"
 
 #define ENV_MAGIC    0x4C414E45u   /* 'LANE' */
-#define ENV_VERSION  3u            /* v2 added PLCA, v3 added MACs; an older record reads invalid -> re-seed */
+#define ENV_VERSION  4u            /* v2 PLCA, v3 MACs, v4 PTP; an older record reads invalid -> re-seed */
 #define ENV_IF_CNT   2             /* [0] = eth0 (LAN865x/T1S), [1] = eth1 (GMAC/100BASE-T) */
 #define ENV_EE_OFFSET 0u           /* byte offset of the record in the emulated EEPROM */
 
@@ -56,6 +57,8 @@ typedef struct {
     uint8_t  mac[ENV_IF_CNT][6];   /* eth0 = OUI+serial, eth1 = eth0 with low byte +1 */
     uint32_t plca_id;              /* eth0 PLCA node id    (0 = coordinator)         */
     uint32_t plca_cnt;             /* eth0 PLCA node count (PLCA_CTRL1 NODE_CNT)      */
+    uint32_t ptp_auto;             /* 1 = start the PTP grandmaster after boot        */
+    uint32_t ptp_ival;             /* PTP send interval in ms, also used by autostart  */
     uint32_t crc32;
 } env_t;
 
@@ -113,6 +116,11 @@ static void env_load_defaults(env_t *e)
     env_derive_mac(e->mac[0], e->mac[1]);
     e->plca_id  = (uint32_t)DRV_LAN865X_PLCA_NODE_ID_IDX0;
     e->plca_cnt = (uint32_t)DRV_LAN865X_PLCA_NODE_COUNT_IDX0;
+    /* PTP off by default: a bridge that streams Sync into a foreign network
+     * unasked is bad behaviour, and it would falsify the frame-counting test
+     * scripts (PTP_IMPLEMENTATION_PLAN.md 1.5). */
+    e->ptp_auto = 0u;
+    e->ptp_ival = (uint32_t)PTP_GM_INTERVAL_DEFAULT_MS;
     e->crc32 = env_calc_crc(e);
 }
 
@@ -173,6 +181,11 @@ void env_apply(void)
      * This call is also what keeps that module's node-count shadow current, which is
      * how 'plca_node <id>' knows the right count without depending on env. */
     LAN865X_DIAG_ApplyPlca((uint8_t)s_env.plca_id, (uint8_t)s_env.plca_cnt);
+    /* PTP grandmaster: hand over the persisted setting. Only the first call can
+     * arm the automatic start - a later saveenv/readenv adopts the interval but
+     * never starts sending on its own. The start itself happens in
+     * PTP_GM_Tasks(), where LAN865x register access is serviced. */
+    PTP_GM_ConfigureAutoStart(s_env.ptp_auto != 0u, s_env.ptp_ival);
 }
 
 uint8_t env_plca_id(void)  { return (uint8_t)s_env.plca_id;  }
@@ -205,6 +218,8 @@ static void cmd_showenv(SYS_CMD_DEVICE_NODE *pCmdIO, int argc, char **argv)
     }
     SYS_CONSOLE_PRINT("  plca  id %lu  count %lu  (eth0/T1S)\r\n",
                       (unsigned long)s_env.plca_id, (unsigned long)s_env.plca_cnt);
+    SYS_CONSOLE_PRINT("  ptp   auto %lu  interval %lu ms  (grandmaster on eth0; auto applies at boot)\r\n",
+                      (unsigned long)s_env.ptp_auto, (unsigned long)s_env.ptp_ival);
     SYS_CONSOLE_PRINT("  (saveenv = persist+apply, readenv = reload, resetenv = defaults)\r\n");
 }
 
@@ -228,7 +243,8 @@ static void cmd_setenv(SYS_CMD_DEVICE_NODE *pCmdIO, int argc, char **argv)
         SYS_CONSOLE_PRINT("usage: setenv <key> <val>\r\n"
                           "  IP keys:   ip0/mask0/gw0/dns0, ip1/mask1/gw1/dns1  (dotted-quad)\r\n"
                           "  MAC keys:  mac0, mac1  (XX:XX:XX:XX:XX:XX; applies after reset)\r\n"
-                          "  PLCA keys: plca_id (0..254), plca_cnt (1..255)\r\n");
+                          "  PLCA keys: plca_id (0..254), plca_cnt (1..255)\r\n"
+                          "  PTP keys:  ptp_auto (0/1; applies after reset), ptp_ival (ms)\r\n");
         return;
     }
     /* MAC keys (applied on next reset - the stack binds the MAC at init) */
@@ -255,6 +271,25 @@ static void cmd_setenv(SYS_CMD_DEVICE_NODE *pCmdIO, int argc, char **argv)
             s_env.plca_cnt = (uint32_t)v;
         }
         SYS_CONSOLE_PRINT("setenv: %s = %lu (RAM only; 'saveenv' to persist)\r\n", argv[1], v);
+        return;
+    }
+    /* PTP grandmaster keys. ptp_auto only takes effect at the next boot - the
+     * running state is what 'ptp start'/'ptp stop' control. */
+    if (!strcmp(argv[1], "ptp_auto") || !strcmp(argv[1], "ptp_ival")) {
+        unsigned long v = strtoul(argv[2], NULL, 0);
+        if (!strcmp(argv[1], "ptp_auto")) {
+            if (v > 1u) { SYS_CONSOLE_PRINT("setenv: ptp_auto is 0 or 1\r\n"); return; }
+            s_env.ptp_auto = (uint32_t)v;
+            SYS_CONSOLE_PRINT("setenv: ptp_auto = %lu (RAM only; 'saveenv' to persist; applies after reset)\r\n", v);
+        } else {
+            if (v < (unsigned long)PTP_GM_INTERVAL_MIN_MS || v > (unsigned long)PTP_GM_INTERVAL_MAX_MS) {
+                SYS_CONSOLE_PRINT("setenv: ptp_ival range %u..%u ms\r\n",
+                                  (unsigned)PTP_GM_INTERVAL_MIN_MS, (unsigned)PTP_GM_INTERVAL_MAX_MS);
+                return;
+            }
+            s_env.ptp_ival = (uint32_t)v;
+            SYS_CONSOLE_PRINT("setenv: ptp_ival = %lu ms (RAM only; 'saveenv' to persist)\r\n", v);
+        }
         return;
     }
     fld = env_field(argv[1]);
@@ -303,7 +338,7 @@ static void cmd_resetenv(SYS_CMD_DEVICE_NODE *pCmdIO, int argc, char **argv)
 
 static const SYS_CMD_DESCRIPTOR env_cmd_tbl[] = {
     {"showenv",  (SYS_CMD_FNC)cmd_showenv,  ": show the current network config (RAM shadow)"},
-    {"setenv",   (SYS_CMD_FNC)cmd_setenv,   ": setenv <key> <val>  (ip0../dns1, mac0/mac1, plca_id, plca_cnt)"},
+    {"setenv",   (SYS_CMD_FNC)cmd_setenv,   ": setenv <key> <val>  (ip0../dns1, mac0/mac1, plca_id, plca_cnt, ptp_auto, ptp_ival)"},
     {"saveenv",  (SYS_CMD_FNC)cmd_saveenv,  ": persist config to EEPROM and apply it live"},
     {"readenv",  (SYS_CMD_FNC)cmd_readenv,  ": reload config from EEPROM and apply (discards unsaved edits)"},
     {"resetenv", (SYS_CMD_FNC)cmd_resetenv, ": reset to compiled defaults, persist and apply"},

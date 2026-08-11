@@ -124,11 +124,28 @@ to stamp arriving `Sync` frames, the transmit one to stamp departing ones.
 | `0x00040043` `0x00040044` | `TXMMSKH` / `TXMMSKL` — mask, high / low |
 | `0x00040045` | `TXMLOC` — match location |
 
-`TXMCTL` bits that matter: `TXPMDET` = `0x0080` (read-only, pattern detected),
-`MACTXTSE` = `0x0004`, `TXME` = `0x0002` (match enable). A grandmaster arms the detector per
-`Sync` by writing `TXMCTL = 0x0002`; the one-time setup is `TXMLOC = 30`,
-`TXMPATH = 0x88`, `TXMPATL = 0xF700`, `TXMMSKH = TXMMSKL = 0` — that is EtherType `0x88F7`
-(PTP) at byte offset 30, matched without masking.
+`TXMCTL` bits that matter: `TXPMDET` = `0x0080` (read-**clear**, pattern detected),
+`MACTXTSE` = `0x0004`, `TXME` = `0x0002` (match enable). The two enables are mutually exclusive by
+datasheet note; `MACTXTSE` stamps in the MAC and asserts a logical collision, which is the wrong
+side of the PLCA buffer, so `TXME` is the one to use.
+
+**This needs no configuring on this firmware, and there is nothing to arm per `Sync`** — verified
+2026-08-11. The driver's init table (`drv_lan865x_api.c`, lines ~1683-1690) already writes
+`TXMMSKH = 0xFF`, `TXMMSKL = 0xFFFF`, `TXMLOC = 0` and `TXMCTL = 0x0002`, plus the receive
+equivalents. Per datasheet 4.5.2.2 that is the documented default of every Microchip driver: **mask
+bits mean "ignore"**, so all-ones matches any pattern and every frame is matched at the SFD. A frame
+is then stamped exactly when its data header carries a non-zero `TSC`, which is why ordinary stack
+traffic is unaffected. `TXME` is R/W and does not self-clear, so per-`Sync` re-arming would be
+pointless work on the SPI bus.
+
+If a PTP-only matcher is ever wanted, the datasheet's worked example is `TXMLOC = 30` (the location
+is the first **nibble after** the pattern, and the pattern sits in nibbles 24..29),
+`TXMPATH = 0x88`, `TXMPATL = 0xF710`, masks 0. Note the last nibble: the 24-bit pattern covers the
+EtherType **and** the `transportSpecific|messageType` byte, `0x10` being 802.1AS's
+`transportSpecific = 1` with `messageType = 0` (Sync). Masking the low nibble
+(`TXMMSKL = 0x000F`) is what the datasheet suggests for accepting several message types. A pattern
+of `0x88F700` is the equivalent for `transportSpecific = 0`, which is what
+[ptp_gm.c](firmware/src/ptp_gm.c) sends.
 
 Why the matchers are not optional is in section 6.
 
@@ -242,10 +259,26 @@ as base `0x9026` plus `0x200` because TX cut-through is configured.
 1 = 64-bit). The timestamp is then **prepended to the first data block** of the frame, and
 the chunk footer announces it through `RTSA` (added) and `RTSP` (parity).
 
-**Transmit.** The 2-bit `TSC` field in the **data header** selects which capture register
-pair takes the egress timestamp — A, B or C. Completion is signalled by
-`TTSCAA` / `TTSCAB` / `TTSCAC` in `OA_STATUS0`, after which `TTSCxH` / `TTSCxL` can be read
-with ordinary control transactions. This can be interrupt-driven instead of polled.
+**Transmit.** `FTSE` gates this direction too — that is easy to misread as receive-only, and the
+datasheet is explicit in 5.2.5.1: "When the TSC header field is zero **or frame timestamping is
+disabled**, no frame egress timestamp will be captured." With `FTSE` clear the capture registers
+simply stay as they were, which looks like a dead pattern matcher rather than a missing enable.
+
+With it set, the 2-bit `TSC` field in the **data header** selects which capture register pair takes
+the egress timestamp — A, B or C — and it is only valid in the header that carries the start of the
+frame (`SV = 1`). Completion is signalled by `TTSCAA` / `TTSCAB` / `TTSCAC` in `OA_STATUS0`, after
+which `TTSCxH` / `TTSCxL` can be read with ordinary control transactions.
+
+Two practical notes from building the grandmaster on this firmware:
+
+- **The status bit is not usable as a handshake here.** The driver reads `OA_STATUS0` on every
+  extended-status event and writes it straight back, which clears `TTSCAA` (`_OnStatus0()` in
+  `drv_lan865x_api.c` — `static`, generated code). Anything in the application racing it loses
+  sometimes. Comparing the capture against the previous one is both simpler and robust: a capture
+  that has not happened yet still reads the old value. See PTP_IMPLEMENTATION_PLAN.md 1.4.
+- **The register pair is one 64-bit value in the format of figure 5-4:** `TTSCxH` holds
+  seconds\[31:0\], `TTSCxL` holds nanoseconds in bits 29:0 (bits 31:30 read zero). Measured on this
+  board the seconds field tracks uptime, which is the cheapest sanity check there is.
 
 Three pairs exist so that several frames can be in flight without one overwriting another's
 timestamp — which is exactly the situation a two-step `Sync` creates.
@@ -392,8 +425,9 @@ builds raw frames with its own EtherType.
 
 ## 10. Enabling frame timestamps: two ways in
 
-`FTSE` (bit 7) turns frame timestamping on, `FTSS` (bit 6) selects 64-bit stamps. There are
-two ways to set them, and **the first one is better** — it was found only after the second had
+`FTSE` (bit 7) turns frame timestamping on, `FTSS` (bit 6) selects 64-bit stamps. Both directions
+need `FTSE`, transmit included (section 4), so this is not optional for a grandmaster either. There
+are two ways to set them, and **the first one is better** — it was found only after the second had
 already been written up here.
 
 ### 10.1 From application code, at runtime — preferred
