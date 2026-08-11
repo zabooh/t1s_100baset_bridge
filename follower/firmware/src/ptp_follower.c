@@ -71,10 +71,18 @@
    quarter gain still hunted - the correction swung between 5115 and 1897 ppb for
    an error that was really about 5100. Updating every 32 samples keeps the loop
    slower than the filter that feeds it. */
-#define SERVO_RATE_GAIN_SHIFT   2            /* apply a quarter of the residual per update */
+#define SERVO_RATE_GAIN_SHIFT   1            /* apply half of the residual per update      */
 #define SERVO_PHASE_GAIN_SHIFT  1            /* step by half the filtered offset           */
 #define SERVO_PHASE_DEADBAND_NS 40LL         /* one clock tick: below this, do not dither  */
-#define SERVO_IIR_SHIFT         7            /* N = 128, about 11 s at 8 samples/s        */
+#define SERVO_IIR_SHIFT         5            /* N = 32, about 4 s at 8 samples/s          */
+/* Loop speed is cadence times gain against the filter length: N = 128 with a
+   quarter gain every 32 samples needs about 128 samples per e-fold, so trimming
+   1594 ppb down to ten took some 80 s - longer than anyone watching a demo will
+   wait, and longer than the convergence test's window. N = 32 with half gain is
+   roughly four times quicker and still slower than the filter that feeds it.
+   Measured per-sample phase noise is around 100 ns, which after a 32-sample
+   filter leaves a rate estimate good to well under 200 ppb - fine for a loop
+   whose target is a few tens of ppb. */
 
 /* --- frame layout (see ptp_gm.c on the bridge for the sending side) --------- */
 #define ETH_HDR_LEN             14u

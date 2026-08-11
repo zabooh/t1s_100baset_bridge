@@ -6,6 +6,10 @@
 > zwei austauschbaren Quellen — heute aus dem `t1`-Strom der PTP-Frames, später, wenn ein Draht
 > gezogen ist, aus dem 1PPS-Signal des LAN8651.
 >
+> **Steuerung und Zeit sind getrennt.** Die Zeit bleibt rohes L2 (`0x88F7`); die Kommandos gehen über
+> **UDP im SOME/IP-Format**, entdeckt wird über **mDNS**. Adressen und Identität regelt
+> [§2](#2-adressierung-und-identität) — MAC aus der Seriennummer, IP aus der PLCA-Node-ID.
+>
 > Sichtbar gemacht wird das in [Phase G](#phase-g--demonstration-und-was-sie-beweist): zwei Follower
 > toggeln ein GPIO, die Synchronisation wird vom Host ein- und ausgeschaltet, und am Oszilloskop
 > laufen die Flanken zusammen bzw. driften wieder auseinander. Diese Vorführung ist gleichzeitig die
@@ -29,6 +33,7 @@
 
 - [0. Vorentscheidungen](#0-vorentscheidungen)
 - [1. Fehlerbudget und die eine unbewiesene Annahme](#1-fehlerbudget-und-die-eine-unbewiesene-annahme)
+- [2. Adressierung und Identität](#2-adressierung-und-identität)
 - [Phase A — Messreihe, ohne einen Algorithmus zu bauen](#phase-a--messreihe-ohne-einen-algorithmus-zu-bauen)
 - [Phase B — Kern der Zeitbasis](#phase-b--kern-der-zeitbasis)
 - [Phase C — Trigger, Stufe Software](#phase-c--trigger-stufe-software)
@@ -154,6 +159,85 @@ konstant, beides zusammen nicht trennbar — und für diesen Anwendungsfall auch
 Firmware und gleicher Hardware sich weitgehend aufhebt. Plausibel, weil die dominierenden Anteile
 identisch sind — die Übertragungszeit des Frames auf dem Draht (64 Byte bei 10 Mbit/s = **51 µs**)
 und der SPI-Chunk-Transfer. Aber nicht gemessen. **Phase A misst genau das.**
+
+---
+
+## 2. Adressierung und Identität
+
+Voraussetzung für Phase D, weil die Kommandos über UDP laufen. Ausgangslage: **alle Follower tragen
+dieselbe Firmware, also per Compile-Default dieselbe Adresse** — und zwar dieselbe wie die Bridge.
+
+### 2.1 Was heute schon stimmt: die MAC
+
+Beide Projekte leiten die MAC aus der SAME54-Seriennummer ab, das Problem existiert dort nicht mehr:
+
+| | Funktion | Ergebnis |
+|---|---|---|
+| Bridge | [env.c:67](firmware/src/env.c#L67) `env_derive_mac(m0, m1)` | `eth0` = OUI + Serial[2..0], `eth1` = `eth0`, niedrigstes Byte +1 |
+| Follower | [follower/…/env.c:66](follower/firmware/src/env.c#L66) `env_derive_mac(m0)` | nur `eth0` |
+
+Zwei Nachbesserungen, beide klein:
+
+- **U/L-Bit setzen** — `ENV_OUI[0] = 0x02` statt `0x00`. Dann ist die Adresse nach IEEE 802
+  *lokal verwaltet* und damit **standardkonform**, statt eine nie zugewiesene Adresse in Microchips
+  OUI zu belegen. Kosten: eine Zeile Code und eine Zeile Doku (`CLAUDE.md` Abschnitt 6 nennt die
+  konkrete `00:04:25:ca:ce:d9`; **kein** Testskript tut das). Nicht dringend, aber vor jedem Einsatz
+  außerhalb des Labors fällig.
+- **CRC32 über alle vier Serial-Worte** statt der unteren 3 Bytes von Word 0. Die Eindeutigkeit
+  hängt derzeit an der ungeprüften Annahme, dass dort die Variation sitzt und nicht ein Lot-Code.
+  **Vorher messen:** `dump 0x008061FC 1` auf beiden Boards vergleichen. Unterscheiden sich die
+  unteren 24 Bit, ist nichts zu tun; sonst räumt der CRC die Frage ein für alle Mal aus dem Weg.
+
+### 2.2 Die IP kommt aus der PLCA-Node-ID
+
+```
+IP       = 192.168.0.(64 + plca_id)     ->  .65, .66, .67 …   (id 0 = Koordinator = Bridge)
+Hostname = t1s-follower-<plca_id>
+```
+
+Begründung: **jeder Knoten auf einem 10BASE-T1S-Multidrop-Segment braucht ohnehin eine eindeutige
+PLCA-Node-ID**, sonst funktioniert PLCA selbst nicht — zwei Knoten würden im selben Beat senden. Die
+Eindeutigkeit wird also von derselben Bedingung erzwungen, die den Bus überhaupt zum Laufen bringt,
+und `plca_id` ist bereits pro Board provisioniert (`plca_node`, `setenv plca_id`). Damit sinkt die
+Provisionierung von drei Werten je Board auf **einen** — den, den man sowieso setzen muss.
+Nebeneffekt: die Adresse verrät die Busposition, was beim Vergleich zweier Follower am Oszilloskop
+praktisch ist.
+
+**Verworfene Alternative: IP ebenfalls aus der Seriennummer** (oder IPv4 Link-Local). Kostet keine
+Provisionierung, macht die Adresse aber unvorhersagbar und **mDNS damit zwingend**. Das ist der
+Grund gegen sie: mDNS hängt auf dieser Hardware an einer einzigen Zeile (2.4), und bei unbekannter
+Adresse *und* streikender Entdeckung ist ein Board über IP überhaupt nicht mehr erreichbar — nur
+noch über die serielle Konsole. Eine berechenbare Adresse bleibt auch dann erreichbar.
+
+### 2.3 ARP-Probe als Netz, nicht als Mechanismus
+
+Beim Start die abgeleitete Adresse per ARP anfragen. Antwortet jemand: nächste freie nehmen **und
+laut auf der Konsole klagen**. Das fängt genau den Fall, der schon einmal einen toten Bus gekostet
+hat — `ENV_VERSION` erhöht, alle persistenten Werte zurück auf Compile-Defaults, `plca_id` bei allen
+Knoten gleich (`CLAUDE.md` Abschnitt 6). Ohne Probe ist das ein stiller Fehler.
+
+### 2.4 Zwei Altlasten, die vorher weg müssen
+
+**`eth1` im Follower ist unversorgt.** `env` verwaltet dort nur *ein* Interface, `configuration.h`
+bringt aber weiter zwei Netzwerke mit — `eth1` behält also **`192.168.0.210` und
+`00:04:25:01:02:04` auf jedem Follower**
+([follower/…/configuration.h:272-275](follower/firmware/src/config/default/configuration.h#L272-L275)).
+Solange dort kein Kabel steckt, passiert nichts; am Tag, an dem eines hineingeht, kollidieren alle
+Follower untereinander und mit der Bridge. Entweder `eth1` im Follower nicht mehr konfigurieren oder
+in die Ableitung aufnehmen.
+
+**Multicast-Empfang hängt an einer einzigen Zeile.**
+`DRV_LAN865X_RxFilterHashTableEntrySet()` ist ein **Stub** und gibt `TCPIP_MAC_RES_OP_ERR` zurück
+([drv_lan865x_api.c:603](firmware/src/config/default/driver/lan865x/src/dynamic/drv_lan865x_api.c#L603)) —
+der Treiber kann **keine** Multicast-Gruppe in den Empfangsfilter eintragen. Dass mDNS
+(`224.0.0.251`) und SOME/IP-SD (`224.244.224.245`) trotzdem ankommen, liegt allein an
+`DRV_LAN865X_PROMISCUOUS_IDX0 = true`
+([configuration.h:138](follower/firmware/src/config/default/configuration.h#L138)), und es gibt
+**keinen Rückfallweg**. Wer die Zeile zum CPU-Sparen auf `false` setzt, killt jede
+Multicast-Entdeckung lautlos.
+
+**Folge für den Entwurf:** der **kritische** Pfad (Kommandos) läuft über **Broadcast** und ist damit
+von dieser Zeile unabhängig; nur der **Komfort**pfad (mDNS) darf Multicast benutzen. Siehe D.3.
 
 ---
 
@@ -383,40 +467,97 @@ alle vier Verweigerungsgründe nachweislich greifen.
 
 ## Phase D — Kommando auf dem Master
 
-**D.1 Eigener EtherType.** `0x88B5` ist von `noip_test.c` belegt; für das Kommando **`0x88B6`**
-nehmen (zweiter IEEE-Local-Experimental-Typ). Nicht in `0x88F7` einbetten — der Zeitstrom soll vom
-Steuerstrom getrennt bleiben, damit ein Follower-Parser den einen ohne den anderen verstehen kann.
+Setzt [§2 Adressierung](#2-adressierung-und-identität) voraus. **Der Zeitstrom bleibt L2** — `Sync`
+und `Follow_Up` bleiben rohes `0x88F7` und wandern **nicht** auf UDP. Nur die *Steuerung* wird
+IP-basiert, damit sie adressierbar, entdeckbar und mit gewöhnlichem Werkzeug lesbar ist.
 
-**D.2 Rahmen.** Broadcast, wie der ganze Zeitverkehr
-([§Addressing footnote](LAN8651_TIME_SYNC.md)) — die Empfangsfilter sind nicht für PTP-Multicast
-eingerichtet, solche Frames fallen still im MAC-Filter.
+**D.1 Zeitverhalten ist unkritisch.** Ein Kommando muss nur *rechtzeitig* ankommen, nicht *pünktlich*.
+Jitter des UDP-Wegs, Stack-Latenz und Hauptschleife sind deshalb gleichgültig — es zählt allein die
+Vorlaufzeit. Wer hier Präzision sucht, sucht an der falschen Stelle: die Präzision steckt in `Tx`,
+nicht in der Zustellung.
+
+**D.2 Nachrichtenformat: SOME/IP.** Header nach SOME/IP, big endian, 16 Byte:
 
 ```
 Offset  Breite  Feld
-0       u8      version   = 1
-1       u8      msg       = 1 SCHEDULE | 2 CANCEL | 3 SCHEDULE_PERIODIC
-2       u16     action_id
-4       u32     cmd_seq
-8       u64     tx_ns      Grandmaster-ns, big endian   (msg 1)
-8       u64     period_ns                               (msg 3)
-16      u64     phase_ns   absolute Phase, siehe G.1    (msg 3)
+0       u16     Service ID        = 0x0865   (privat gewählt, nicht AUTOSAR-registriert)
+2       u16     Method ID         = 0x0001 SCHEDULE
+                                  | 0x0002 CANCEL
+                                  | 0x0003 SCHEDULE_PERIODIC
+4       u32     Length            = 8 + Nutzlast
+8       u16     Client ID
+10      u16     Session ID        <- dient gleichzeitig als Dedup-Schlüssel (C.7)
+12      u8      Protocol Version  = 0x01
+13      u8      Interface Version = 0x01
+14      u8      Message Type      = 0x01  REQUEST_NO_RETURN
+15      u8      Return Code       = 0x00  E_OK
+16      ...     Nutzlast
 ```
 
-**D.3 Mindestvorlauf.** Der Master plant großzügig — Vorschlag **200 ms** —, der Follower verweigert
+Nutzlast:
+
+```
+0       u16     action_id
+2       u16     reserved = 0
+4       u64     tx_ns       Grandmaster-ns                    (SCHEDULE)
+4       u64     period_ns                                     (SCHEDULE_PERIODIC)
+12      u64     phase_ns    absolute Phase, siehe G.1         (SCHEDULE_PERIODIC)
+```
+
+Zwei Dinge, die SOME/IP hier geschenkt beisteuert:
+
+- **`REQUEST_NO_RETURN` (0x01) ist die Fire-and-Forget-Betriebsart des Standards.** Die Einbahnregel
+  des Projekts ist damit keine Notlösung, sondern ein dokumentierter Nachrichtentyp. Was fehlt,
+  bleibt trotzdem das, was in [Risiken](#risiken-die-den-plan-kippen-können) steht: eine Rückmeldung.
+- **Die `Session ID` ist der Dedup-Schlüssel**, den C.7 verlangt — ein eigenes `cmd_seq`-Feld
+  entfällt.
+
+**D.3 Transport: Broadcast für die Gruppe, Unicast für den Einzelnen.**
+
+| Zweck | Ziel | Grund |
+|---|---|---|
+| „alle gleichzeitig" | **Broadcast** `192.168.0.255`, UDP **30509** | ein Frame für alle, und **unabhängig** von der Promiscuous-Zeile aus §2.4 |
+| einzelner Follower | Unicast `192.168.0.(64+id)` | Diagnose, Einzelkonfiguration |
+
+**Kein Multicast für Kommandos.** Broadcast wird vom MAC-Filter immer angenommen; IPv4-Multicast
+hängt auf dieser Hardware am Stub-Filter und damit an `promiscuous = true`. Der kritische Pfad soll
+nicht an einer Zeile hängen, die jemand aus Performancegründen umstellen könnte.
+
+**D.4 Senden über den Stack, nicht über den Rohweg.** UDP geht durch `DRV_LAN865X_PacketTx()` —
+damit greift der Mirror-TX-Hook automatisch, `MIRROR_RawTx()` ist **nicht** nötig, und die
+Fünf-Frames-Grenze der Rohsende-Queue (`TC6_TX_ETH_QSIZE = 4`) gilt hier **nicht**. Der Wechsel von
+rohem EtherType auf UDP nimmt also eine Einschränkung weg, statt eine hinzuzufügen.
+
+**D.5 Mindestvorlauf.** Der Master plant großzügig — Vorschlag **200 ms** —, der Follower verweigert
 unter **50 ms**. Beides unkritisch für die Extrapolation (1 s Vorlauf kostet 10 ns) und weit über
 jeder plausiblen Zustellzeit.
 
-**D.4 Senden über den Rohweg** wie `noip_test.c`, also `DRV_LAN865X_SendRawEthFrame()`, und danach
-`MIRROR_RawTx()` aufrufen, damit das Kommando im Port-Mirror sichtbar ist (`CLAUDE.md` Abschnitt 6).
-**Höchstens ein bis zwei Frames pro Task-Durchlauf** — die Rohsende-Queue hat vier Plätze und wird
-erst von `SYS_Tasks()` geleert.
+**D.6 Entdeckung über mDNS.** Neues MCC-Modul (`TCPIP_STACK_USE_ZEROCONF_MDNS_SD` ist in **keinem**
+der beiden Projekte aktiviert) — also ein Eingriff mit der bekannten Regenerierungsgefahr, danach
+`python test_mirror.py`.
 
-**D.5 CLI.** `trig <action_id> <ms_in_future>` genügt für den Anfang; die absolute Variante
-`trigat <action_id> <tx_ns>` für Skripte; `trigper <action_id> <period_ms>` für Phase G, mit
-`phase_ns = 0` — also Ausrichtung auf die glatte Grandmaster-Zeit.
+```
+Instanz:  t1s-follower-<plca_id>
+Dienst:   _t1strig._udp.local   Port 30509
+TXT:      plca=<id>  ver=1  actions=<bitmaske>
+```
 
-**Fertig, wenn** ein Kommando in Wireshark auf dem Mirror sichtbar ist und ein Follower darauf
-feuert.
+Nur **statische** Angaben ins TXT. Der Synchronisationszustand gehört *nicht* hinein — er ändert
+sich, und jede Änderung erzwingt ein erneutes Announce, also Verkehr auf einem 10-Mbit/s-Bus. Für
+den Zustand ist die Statusleitung aus [Risiken](#risiken-die-den-plan-kippen-können) zuständig.
+
+**Bewusste Doppelung, die keine sein soll:** SOME/IP bringt mit **SOME/IP-SD** eine eigene
+Entdeckung mit (`OfferService`/`FindService`, UDP 30490). Die wird hier **nicht** benutzt.
+Aufteilung stattdessen: **mDNS entdeckt, SOME/IP formatiert.** Grund ist Werkzeug — `dns-sd`,
+avahi und Wireshark beherrschen mDNS ohne AUTOSAR-Umgebung. Das ist eine Festlegung, damit nicht
+später jemand SOME/IP-SD daneben baut.
+
+**D.7 CLI auf dem Master.** `trig <action_id> <ms_in_future>`, absolut `trigat <action_id> <tx_ns>`,
+periodisch `trigper <action_id> <period_ms>` mit `phase_ns = 0` (Ausrichtung auf die glatte
+Grandmaster-Zeit, siehe G.1). Zusätzlich `trigto <ip> …` für den Unicast-Fall.
+
+**Fertig, wenn** ein Kommando in Wireshark auf dem Mirror als SOME/IP dissektiert erscheint, ein
+`dns-sd -B _t1strig._udp` beide Follower zeigt, und beide darauf feuern.
 
 ---
 
@@ -639,6 +780,10 @@ abhängen, nicht von Absichten.
 | Kein `WO`-Pin frei und EVSYS-Weg zu aufwändig | Phase E blockiert | Stufe-2-Trigger behalten, Anforderung neu bewerten |
 | Kein TC-Paar mit zwei freien Kanälen | Phase F kann die Instanz nicht weiterbenutzen | zweiter Timer am selben GCLK (E.1) |
 | Verlorene Kommandos bleiben unentdeckt | ein Follower schaltet nicht, keiner merkt es | Statusleitung (siehe unten) |
+| `promiscuous` wird auf `false` gestellt | mDNS und jede Multicast-Entdeckung sterben **lautlos** | §2.4; Kommandos laufen deshalb über Broadcast |
+| `ENV_VERSION` erhöht → `plca_id` überall gleich | alle Follower dieselbe IP | ARP-Probe mit Konsolenmeldung (§2.3) |
+| Serial-Word 0 trägt einen Lot-Code | zwei Boards mit identischer MAC, sieht wie ein Bridge-Fehler aus | `dump 0x008061FC 1` auf beiden Boards (§2.1) |
+| mDNS-Modul erfordert MCC-Lauf | Mirror-Hook und `<itemPath>` weg | `python test_mirror.py` danach (D.6) |
 
 **Der ungelöste Punkt: die Einbahnregel.** Weil die Follower nichts senden, erfährt der Master
 keinen der vier Verweigerungsgründe aus C.6 — er sendet ins Blaue. Drei Auswege:
@@ -680,6 +825,12 @@ deutlich stärker belastet als die eines Followers.
 - **Kein `unsigned __int128` auf 32-Bit-ARM.** Q24 statt Q32, Anker regelmäßig nachziehen.
 - **Filter auf dem Residuum, nicht auf `L − t1`** — sonst wählt er driftabhängig immer den Rand des
   Blocks (B.2).
+- **Das SOME/IP-Feld `Length` zählt nicht die ganze Nachricht.** Es beginnt bei der `Request ID`,
+  ist also `8 + Nutzlast` — die ersten 8 Header-Bytes (Service ID, Method ID, Length selbst) zählen
+  **nicht** mit. Ein Off-by-8 hier wird von Wireshark als „malformed" angezeigt, von einem
+  selbstgeschriebenen Parser aber gern stillschweigend akzeptiert.
+- **Kommandos nicht auf IPv4-Multicast legen.** Broadcast wird vom MAC-Filter immer angenommen,
+  Multicast hängt am Stub-Filter und damit an einer einzigen Konfigurationszeile (§2.4).
 - **Kein SPI, kein Frame-Versand, keine Konsolenausgabe im ISR-Callback.** Beides hängt an der
   Task-Ebene; ein Callback, der dort sendet oder druckt, zerstört genau die Zeitmessung, für die er
   da ist.

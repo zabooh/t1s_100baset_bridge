@@ -426,6 +426,38 @@ Write-1-Clear gehört **vor** jeden Zyklus, nicht nach jeden Erfolg), und das Ca
 `TTSCAL` → `TTSCAH` gelesen werden, sonst ist der Offset um genau eine Sekunde falsch. Das ist der
 eigentliche Wert eines zweiten Knotens: die Bridge konnte beides über sich selbst nicht feststellen.
 
+
+### 2.7 Konvergenz gemessen und als Diagramm festgehalten (2026-08-11)
+
+[test_servo_convergence.py](test_servo_convergence.py) setzt das Follower-Board **zurück** (Kaltstart:
+Uhr auf Null, Inkrement nominal), zeichnet jeden Zyklus mit und erzeugt `servo_convergence.png` plus
+`servo_convergence.csv`. Exitcode 0, wenn `FINE` innerhalb der Frist erreicht und die Streuung
+eingehalten wird. Ein Lauf bei 125 ms, 604 Proben:
+
+| Marke | Zeit |
+|---|---|
+| `MATCHFREQ` (Frequenz korrigiert) | 2,00 s |
+| `HARDSYNC` (Uhr gestellt) | 2,12 s |
+| `COARSE` | 2,62 s |
+| **`FINE`** | **18,75 s** |
+| `|offset|` dauerhaft < 1 ms | 2,12 s |
+| `|offset|` dauerhaft < 1 µs | 2,38 s |
+| `|offset|` dauerhaft < 300 ns | 14,62 s |
+| `|offset|` dauerhaft < 150 ns | 18,50 s |
+| Beharrungszustand (letzte 151 Proben) | Mittel +14,8 ns, σ 16,0 ns, **73 ns Spitze-Spitze** |
+
+Zwei Dinge hat erst dieser Test sichtbar gemacht:
+
+- **`ptpf off` + `ptpf on` ist kein Kaltstart.** Inkrement und gestellte Uhr bleiben in der Hardware,
+  der erste Messwert liegt dann schon bei wenigen Nanosekunden — die erste Fassung des Tests meldete
+  folgerichtig „Konvergenz in 0,00 s". Nur ein Board-Reset stellt den Zustand her, in dem ein Follower
+  wirklich aufwacht.
+- **Die Ratenschleife war zu langsam ausgelegt.** Mit N = 128 und ¼ Verstärkung alle 32 Proben braucht
+  eine e-Faltung ~128 Proben; die Restabweichung von 1594 ppb nach `MATCHFREQ` abzubauen dauerte damit
+  etwa 80 s. Jetzt N = 32 mit ½ Verstärkung: `FINE` nach 18,75 s statt jenseits des Messfensters, bei
+  gleichzeitig **besserer** Streuung (73 ns statt 438 ns Spitze-Spitze). Die untere Kurve des Diagramms
+  zeigt genau diesen Vorgang: Einbruch auf −5100 ppb, Überschwingen auf +1700 ppb, dann Einlauf.
+
 ### 2.6 Stand: Servo rastet ein, Phase 2 erfüllt (2026-08-11)
 
 Alle fünf Zustände laufen, `FINE` wird erreicht **und gehalten**: 333 Proben (40 s bei 125 ms) ohne

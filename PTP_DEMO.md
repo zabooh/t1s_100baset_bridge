@@ -27,6 +27,7 @@ aus.
 7. [Demo 4: der Beweis, dass beide dieselbe Zeit haben](#7-demo-4-der-beweis-dass-beide-dieselbe-zeit-haben)
 8. [Demo 5: Servo aus, Drift sichtbar machen, wieder einrasten](#8-demo-5-servo-aus-drift-sichtbar-machen-wieder-einrasten)
 9. [Live mitlesen: eine Zeile pro Zyklus](#9-live-mitlesen-eine-zeile-pro-zyklus)
+9a. [Die Konvergenz als Diagramm](#9a-die-konvergenz-als-diagramm)
 10. [Störungssuche](#10-störungssuche)
 11. [Kommandoreferenz](#11-kommandoreferenz)
 12. [Was diese Demo nicht zeigt](#12-was-diese-demo-nicht-zeigt)
@@ -408,6 +409,50 @@ python serial_capture.py COM10 30
 
 Liest 30 Sekunden und hört auf; die Ausgabe landet in `_capture.out`. Log wieder abschalten mit
 `ptpf log off`.
+
+---
+
+## 9a. Die Konvergenz als Diagramm
+
+Wer nicht zusehen, sondern zeigen will, wie lange das Einrasten dauert:
+
+```
+python test_servo_convergence.py
+```
+
+Das Skript setzt das Follower-Board zurück (echter Kaltstart), nimmt 75 s mit und schreibt
+`servo_convergence.png` und `servo_convergence.csv`. Auf der Konsole erscheinen die Marken:
+
+```
+state changes
+     2.00 s   UNINIT    -> MATCHFREQ
+     2.12 s   MATCHFREQ -> HARDSYNC
+     2.62 s   HARDSYNC  -> COARSE
+    18.75 s   COARSE    -> FINE
+
+first time |offset| stays below
+   1000 us    2.12 s
+   1 us       2.38 s
+   300 ns    14.62 s
+   150 ns    18.50 s
+
+settled over the last 151 samples (from 56.6 s), state FINE
+   mean +14.8 ns   sigma 16.0 ns   min -19 ns   max +54 ns   peak-to-peak 73 ns
+```
+
+Das Diagramm hat drei Felder: `|offset|` logarithmisch mit den Schwellen 300 und 150 ns und den
+Zustandswechseln als Linien, darunter derselbe Offset linear auf das Beharrungsband gezoomt, unten der
+Restfrequenzfehler in ppb — dort sieht man die Ratenschleife arbeiten (Einbruch auf −5100 ppb,
+Überschwingen, Einlauf). Exitcode 0 heißt: `FINE` rechtzeitig erreicht und Streuung eingehalten.
+
+Nützliche Schalter: `--interval 250` für ein anderes Sendeintervall, `--seconds 120` für ein längeres
+Fenster, `--from-csv servo_convergence.csv` zeichnet einen früheren Lauf neu ohne die Boards
+anzufassen, `--no-plot` nur Zahlen.
+
+**Warum der Reset dazugehört:** `ptpf off` und `ptpf on` lassen das korrigierte Inkrement und die
+gestellte Uhrzeit in der Hardware stehen. Der erste Messwert liegt dann schon bei wenigen
+Nanosekunden, und jede „Konvergenzzeit" käme als 0,00 s heraus — die erste Fassung dieses Tests hat
+genau das gemeldet.
 
 ---
 
