@@ -127,6 +127,9 @@ def main():
     parser.add_argument("--target", default=DEFAULT_TARGET, help=f"pyOCD target name (default: {DEFAULT_TARGET})")
     parser.add_argument("--pack", help="Explicit path to a SAME54_DFP .pack file or unpacked pack directory. Auto-detected if omitted.")
     parser.add_argument("--probe", "-u", help="Unique ID (serial) of the EDBG/nEDBG probe to use. Required if more than one is connected.")
+    parser.add_argument("--project", help="Take the probe from boards.json for this project (bridge, follower). "
+                                         "Run setup_flasher.py once to create that mapping. Ignored if --probe is given.")
+    parser.add_argument("--reset-only", action="store_true", help="Reset the target and exit (no flashing)")
     parser.add_argument("--frequency", "-f", type=int, default=2_000_000, help="SWD clock in Hz (default: 2000000)")
     parser.add_argument("--no-reset", action="store_true", help="Skip the reset-and-run after flashing")
     parser.add_argument("--list", action="store_true", help="List connected probes and exit")
@@ -141,8 +144,22 @@ def main():
         probes = list_probes()
         sys.exit(0 if probes else 1)
 
-    if not args.read and not args.image:
-        parser.error("image is required unless --list or --read is given")
+    if not args.read and not args.reset_only and not args.image:
+        parser.error("image is required unless --list, --read or --reset-only is given")
+
+    # Two boards on one desk: resolve which one this project owns before pyOCD has
+    # to guess. --probe always wins, so a one-off override stays possible.
+    if not args.probe and args.project:
+        try:
+            from setup_flasher import probe_for
+        except ImportError:
+            probe_for = None
+        args.probe = probe_for(args.project) if probe_for else None
+        if args.probe:
+            print(f"Project '{args.project}' -> probe {args.probe} (boards.json)")
+        else:
+            print(f"Note: no board assigned to project '{args.project}' in boards.json. "
+                  f"Run 'python setup_flasher.py' to assign one.", file=sys.stderr)
 
     image = None
     if args.image:
@@ -153,7 +170,8 @@ def main():
     if not args.probe:
         probes = list_probes()
         if len(probes) > 1:
-            parser.error("multiple probes connected; pass --probe/-u with one of the unique IDs listed above")
+            parser.error("multiple probes connected; either run 'python setup_flasher.py' once and "
+                         "use --project, or pass --probe/-u with one of the unique IDs listed above")
 
     pack = resolve_pack(args.pack)
     if pack is None:
@@ -167,6 +185,10 @@ def main():
         )
     else:
         print(f"Using pack: {pack}")
+
+    if args.reset_only:
+        common = build_common_args(args.target, pack, args.probe, args.frequency)
+        sys.exit(run_pyocd(["reset"] + common, args.dry_run))
 
     if args.read:
         address, length = args.read

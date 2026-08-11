@@ -26,3 +26,11 @@ __pycache__/
 # MCC backup artifacts (written when migrating .mc3 -> the v5.6 YAML model)
 *.mc3.bak0
 *.bak0
+
+# Board-to-project assignment written by setup_flasher.py - probe serial numbers
+# are specific to the boards on one desk, so this is per-machine, not per-repo.
+boards.json
+
+# Follower build output. The bridge tracks release/*.hex for historical reasons
+# (see CLAUDE.md section 2); the follower does not repeat that.
+follower/release/

@@ -7,13 +7,20 @@ rem  Usage:   flash.bat                  ... flash the default build output
 rem           flash.bat --dry-run        ... only show what would run
 rem           flash.bat <file.hex> ...   ... flash a different image
 rem           flash.bat --list           ... list connected probes
+rem           flash.bat --probe <serial> ... override the boards.json choice
 rem
 rem  All further arguments are passed through to flash_same54.py.
 rem ===========================================================================
 setlocal
 
-rem Serial number of the connected board's EDBG probe. Leave empty to let
-rem pyOCD pick it itself (only works with exactly one board on USB).
+rem Which project this script flashes. With more than one board on USB the probe
+rem is looked up in boards.json under this name - run setup_flasher.py once to
+rem create that mapping.
+set "PROJECT=bridge"
+
+rem Serial number of the board's EDBG probe. Set this to bypass boards.json
+rem entirely; empty means "ask boards.json", and with a single board attached
+rem pyOCD picks it by itself either way.
 set "PROBE="
 
 set "TOOL=%~dp0flash_same54.py"
@@ -50,7 +57,11 @@ if not exist "%HEX%" (
 )
 
 set "PROBEARG="
-if not "%PROBE%"=="" set "PROBEARG=--probe %PROBE%"
+if not "%PROBE%"=="" (
+    set "PROBEARG=--probe %PROBE%"
+) else (
+    if not "%PROJECT%"=="" set "PROBEARG=--project %PROJECT%"
+)
 
 echo [flash] Image : %HEX%
 if not "%PROBE%"=="" echo [flash] Probe : %PROBE%
