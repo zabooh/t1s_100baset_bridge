@@ -582,8 +582,10 @@ bridge took to move it. Our own `Sync` sidesteps this entirely because it never 
 `lan_read` polled every 200 ms during iperf — five transactions per second was enough to hurt. A
 grandmaster cycle costs about six transactions (arm the matcher, send `Sync`, poll `OA_STATUS0`,
 read `TTSCAH`, read `TTSCAL`, write-1-clear, send `Follow_Up`). At the reference's 8 Hz that is
-~48/s; **start at 1 Hz** and take the completion through the existing `_OnStatus0` callback
-instead of an explicit `OA_STATUS0` read. Then measure with `stats` and iperf, not by assumption.
+~48/s; **default to 1 Hz** and take the completion through the existing `_OnStatus0` callback
+instead of an explicit `OA_STATUS0` read. Then measure with `stats` and iperf, not by assumption —
+and if the interval is settable at runtime, measure at the shortest interval to be released, not at
+the default.
 
 **3. A grandmaster needs a time to be master *of*.** The reference runs free — its wall clock is
 whatever the local 25 MHz oscillator says, and the follower tracks that. That is enough to prove
@@ -596,7 +598,7 @@ configuration) and disciplines the wall clock against it, which turns the bridge
 
 | Phase | Content | Driver patch |
 |---|---|---|
-| 1 | Grandmaster only: `Sync` with `tsc = 1`, `Follow_Up` from `TTSCAH/AL`, broadcast, 1 Hz | **none** |
+| 1 | Grandmaster only: `Sync` with `tsc = 1`, `Follow_Up` from `TTSCAH/AL`, broadcast, variable interval, **off until switched on** | **none** |
 | 2 | Follower in its own project: RX timestamps, the servo, the delay constant | yes, on the follower |
 | 3 | Test tooling in `tools/ptp/`, two-board regression | — |
 | 4 | 1PPS on DIOA4 for a scope-visible comparison, then optionally SNTP discipline | — |

@@ -48,8 +48,13 @@ Drei Konsequenzen, die den ganzen Plan prägen — sie sind der Grund, warum Pha
 
 ## Phase 1 — Grandmaster auf der Bridge, ohne jeden Treiber-Patch
 
-Ziel: das Gerät sendet 1 Hz `Sync` + `Follow_Up` mit einem *echten* Hardware-TX-Timestamp, und das
-ist in Wireshark nachweisbar. Kein Follower nötig, kein Treiber-Patch nötig.
+Ziel: das Gerät sendet `Sync` + `Follow_Up` mit einem *echten* Hardware-TX-Timestamp, und das ist in
+Wireshark nachweisbar. Kein Follower nötig, kein Treiber-Patch nötig.
+
+**Das Senden ist ausgeschaltet, bis es jemand einschaltet.** Der Grandmaster ist ein Werkzeug, das
+per CLI gestartet und gestoppt wird, mit frei einstellbarem Intervall; optional startet er beim Booten
+von selbst, wenn das im EEPROM so hinterlegt ist. **Default ist: nicht senden** — Begründung und
+Umsetzung in 1.5.
 
 **1.1 Neues Modul `firmware\src\ptp_gm.c` / `.h`.** Aufbau wie
 [lan865x_diag.c](firmware/src/lan865x_diag.c): `PTP_GM_Initialize()` einmal, `PTP_GM_Tasks()` aus der
@@ -85,23 +90,98 @@ Timestamp lesen, Write-1-Clear, dann `Follow_Up` mit `tsc = 0` und
 > Datenpfad; gemessen wurden dadurch rund 5 % UDP-Paketverlust unter Last (`CLAUDE.md` Abschnitt 4).
 > Der Callback-Weg kostet nichts.
 
-**1.5 Adressierung.** Ethernet-Broadcast `FF:FF:FF:FF:FF:FF`, EtherType `0x88F7`, PTPv2, twoStepFlag,
+**1.5 Betrieb: Start/Stop, Intervall, Autostart.** Drei getrennte Dinge, die man nicht vermischen
+darf — *ob* gesendet wird, *wie oft*, und *ob das einen Reset überlebt*.
+
+*CLI.* Vier Kommandos in der Gruppe `ptp`:
+
+| Kommando | Wirkung |
+|---|---|
+| `ptp start` | beginnt zu senden, mit dem aktuell eingestellten Intervall |
+| `ptp stop` | hört auf, ordentlich (siehe unten) |
+| `ptp interval <ms>` | setzt das Sendeintervall; ohne Argument zeigt es den Wert |
+| `ptp status` | sendet ja/nein, Intervall, Sequenznummer, Zähler, Autostart-Zustand |
+
+*Intervall.* Ein Millisekundenwert, geprüft gegen eine Ober- und Untergrenze, ausgewertet über
+`SYS_TIME` in `PTP_GM_Tasks()` — nicht über eine Zählschleife. Eine Änderung im Betrieb greift ab dem
+nächsten Zyklus und setzt die `sequenceId` **nicht** zurück; ein Follower, der die Sequenz beobachtet,
+sieht dadurch keine Lücke.
+
+> **Ein Nebeneffekt, der beim Testen mit fremden Werkzeugen auffällt:** das Feld
+> `logMessageInterval` im `Sync`-Frame ist ein **Zweierlogarithmus** und kann ein beliebiges
+> Millisekundenintervall gar nicht ausdrücken. Der eigene Servo braucht es nicht — er misst den
+> Abstand aufeinanderfolgender `Sync`-Nachrichten selbst
+> ([§7](LAN8651_TIME_SYNC.md#7-the-software-servo)) —, aber ein PTP-Analysator oder Wireshark
+> vergleicht Feld und Realität und meldet eine Abweichung. Also den nächstliegenden Zweierwert
+> eintragen und in `ptp status` anzeigen, wenn Feld und tatsächliches Intervall auseinanderfallen.
+> Sonst sucht später jemand einen Fehler, den es nicht gibt.
+
+*Sauber stoppen.* `ptp stop` muss den TX-Matcher entwaffnen und einen noch stehenden
+Capture-Status per Write-1-Clear abräumen. Sonst liegt beim nächsten `ptp start` ein alter Zeitstempel
+bereit und wird dem ersten neuen `Sync` zugeschrieben — ein Fehler, der genau einmal pro Start
+auftritt und deshalb schwer zu fassen ist. Ein `Follow_Up` ohne zugehörigen `Sync` darf nicht
+hinausgehen: wird mitten im Zyklus gestoppt, wird der Zyklus abgebrochen, nicht halb beendet.
+
+*Autostart über das EEPROM.* Zwei neue Schlüssel in [env.c](firmware/src/env.c), behandelt wie
+`plca_id` / `plca_cnt`:
+
+| Schlüssel | Bedeutung | Default |
+|---|---|---|
+| `ptp_auto` | 0 = nach dem Booten still, 1 = automatisch starten | **0** |
+| `ptp_ival` | Sendeintervall in ms, auch für den Autostart | der Startwert des Moduls |
+
+Umsetzung: Felder in die `env_t`-Struktur, in `env_defaults()` seeden, in `cmd_showenv` anzeigen, in
+`cmd_setenv` mit Bereichsprüfung parsen — und `ENV_VERSION` erhöhen. Bedienung dann wie gehabt:
+`setenv ptp_auto 1`, `saveenv`.
+
+> **Preis der Strukturänderung, vorher wissen:** ein im EEPROM liegender Datensatz der alten Version
+> wird ungültig (andere Länge, CRC an anderer Stelle) und beim ersten Boot durch die Compile-Defaults
+> ersetzt. Ein Board, das nach dem Update hochkommt, hat also wieder die Standard-IPs und -MACs. Das
+> ist gewollt und die einzige ehrliche Variante — aber es gehört in die Release-Notiz, sonst wundert
+> sich jemand über eine „verlorene" Konfiguration.
+
+*Wann der Autostart greifen darf.* Nicht in `ENV_Init()`. Registerzugriffe auf den LAN865x werden
+erst im eingeschwungenen App-Zustand bedient (`CLAUDE.md` Abschnitt 3), und PLCA wird ohnehin erst über
+`env_apply()` gesetzt. Der Autostart gehört deshalb an dieselbe Stelle wie `env_apply()` bzw. hinter
+einen Zustandstest in `PTP_GM_Tasks()` — startet man früher, läuft der erste Zyklus ins Leere und es
+sieht nach einem Registerproblem aus.
+
+*Warum Default aus.* Zwei Gründe, beide praktisch: die vorhandenen Prüfskripte
+[test_lan8651.py](test_lan8651.py) und [test_mirror.py](test_mirror.py) zählen Frames auf dem Bus und
+messen gegen den 1-Hz-Verkehr des Endpoints als Oracle — ein von sich aus sendender Grandmaster
+verfälscht beides. Und ein Gerät, das nach dem Flashen ungefragt PTP in ein fremdes Netz streut, ist
+kein gutes Verhalten für eine Bridge.
+
+*Buslast.* Zwei Frames pro Intervall (Abschnitt 0, Punkt 3), also frei skalierend mit dem
+eingestellten Wert. Kurze Intervalle konkurrieren über PLCA mit dem Nutzverkehr — der Lasttest in
+1.7 gehört mit dem kleinsten Intervall gefahren, das man freigeben will, nicht mit dem Default.
+
+**1.6 Adressierung.** Ethernet-Broadcast `FF:FF:FF:FF:FF:FF`, EtherType `0x88F7`, PTPv2, twoStepFlag,
 hochlaufende `sequenceId`. **Keine** PTP-Multicast-Adressen — der RX-Filter des LAN865x ist nicht auf
 diese Gruppen konfiguriert und verwirft sie lautlos
 ([§6](LAN8651_TIME_SYNC.md#6-four-constraints-specific-to-a-multidrop-segment)).
 
-**1.6 Verifikation, in dieser Reihenfolge.**
+**1.7 Verifikation, in dieser Reihenfolge.**
 
-1. Wireshark am Host `192.168.0.100`: weil das Gerät eine L2-Bridge ist, werden die Broadcasts von
-   `eth0` nach `eth1` geflutet — der Mitschnitt kostet keine zusätzliche Hardware
+1. Nach dem Flashen, **vor** jedem `ptp start`: Wireshark zeigt keine `0x88F7`-Frames. Das ist der
+   Test des Defaults und dauert zehn Sekunden.
+2. Wireshark am Host `192.168.0.100` nach `ptp start`: weil das Gerät eine L2-Bridge ist, werden die
+   Broadcasts von `eth0` nach `eth1` geflutet — der Mitschnitt kostet keine zusätzliche Hardware
    ([§11.5](LAN8651_TIME_SYNC.md#115-three-things-that-are-different-on-a-bridge)).
-2. Plausibilität der Timestamps: aufeinanderfolgende `preciseOriginTimestamp` müssen im Intervall
+3. Plausibilität der Timestamps: aufeinanderfolgende `preciseOriginTimestamp` müssen im Intervall
    sauber weiterlaufen. Achtung auf den 1e9-Überlauf in der Nanosekundenstelle.
-3. Lasttest: `stats` parallel zu `iperf`, um zu belegen, dass der PTP-Zyklus den SPI-Pfad nicht
-   stört.
+4. Intervall: zwei Werte setzen, im Mitschnitt die Frame-Abstände nachmessen. `ptp stop` muss den
+   Verkehr wirklich beenden, und ein erneutes `ptp start` darf keinen Zeitsprung erzeugen — das ist
+   der Test der Abräumlogik aus 1.5.
+5. Autostart: `setenv ptp_auto 1`, `saveenv`, Reset — sendet nach dem Booten von selbst. Danach
+   `setenv ptp_auto 0`, `saveenv`, Reset — sendet nicht. Beide Richtungen prüfen, nicht nur die
+   interessante.
+6. Lasttest: `stats` parallel zu `iperf`, mit dem **kleinsten** freigegebenen Intervall, um zu
+   belegen, dass der PTP-Zyklus den SPI-Pfad nicht stört.
 
 **Fertig, wenn** die Frames korrekt aufgebaut über `eth1` sichtbar sind, die Zeitstempel monoton
-laufen und der Durchsatz unverändert ist. Bis hierher wurde **keine** generierte Datei angefasst.
+laufen, Start/Stop/Intervall/Autostart sich so verhalten wie oben und der Durchsatz unverändert ist.
+Bis hierher wurde **keine** generierte Datei angefasst.
 
 ---
 
@@ -224,6 +304,8 @@ schuld ist. Die Stufung als Tabelle steht in
 | MCC „Generate Code" im Follower-Projekt | RX-Timestamp verschwindet, Servo bekommt keine `t2` | Patch in die Bring-up-Checkliste, danach Regressionstest |
 | Neue `.c`-Datei nicht in den Projektdateien | wird stillschweigend nicht gebaut | `configurations.xml` **und** generiertes Makefile, siehe 1.2 |
 | Zyklisches `lan_read` zur Timestamp-Abfrage | rund 5 % Paketverlust unter Last | `_OnStatus0`-Callback, siehe 1.4 |
-| PTP-Multicast statt Broadcast | Frames werden lautlos verworfen | Broadcast, siehe 1.5 |
+| PTP-Multicast statt Broadcast | Frames werden lautlos verworfen | Broadcast, siehe 1.6 |
 | `FTSE` ohne `FTSS` | Empfangsdaten um einen festen Versatz zerlegt | beide Bits gemeinsam, siehe 2.2 |
 | Absoluttest ohne Berücksichtigung von `D_const` | Testfehlschlag bei korrektem Verhalten | erwarteten Offset in die Testkriterien, siehe Phase 4 |
+| `ENV_VERSION` erhöht, ohne es anzukündigen | gespeicherte IPs/MACs fallen auf die Compile-Defaults zurück | in die Release-Notiz, siehe 1.5 |
+| `ptp stop` ohne Abräumen des Capture-Status | erster `Sync` nach dem nächsten Start trägt einen alten Zeitstempel | Matcher entwaffnen + Write-1-Clear, siehe 1.5 |
