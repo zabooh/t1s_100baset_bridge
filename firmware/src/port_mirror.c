@@ -23,8 +23,7 @@
 
 #include <stdbool.h>
 #include <stdint.h>
-#include <stdlib.h>                                          /* strtoul() */
-#include <string.h>                                          /* memcpy/memcmp */
+#include <string.h>                                          /* memcpy/memcmp/strcmp */
 
 #include "definitions.h"
 #include "config/default/system/console/sys_console.h"
@@ -137,12 +136,39 @@ void mirror_eth0_tx_hook(struct _tag_TCPIP_MAC_PACKET *txPkt)
     mirror_ethpkt_to_eth1(frame, txPkt->pDSeg->segLen);
 }
 
-/* mirror [0|1] - copy every eth0 (T1S) RX frame out eth1 so a PC on eth1 can
+/* Case-insensitive string compare, so "on", "On" and "ON" all work without
+ * pulling in the POSIX-only strcasecmp. */
+static bool mirror_streq_ci(const char *a, const char *b) {
+    while (*a != '\0' && *b != '\0') {
+        char ca = *a++;
+        char cb = *b++;
+        if (ca >= 'A' && ca <= 'Z') { ca = (char)(ca - 'A' + 'a'); }
+        if (cb >= 'A' && cb <= 'Z') { cb = (char)(cb - 'A' + 'a'); }
+        if (ca != cb) { return false; }
+    }
+    return (*a == '\0' && *b == '\0');
+}
+
+/* mirror [on|off] - copy every eth0 (T1S) RX frame out eth1 so a PC on eth1 can
  * sniff the T1S bus with Wireshark (e.g. the endpoint's replies to a firmware
- * CLI command). No argument shows the current state. */
+ * CLI command). No argument shows the current state.
+ *
+ * 1 and 0 stay valid: the test scripts use them, and so does muscle memory. An
+ * unrecognised argument is refused rather than read as "off" - strtoul() used to
+ * turn every typo into a silent disable, which in a capture session looks like a
+ * broken mirror. */
 static void cmd_mirror(SYS_CMD_DEVICE_NODE* pCmdIO, int argc, char** argv) {
     if (argc >= 2) {
-        s_mirror_on = (strtoul(argv[1], NULL, 0) != 0u);
+        if (mirror_streq_ci(argv[1], "on") || !strcmp(argv[1], "1")) {
+            s_mirror_on = true;
+        } else if (mirror_streq_ci(argv[1], "off") || !strcmp(argv[1], "0")) {
+            s_mirror_on = false;
+        } else {
+            SYS_CONSOLE_PRINT("usage: mirror [on|off]   (1 and 0 also accepted)\n\r");
+            SYS_CONSOLE_PRINT("eth0(T1S)->eth1 mirror: %s  (unchanged)\n\r",
+                              s_mirror_on ? "ON" : "OFF");
+            return;
+        }
     }
     SYS_CONSOLE_PRINT("eth0(T1S)->eth1 mirror: %s\n\r", s_mirror_on ? "ON" : "OFF");
     if (s_mirror_on) {
@@ -152,7 +178,7 @@ static void cmd_mirror(SYS_CMD_DEVICE_NODE* pCmdIO, int argc, char** argv) {
 }
 
 static const SYS_CMD_DESCRIPTOR mirror_cmd_tbl[] = {
-    {"mirror", (SYS_CMD_FNC) cmd_mirror, ": mirror eth0(T1S) RX+TX to eth1 for Wireshark (mirror [0|1])"},
+    {"mirror", (SYS_CMD_FNC) cmd_mirror, ": mirror eth0(T1S) RX+TX to eth1 for Wireshark (mirror [on|off])"},
 };
 
 void MIRROR_Initialize(void) {

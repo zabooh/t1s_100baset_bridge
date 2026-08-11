@@ -121,7 +121,7 @@ raw-Ethernet loopback test (`noip_send`), LAN865x register peek/poke
 
 ### Diagnostics and bus analysis
 
-- **Port mirror / SPAN** (`mirror [0|1]`): copies T1S traffic to `eth1` for
+- **Port mirror / SPAN** (`mirror [on|off]`): copies T1S traffic to `eth1` for
   Wireshark, in both directions — RX (endpoint replies addressed to the bridge)
   and TX (the bridge's own outgoing frames, hooked at the LAN865x egress).
   MAC-filtered so the capture is duplicate-free; verbatim L2 frames.
@@ -872,16 +872,17 @@ for `eth1` and leaves the bus frame for normal local/bridge processing.
 
 1. On the PC, start **Wireshark** on the Fast-Ethernet adapter connected to
    the bridge's `eth1` (the LAN8740A PHY Daughter Board's RJ45).
-2. On the board CLI: `mirror 1` (turn it on). `mirror` with no argument shows
-   the current state; `mirror 0` turns it off.
+2. On the board CLI: `mirror on` (turn it on). `mirror` with no argument shows
+   the current state; `mirror off` turns it off. `1` and `0` are accepted too,
+   which is what the test scripts use.
 3. Run anything that talks to the endpoint from the bridge itself (e.g. the
    Harmony `ping 192.168.0.54`) and watch the T1S traffic (both directions)
    appear in Wireshark.
 
 ```text
-mirror 1                # eth0(T1S) -> eth1 mirror: ON   (RX + the bridge's own TX)
+mirror on               # eth0(T1S) -> eth1 mirror: ON   (RX + the bridge's own TX)
 ping 192.168.0.54        # now visible on eth1 in Wireshark: request + reply
-mirror 0                # turn it off when done
+mirror off              # turn it off when done
 ```
 
 ### 7.4 Limitations

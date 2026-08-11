@@ -241,7 +241,7 @@ vorher abklemmt, generischer Registerweg gegenüber den Komfort-Kommandos, Messp
 | Grandmaster prüfen | `python test_ptp.py` | pyshark dissektiert die Frames auf Feldebene: Version, Typen, Paarung, Sequenz, Timestamp, Kadenz, Exitcode ≠ 0 bei Abweichung |
 | Endpoint-Verkehr zählen | `tshark` auf dem `eth1`-Adapter | der Endpoint sendet SOME/IP-SD mit 1 Hz von selbst — bestes Oracle ohne Messgerät |
 | Rohe Ethernet-Frames | `noip_send <n> [gap_ms]` / `noip_stat` | EtherType `0x88B5`, umgeht den TCP/IP-Stack — **bestes Mittel für reproduzierbare Scope-Bilder** |
-| SPAN nach `eth1` | `mirror [0\|1]` | T1S-Verkehr in Wireshark mitlesen |
+| SPAN nach `eth1` | `mirror [on\|off]` | T1S-Verkehr in Wireshark mitlesen; `1`/`0` gelten weiter |
 | Zähler | `stats` | belastet den SPI-Pfad nicht |
 | Durchsatz | `iperf …` / `iperfk` | Dauerlast |
 | PLCA-Node-ID | `plca_node [id]` | 0 = Coordinator (volatil) |

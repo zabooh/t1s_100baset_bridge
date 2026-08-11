@@ -89,11 +89,11 @@ void mirror_eth0_tx_hook(struct _tag_TCPIP_MAC_PACKET *txPkt);
  * and never pass DRV_LAN865X_PacketTx(), so mirror_eth0_tx_hook() above never
  * sees them - and the MAC bridge cannot help either, because it only forwards
  * frames it RECEIVES on a port, and a self-generated frame is never received.
- * Without this call such frames are invisible on eth1 even with "mirror 1".
+ * Without this call such frames are invisible on eth1 even with the mirror on.
  * Raw senders need that path whenever they need the tsc flag (hardware TX
  * timestamp), so it is not something a caller can simply avoid.
  *
- * Gated by the SAME "mirror [0|1]" switch as the other two paths - deliberately
+ * Gated by the SAME "mirror [on|off]" switch as the other two paths - deliberately
  * one switch for all of eth0, not a second per-sender flag. Two flags in series
  * would mean an empty capture with nothing actually broken, the expensive kind
  * of test failure.
