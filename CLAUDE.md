@@ -50,10 +50,15 @@ setup.bat                 :: einmalig pro Rechner
   fehlerfrei durch, dann „file not found"). Der Kommentar dazu steht in `build.bat`.
 - Ergebnis: `firmware\T1S_100BaseT_Bridge.X\dist\default\production\T1S_100BaseT_Bridge.X.production.hex`,
   zusätzlich kopiert nach `release\T1S_100BaseT_Bridge.hex` (getrackt, damit ein frischer Klon ohne
-  Build flashen kann). **Achtung, 2026-08-10 korrigiert: `dist\` ist *nicht* gitignored** —
-  `.hex`, `.elf` und `.map` dort sind seit `6e73b22` getrackt (`git check-ignore` liefert nichts).
-  Jeder Build macht sie also „modified", und jeder Commit schleppt einen ~22 000-Zeilen-Hex-Diff mit.
-  Offen, ob das so bleiben soll; solange es so ist, mitcommitten, sonst ist der Baum dauerhaft dreckig.
+  Build flashen kann). **`dist\` ist gitignored** (`.gitignore`: `**/*.X/dist`, dazu `*.elf`/`*.map`)
+  — **genau drei Dateien darunter sind trotzdem getrackt**, weil sie in `6e73b22` an der Regel vorbei
+  committet wurden: `…production.elf`, `…production.hex`, `…production.map`. Eine Ignore-Regel greift
+  bei getrackten Dateien nicht mehr, also werden diese drei „modified", sobald sich ihr Inhalt wirklich
+  ändert — dann schleppt der Commit einen ~22 000-Zeilen-Hex-Diff mit. Ein Build ohne Quelltextänderung
+  lässt den Baum dagegen clean (2026-08-10 nachgemessen), und die neuen Artefakte unter
+  `dist\…\image\` sind sauber ignoriert. Offen, ob die drei Altlasten getrackt bleiben sollen; solange
+  es so ist, mitcommitten. **Frühere Fassung dieser Zeile behauptete das Gegenteil** — Ursache in
+  Abschnitt 6 (`git check-ignore` schweigt bei getrackten Pfaden).
 - Nach dem Build läuft `build_summary.py` (Flash/RAM, Heap, Interrupt-Handler).
 - **Konsole:** EDBG-COM-Port, **115200 8N1**. Host-seitig: `python cli.py --port COM8 --read 1 "<cmd>"`.
 
@@ -302,6 +307,23 @@ Erst zurückstellen, dann Verkehr messen.
   in `README.md`. Diagnosewert der Pings:
   `.210` antwortet = Link zum GMAC-Port steht; `.200` antwortet = die Bridge forwardet wirklich nach
   `eth0`.
+- **2026-08-10 — `git check-ignore -v <pfad>` schweigt bei *getrackten* Dateien (rc=1) und beweist
+  damit *nicht*, dass keine Ignore-Regel existiert.** Genau daran ist die frühere Aussage in
+  Abschnitt 2 gescheitert („`dist\` ist nicht gitignored"): `.gitignore` enthält seit immer
+  `**/*.X/dist`, aber weil `…production.hex/.elf/.map` in `6e73b22` getrackt wurden, überspringt
+  check-ignore sie und liefert leere Ausgabe — was wie „keine Regel" aussieht. **Richtig ist
+  `git check-ignore -v --no-index <pfad>`** (zeigt `.gitignore:10:**/*.X/dist`), und für die Frage
+  „ist der Pfad getrackt?" `git ls-files -- <pfad>`. Die beiden Fragen sind unabhängig und müssen
+  getrennt gestellt werden. **Merksatz:** eine leere Ausgabe mit rc=1 ist ein *Nicht-Ergebnis*, kein
+  Gegenbeweis — bei Git-Abfragen vor einer Schlussfolgerung prüfen, ob das Kommando den Fall
+  überhaupt abdeckt.
+- **2026-08-10 — Bauen mit der MPLAB-X-IDE ist unverändert möglich; `build.bat` beweist es mit.**
+  Beide treiben dasselbe von der IDE erzeugte `nbproject\Makefile-default.mk`, ein erfolgreicher
+  `build.bat`-Lauf gilt also auch für den IDE-Build. Kontrolliert am 2026-08-10: `configurations.xml`
+  **und** das generierte Makefile führen `lan865x_diag`, `port_mirror`, `noip_test` je als `.c`+`.h`;
+  Build fehlerfrei (167 525 B Flash / 16,2 %, 49 359 B RAM / 18,8 %), Baum danach clean. Gefährlich
+  ist nicht *Build*, sondern MCC „Generate Code" (Abschnitt 6, Mirror-Patch) — danach
+  `python test_mirror.py`.
 
 ---
 
