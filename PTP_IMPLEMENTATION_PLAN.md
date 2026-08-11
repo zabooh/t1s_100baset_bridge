@@ -156,18 +156,47 @@ kein gutes Verhalten für eine Bridge.
 eingestellten Wert. Kurze Intervalle konkurrieren über PLCA mit dem Nutzverkehr — der Lasttest in
 1.7 gehört mit dem kleinsten Intervall gefahren, das man freigeben will, nicht mit dem Default.
 
-**1.6 Adressierung.** Ethernet-Broadcast `FF:FF:FF:FF:FF:FF`, EtherType `0x88F7`, PTPv2, twoStepFlag,
-hochlaufende `sequenceId`. **Keine** PTP-Multicast-Adressen — der RX-Filter des LAN865x ist nicht auf
-diese Gruppen konfiguriert und verwirft sie lautlos
+**1.6 Adressierung und Mitschnitt.** Ethernet-Broadcast `FF:FF:FF:FF:FF:FF`, EtherType `0x88F7`,
+PTPv2, twoStepFlag, hochlaufende `sequenceId`. **Keine** PTP-Multicast-Adressen — der RX-Filter des
+LAN865x ist nicht auf diese Gruppen konfiguriert und verwirft sie lautlos
 ([§6](LAN8651_TIME_SYNC.md#6-four-constraints-specific-to-a-multidrop-segment)).
+
+**Der eigene `Sync` erscheint nicht von selbst auf `eth1` — auch mit `mirror 1` nicht.** Zwei
+unabhängige Gründe:
+
+- Die MAC-Bridge leitet nur weiter, was sie auf einem Port **empfängt**. Ein selbst erzeugter Frame
+  wird nie empfangen, also gibt es nichts zu fluten. Geflutet werden Broadcasts *durchlaufenden*
+  Verkehrs — ein *fremder* Master auf `eth1` landet dadurch tatsächlich auf `eth0`, das ist die
+  Aussage in [§11.5](LAN8651_TIME_SYNC.md#115-three-things-that-are-different-on-a-bridge); die
+  Gegenrichtung für eigene Frames folgt daraus nicht.
+- Der Mirror-TX-Hook hängt an
+  [`DRV_LAN865X_PacketTx()`](firmware/src/config/default/driver/lan865x/src/dynamic/drv_lan865x_api.c#L664),
+  dem Stack-Ausgang. Der TX-Zeitstempel erzwingt aber `tsc = 1` und damit den Rohweg
+  [`DRV_LAN865X_SendRawEthFrame()`](firmware/src/config/default/driver/lan865x/src/dynamic/drv_lan865x_api.c#L2416)
+  → `TC6_SendRawEthernetPacket()`, der an dieser Funktion vorbeigeht. Aus demselben Grund sind
+  `noip_send`-Frames im Mirror unsichtbar. Der Kommentar im Treiber, `PacketTx` sei „the single eth0
+  egress point", ist seit `SendRawEthFrame` **falsch** — dieselbe Behauptung steht in
+  `port_mirror.c` über `mirror_eth0_tx_hook`.
+
+Drei mögliche Mitschnittwege, gebaut wird der erste:
+
+| Weg | Aufwand | Beweiskraft |
+|---|---|---|
+| `ptp_gm.c` übergibt den fertigen Frame zusätzlich an einen neuen Eintrittspunkt `MIRROR_RawTx(frame, len)` in `port_mirror.c` (ruft intern `mirror_ethpkt_to_eth1()`, respektiert `mirror [0\|1]`) | ~20 Zeilen **Anwendungs**code, keine generierte Datei | Frameaufbau und Kadenz exakt, in Wireshark am Host. **Nicht** das Wire-Timing — es ist eine Softwarekopie desselben Puffers |
+| Sniffer direkt am T1S-Bus, also ein zweiter T1S-Knoten promiscuous | zusätzliche Hardware, in Phase 1 nicht vorhanden | alles, inklusive Wire-Timing |
+| `Sync` über den Stack senden, damit er `PacketTx` durchläuft | keiner | wertlos: ohne `tsc = 1` kein TX-Zeitstempel — und der ist der ganze Zweck von Phase 1 |
+
+Ergänzend zählt `ptp status` gesendete `Sync`/`Follow_Up` und abgebrochene Zyklen, damit „sendet
+überhaupt" auch ohne Mitschnitt beantwortbar ist.
 
 **1.7 Verifikation, in dieser Reihenfolge.**
 
-1. Nach dem Flashen, **vor** jedem `ptp start`: Wireshark zeigt keine `0x88F7`-Frames. Das ist der
-   Test des Defaults und dauert zehn Sekunden.
-2. Wireshark am Host `192.168.0.100` nach `ptp start`: weil das Gerät eine L2-Bridge ist, werden die
-   Broadcasts von `eth0` nach `eth1` geflutet — der Mitschnitt kostet keine zusätzliche Hardware
-   ([§11.5](LAN8651_TIME_SYNC.md#115-three-things-that-are-different-on-a-bridge)).
+1. Nach dem Flashen, **vor** jedem `ptp start`: `ptp status` meldet `off` und TX-Zähler `0`. Das ist
+   der Test des Defaults und dauert zehn Sekunden. Ein leerer Wireshark-Mitschnitt taugt dafür
+   **nicht** — der ist auch bei laufendem Grandmaster leer, wenn der Klonweg aus 1.6 nicht steht.
+2. `ptp status` nach `ptp start`: der TX-Zähler läuft. Erst danach Wireshark am Host
+   `192.168.0.100`, mit `mirror 1` **und** dem Klon-Aufruf aus 1.6 — fehlt eines von beidem, ist der
+   Mitschnitt leer, ohne dass am Grandmaster etwas defekt wäre.
 3. Plausibilität der Timestamps: aufeinanderfolgende `preciseOriginTimestamp` müssen im Intervall
    sauber weiterlaufen. Achtung auf den 1e9-Überlauf in der Nanosekundenstelle.
 4. Intervall: zwei Werte setzen, im Mitschnitt die Frame-Abstände nachmessen. `ptp stop` muss den
@@ -179,7 +208,7 @@ diese Gruppen konfiguriert und verwirft sie lautlos
 6. Lasttest: `stats` parallel zu `iperf`, mit dem **kleinsten** freigegebenen Intervall, um zu
    belegen, dass der PTP-Zyklus den SPI-Pfad nicht stört.
 
-**Fertig, wenn** die Frames korrekt aufgebaut über `eth1` sichtbar sind, die Zeitstempel monoton
+**Fertig, wenn** die Frames korrekt aufgebaut im Mitschnitt sichtbar sind (Weg aus 1.6), die Zeitstempel monoton
 laufen, Start/Stop/Intervall/Autostart sich so verhalten wie oben und der Durchsatz unverändert ist.
 Bis hierher wurde **keine** generierte Datei angefasst.
 
@@ -309,3 +338,4 @@ schuld ist. Die Stufung als Tabelle steht in
 | Absoluttest ohne Berücksichtigung von `D_const` | Testfehlschlag bei korrektem Verhalten | erwarteten Offset in die Testkriterien, siehe Phase 4 |
 | `ENV_VERSION` erhöht, ohne es anzukündigen | gespeicherte IPs/MACs fallen auf die Compile-Defaults zurück | in die Release-Notiz, siehe 1.5 |
 | `ptp stop` ohne Abräumen des Capture-Status | erster `Sync` nach dem nächsten Start trägt einen alten Zeitstempel | Matcher entwaffnen + Write-1-Clear, siehe 1.5 |
+| Mitschnittweg angenommen statt gebaut | leerer Mitschnitt wird als „Grandmaster sendet nicht" gelesen, Fehlersuche am falschen Ende | Klonweg aus 1.6 zuerst bauen, Default über den Zähler prüfen, nicht über Stille |

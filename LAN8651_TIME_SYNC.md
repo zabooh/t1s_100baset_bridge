@@ -568,15 +568,25 @@ exchange, at a fraction of the code.
 
 ### 11.5 Three things that are different on a bridge
 
-**1. The MAC bridge floods both directions, and that cuts both ways.** Forwarding here is done by
-the Harmony MAC bridge, not in application code — [app.c:481-482](firmware/src/app.c#L481-L482)
-says so explicitly and returns `false` so frames go to normal stack/bridge processing. Two
-consequences: the broadcast `Sync` and `Follow_Up` on `eth0` are **flooded to `eth1`**,
-where they are visible to anything on the 100BASE-T side; and a foreign master's `Sync` arriving
-on `eth1` is **imported into the T1S segment**, where a follower will happily lock to it. Decide
-early which of the two is wanted. If neither: filter EtherType `0x88F7` in the bridge, and note
-that a *forwarded* PTP frame carries no residence-time correction, so it is wrong by whatever the
-bridge took to move it. Our own `Sync` sidesteps this entirely because it never enters the bridge.
+**1. The MAC bridge floods what it *receives* — which cuts one way only.** Forwarding here is done
+by the Harmony MAC bridge, not in application code — [app.c:481-482](firmware/src/app.c#L481-L482)
+says so explicitly and returns `false` so frames go to normal stack/bridge processing. So a foreign
+master's `Sync` arriving on `eth1` is **imported into the T1S segment**, where a follower will
+happily lock to it. If that is not wanted, filter EtherType `0x88F7` in the bridge, and note that a
+*forwarded* PTP frame carries no residence-time correction, so it is wrong by whatever the bridge
+took to move it.
+
+**The reverse does not hold for our own frames — and this is easy to get backwards.** A
+self-generated `Sync` is never *received* on a port, so the bridge has nothing to flood; and it
+leaves through
+[`DRV_LAN865X_SendRawEthFrame()`](firmware/src/config/default/driver/lan865x/src/dynamic/drv_lan865x_api.c#L2416),
+which `tsc = 1` makes mandatory, bypassing
+[`DRV_LAN865X_PacketTx()`](firmware/src/config/default/driver/lan865x/src/dynamic/drv_lan865x_api.c#L664)
+where the port mirror's TX hook sits. It is therefore invisible on `eth1` **even with `mirror 1`** —
+exactly like `noip_send` frames. Both the driver and `port_mirror.c` still describe `PacketTx` as
+"the single eth0 egress point"; that stopped being true when `SendRawEthFrame` was added. Getting a
+host-side capture of our own `Sync` needs an explicit clone call from the sender into
+`mirror_ethpkt_to_eth1()`.
 
 **2. SPI bandwidth is shared with the datapath.** `CLAUDE.md` section 4 records ~5 % UDP loss when
 `lan_read` polled every 200 ms during iperf — five transactions per second was enough to hurt. A

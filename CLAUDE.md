@@ -336,6 +336,17 @@ Erst zurückstellen, dann Verkehr messen.
   stellt den Stand wieder her (für Fall 2 genügt auch `git update-index --refresh`).
   **Merksatz:** vor dem Committen nach einem IDE-Lauf `git diff -- <pfad>` fragen, nicht `git status`
   — sonst committet man einen ~22 000-Zeilen-Hex-Diff oder eine Datei, die sich gar nicht geändert hat.
+- **2026-08-11 — Rohframes über `DRV_LAN865X_SendRawEthFrame()` sind auf `eth1` unsichtbar, auch bei
+  `mirror 1`.** Es gibt **zwei** `eth0`-Ausgänge: den Stackweg `DRV_LAN865X_PacketTx()`
+  (`drv_lan865x_api.c:664`, dort hängt der Mirror-TX-Hook) und den Rohweg
+  `DRV_LAN865X_SendRawEthFrame()` → `TC6_SendRawEthernetPacket()` (`:2416`), der an `PacketTx`
+  vorbeigeht. Die MAC-Bridge hilft dabei nicht: sie flutet nur, was sie auf einem Port **empfängt**,
+  und ein selbst erzeugter Frame wird nie empfangen. Betrifft heute schon `noip_send` — dessen Frames
+  tauchen im Mirror nicht auf, was leicht als kaputter Mirror gelesen wird. **Der Kommentar
+  „the single eth0 egress point"** an `mirror_eth0_tx_hook` (in `drv_lan865x_api.c:678` *und*
+  `port_mirror.c:110`) **ist seit `SendRawEthFrame` falsch.** Wer einen Host-Mitschnitt eigener
+  Rohframes braucht, muss aus dem Sender heraus `mirror_ethpkt_to_eth1()` aufrufen. **Merksatz:**
+  „die Bridge flutet Broadcasts" gilt für *durchlaufenden* Verkehr, nicht für selbst erzeugten.
 
 ---
 
