@@ -355,7 +355,16 @@ ist nur, dass 20 Zyklen/s ohne Fehler und ohne `qFull` laufen, nicht der Durchsa
 
 ## Phase 2 — Follower als eigenes Projekt
 
-Eigenes Repo, eigenes Board. Vorlage sind die bereits gemessenen Module aus
+> **Korrektur zur ursprünglichen Festlegung (Entscheidung des Nutzers, 2026-08-11): der Follower liegt
+> in *diesem* Repo**, als zweites, parallel installiertes MPLAB-Projekt unter
+> [follower/](follower/) — nicht in einem eigenen Repo. Abgeleitet wird er mechanisch aus dem
+> Bridge-Projekt: [derive_follower.py](derive_follower.py) reproduziert `follower/` bytegleich aus
+> `firmware/` und ist damit gleichzeitig die Liste aller Unterschiede. Nur `eth0` (LAN865x/T1S), kein
+> Port-Mirror, kein Grandmaster, ein Interface im env-Datensatz. Welches Board welchem Projekt gehört,
+> steht in `boards.json` — einmal `python setup_flasher.py`, danach löst jede `flash.bat` ihre Probe
+> selbst auf.
+
+Vorlage sind die bereits gemessenen Module aus
 `zabooh/net_10base_t1s`, siehe
 [§11.1 Prior art](LAN8651_TIME_SYNC.md#111-prior-art-both-roles-already-exist-and-are-measured) und
 die beiden Vorbehalte in [§11.7](LAN8651_TIME_SYNC.md#117-two-caveats-about-the-reference-implementation).
@@ -388,6 +397,38 @@ Alles, was mit `Delay_Req`, `Delay_Resp`, `t3` oder `t4` zu tun hat, wird beim P
 `Sync`-Nachrichten.
 
 **Fertig, wenn** der Follower den Zustand `FINE` erreicht und dort bleibt.
+
+### 2.5 Stand: Messkette steht, Servo fehlt (2026-08-11)
+
+2.1 bis 2.3 sind umgesetzt und am Ziel gemessen, 2.4 (Servo) ist offen. Bewusst in dieser Reihenfolge:
+**erst beweisen, dass gemessen wird, dann die Regelschleife schließen** — ein Servo auf einer
+unbewiesenen Messung ist nicht debuggbar.
+
+Umgesetzt in [ptp_follower.c](follower/firmware/src/ptp_follower.c) /
+[ptp_follower.h](follower/firmware/src/ptp_follower.h), Kommando `ptpf on | off | status | log | reset`:
+
+| Prüfung | Ergebnis |
+|---|---|
+| Treiber-Patch (2.1) | `ptp_follower_rx_hook()` in `TC6_CB_OnRxEthernetPacket()`; **198 von 198 Syncs mit Zeitstempel**, `sync without timestamp: 0` |
+| `FTSE`+`FTSS` (2.2) | beim `ptpf on` gesetzt, beim `ptpf off` zurückgenommen |
+| Paarung (2.3) | 198 Sync / 198 Follow_Up / 198 Proben, 0 unmatched, 0 Ring-Überläufe |
+| Offset | `t2 − t1 − D_const`, Spanne über ~200 Proben **249.440 ns** |
+| Frequenzversatz | **−1280 ns je 250-ms-Zyklus = −5,12 ppm** zwischen den beiden Quarzen, konstant |
+| Master-Zyklus, vom Follower aus gemessen | 249.972.800 ns bei kommandierten 250 ms |
+
+Der Absolutoffset ist groß (Differenz der Betriebszeiten beider Boards) und **kein Fehler** — genau den
+zieht der Servo im Zustand `HARDSYNC` einmalig weg. Interessant ist die Änderung pro Zyklus, und die ist
+inzwischen sauber: die Spanne entspricht der aufsummierten Drift, es liegen keine Ausreißer mehr darin.
+
+**Zwei Fehler in der Grandmaster-Seite hat erst der Follower sichtbar gemacht** — beide in
+`CLAUDE.md` Abschnitt 6 und `LAN8651_TIME_SYNC.md` §4 festgehalten: `TTSCAA` sperrt neue Captures (das
+Write-1-Clear gehört **vor** jeden Zyklus, nicht nach jeden Erfolg), und das Capture-Paar muss
+`TTSCAL` → `TTSCAH` gelesen werden, sonst ist der Offset um genau eine Sekunde falsch. Das ist der
+eigentliche Wert eines zweiten Knotens: die Bridge konnte beides über sich selbst nicht feststellen.
+
+**Als nächstes 2.4:** Servo mit den fünf Zuständen, Frequenzzweig aus dem Abstand aufeinanderfolgender
+`Sync` (die −5,12 ppm sind sein Eingangssignal), Offsetzweig über `MAC_TA`, Feinregelung über
+`MAC_TI`/`MAC_TISUBN`.
 
 ---
 

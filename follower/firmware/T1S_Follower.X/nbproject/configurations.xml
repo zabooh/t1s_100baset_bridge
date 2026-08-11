@@ -591,6 +591,7 @@
       <itemPath>../src/env.h</itemPath>
       <itemPath>../src/lan865x_diag.h</itemPath>
       <itemPath>../src/noip_test.h</itemPath>
+      <itemPath>../src/ptp_follower.h</itemPath>
     </logicalFolder>
     <logicalFolder name="ExternalFiles"
                    displayName="Important Files"
@@ -971,6 +972,7 @@
       <itemPath>../src/env.c</itemPath>
       <itemPath>../src/lan865x_diag.c</itemPath>
       <itemPath>../src/noip_test.c</itemPath>
+      <itemPath>../src/ptp_follower.c</itemPath>
       <itemPath>../src/main.c</itemPath>
       <itemPath>../src/config/default/pin_configurations.csv</itemPath>
     </logicalFolder>

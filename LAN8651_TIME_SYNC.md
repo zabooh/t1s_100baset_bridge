@@ -279,6 +279,19 @@ Two practical notes from building the grandmaster on this firmware:
 - **The register pair is one 64-bit value in the format of figure 5-4:** `TTSCxH` holds
   seconds\[31:0\], `TTSCxL` holds nanoseconds in bits 29:0 (bits 31:30 read zero). Measured on this
   board the seconds field tracks uptime, which is the cheapest sanity check there is.
+- **`TTSCAA` is not just a notification, it is a lock — clear it before every send, not after every
+  success.** While the flag is set the device keeps the stored capture and **drops** new ones. So one
+  cycle that gives up on its timestamp leaves a late capture behind, that capture sets the flag, and
+  from then on the register never changes again: a single transient failure becomes permanent. Seen as
+  480 timeout cycles out of 495, with `OA_STATUS0` reading `0x0100` and `TTSCAH` frozen 177 s behind
+  the wall clock. Clearing at the start of each cycle (write-1-clear, then re-read the register as this
+  cycle's baseline) makes a failed cycle cost nothing.
+- **Read the pair low word first.** A capture landing between the two control transactions pairs the
+  old seconds with the new nanoseconds, which lands exactly one second off — the kind of error that
+  looks like a protocol bug. Low first is safe: the moment a capture lands it sets `TTSCAA`, and that
+  freezes the pair until the next clear, so the high word read afterwards belongs to the same capture.
+  Measured on the follower: the offset spread across ~200 samples fell from 1.000243 s to 249 µs, and
+  the remainder is the genuine drift between the two crystals rather than jitter.
 
 Three pairs exist so that several frames can be in flight without one overwriting another's
 timestamp — which is exactly the situation a two-step `Sync` creates.

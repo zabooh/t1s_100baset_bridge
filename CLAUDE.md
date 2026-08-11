@@ -380,6 +380,29 @@ Erst zurückstellen, dann Verkehr messen.
   Schleife zu senden; genau das schreibt `PTP_IMPLEMENTATION_PLAN.md` §1.3 vor. Am `noip_test.c`
   selbst ist bisher **nichts** geändert (offen: `NOIP_MAX_COUNT` auf 5 begrenzen oder den Treiber im
   Warten bedienen).
+- **2026-08-11 — `TTSCAA` ist eine Sperre, keine Meldung: einmal gesetzt, verwirft der Baustein neue
+  Captures.** Deshalb muss das Write-1-Clear **vor jedem Sende-Zyklus** stehen, nicht nach jedem
+  Erfolg. Ein einzelner Zyklus, der auf seinen Timestamp verzichtet (Timeout), lässt ein verspätetes
+  Capture zurück, das setzt das Flag, und ab da friert das Register **dauerhaft** ein — aus einem
+  vorübergehenden Aussetzer wird ein Totalausfall. Messwerte des Fehlerbilds: 480 von 495 Zyklen mit
+  Timeout, `OA_STATUS0 = 0x0100`, `TTSCAH` 177 s hinter der Wallclock, während `OA_CONFIG0 = 0x92E6`
+  (Timestamping an) und `TXMCTL = 0x0082` (Matcher an, `TXPMDET` gesetzt) korrekt aussahen. **Sackgasse
+  dabei:** `TXPMDET` (read-clear) von Hand zu lesen bringt die Captures **nicht** zurück — es ist
+  Symptom, nicht Ursache. Lösung in `ptp_gm.c`: pro Zyklus erst `TTSCAA` löschen, dann das Register als
+  Basiswert lesen, dann senden.
+- **2026-08-11 — Das Capture-Paar in der Reihenfolge `TTSCAL` → `TTSCAH` lesen, nie umgekehrt.**
+  Landet das Capture zwischen den zwei Steuertransaktionen, kombiniert man die alten Sekunden mit den
+  neuen Nanosekunden — der Fehler beträgt dann **genau eine Sekunde** und sieht wie ein Protokollfehler
+  aus. Umgekehrt ist es sicher, weil ein gelandetes Capture `TTSCAA` setzt und das Paar damit bis zum
+  nächsten Löschen einfriert. Nachgemessen am Follower: Offset-Spanne über ~200 Proben von
+  1.000.243.000 ns auf **249.440 ns**, und der Rest ist echte Quarzdrift (−1280 ns pro 250-ms-Zyklus =
+  −5,12 ppm), kein Jitter mehr.
+- **2026-08-11 — Ein Prüffenster von wenigen Sekunden findet den Capture-Freeze nicht.** `test_ptp.py`
+  lief grün, während die Bridge über Minuten nur noch Sync ohne Follow_Up sendete: der Mitschnitt sah
+  die ersten Zyklen, und die waren in Ordnung. **Deshalb prüft das Skript jetzt zusätzlich die eigenen
+  Zähler des Geräts** (`ptp status`: `ts timeouts == 0`, ein `follow_up` je `sync`) — die sehen den
+  ganzen Lauf, nicht das Fenster. Merksatz: bei Fehlern, die sich erst nach N Zyklen einstellen, ist
+  der Zähler im Gerät das Messmittel, nicht der Mitschnitt.
 - **2026-08-11 — `FTSE` ist kein RX-Bit: ohne es gibt es auch keinen TX-Timestamp.** Datenblatt
   §5.2.5.1: „Transmit timestamping is enabled by setting the Frame Timestamp Enable (FTSE) bit …
   When the TSC header field is zero **or frame timestamping is disabled**, no frame egress timestamp

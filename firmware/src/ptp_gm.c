@@ -80,13 +80,19 @@
 #define TS_TIMEOUT_MS           20u           /* capture must appear within this */
 #define TS_POLL_GAP_MS          1u            /* between two capture read-backs  */
 
+/* One cycle: release the capture register, re-baseline against what it holds,
+   send Sync, wait for a value that differs from the baseline, send Follow_Up.
+   Clearing and re-baselining at the START of the cycle rather than after a
+   success is what makes a failed cycle harmless - see the comment at
+   ST_CYC_CLEAR. */
 typedef enum {
     ST_OFF = 0,
     ST_TS_ENABLE,        /* turning FTSE/FTSS on, RMW in flight    */
     ST_RUN,              /* idle, waiting for the next interval    */
-    ST_TS_READ_H,        /* Sync is out, reading TTSCAH            */
-    ST_TS_READ_L,        /* reading TTSCAL                         */
-    ST_TS_GAP,           /* capture still stale, short pause       */
+    ST_CYC_CLEAR,        /* write-1-clear TTSCAA before sending    */
+    ST_CYC_BASE,         /* baseline: reading TTSCAL, then send    */
+    ST_TS_POLL,          /* Sync is out, polling TTSCAL for change */
+    ST_TS_READ_H,        /* changed: reading TTSCAH to complete it */
     ST_STOP_CLR,         /* stopping: clearing TTSCAA              */
     ST_STOP_TS           /* stopping: turning FTSE/FTSS off        */
 } ptp_state_t;
@@ -113,6 +119,8 @@ static uint16_t s_seq = 0u;                   /* sequenceId of the current cycle
 /* Timestamp shadow. Survives stop/start on purpose: it is what tells a fresh
    capture from the one still standing in the register from the last run. */
 static uint32_t s_ts_hi = 0u;                 /* TTSCAH of the cycle being read */
+static uint32_t s_ts_lo = 0u;                 /* TTSCAL of the cycle being read */
+static uint32_t s_ts_base_lo = 0u;            /* TTSCAL before this cycle's Sync */
 static uint64_t s_ts_last = 0u;               /* last accepted 64-bit capture   */
 static bool     s_ts_valid = false;
 
@@ -306,6 +314,7 @@ static void ptp_send_sync(void)
                                      TSC_CAPTURE_A, NULL, NULL)) {
         s_cnt_send_fail++;
         s_next_cycle = ptp_now() + ptp_ms(s_interval_ms);
+        s_state = ST_RUN;
         return;
     }
     s_cnt_sync++;
@@ -314,7 +323,7 @@ static void ptp_send_sync(void)
     s_next_cycle  = ptp_now() + ptp_ms(s_interval_ms);
     s_ts_deadline = ptp_now() + ptp_ms(TS_TIMEOUT_MS);
     s_poll_at     = ptp_now();
-    s_state = ST_TS_READ_H;
+    s_state = ST_TS_POLL;
 }
 
 static void ptp_send_follow_up(uint32_t sec, uint32_t ns)
@@ -465,31 +474,35 @@ void PTP_GM_Tasks(void)
 
         case ST_RUN:
             if (ptp_elapsed(s_next_cycle)) {
-                ptp_send_sync();
+                s_state = ST_CYC_CLEAR;
             }
             break;
 
-        case ST_TS_READ_H:
+        case ST_CYC_CLEAR:
+            /* Write-1-clear TTSCAA at the start of every cycle. While that flag is
+               set the device keeps the stored capture and DROPS new ones, and a
+               cycle that timed out leaves a late capture behind that sets the flag
+               again - so clearing only after a success turns the first timeout into
+               a permanent freeze. Measured: captures ran for a handful of cycles
+               after each start and then stopped for good. */
             if (!s_reg_busy) {
-                if (ptp_elapsed(s_ts_deadline)) {
-                    s_cnt_ts_timeout++;
-                    s_state = ST_RUN;
-                } else if (ptp_elapsed(s_poll_at)) {
-                    (void)ptp_reg_read(TTSCAH);
-                }
+                (void)ptp_reg_write(OA_STATUS0, OA_STATUS0_TTSCAA);
             } else if (s_reg_done) {
                 s_reg_busy = false;
                 if (!s_reg_ok) {
                     s_cnt_reg_err++;
-                    s_state = ST_RUN;
-                } else {
-                    s_ts_hi = s_reg_val;
-                    s_state = ST_TS_READ_L;
                 }
+                s_state = ST_CYC_BASE;
             }
             break;
 
-        case ST_TS_READ_L:
+        case ST_CYC_BASE:
+            /* Baseline: the low word of whatever stands in the register now,
+               including a late capture from the previous cycle. The Sync's own
+               capture is then the first value that differs, which keeps a late
+               arrival from being credited to the next Sync. The low word alone is
+               enough - it holds the nanoseconds, and two captures sharing one
+               nanosecond value at 40 ns resolution does not happen. */
             if (!s_reg_busy) {
                 (void)ptp_reg_read(TTSCAL);
             } else if (s_reg_done) {
@@ -498,28 +511,57 @@ void PTP_GM_Tasks(void)
                     s_cnt_reg_err++;
                     s_state = ST_RUN;
                 } else {
-                    uint64_t cap = ((uint64_t)s_ts_hi << 32u) | (uint64_t)s_reg_val;
-                    if (cap != 0u && (!s_ts_valid || cap != s_ts_last)) {
-                        s_ts_last = cap;
-                        s_ts_valid = true;
-                        ptp_send_follow_up(s_ts_hi, s_reg_val & TS_NS_MASK);
-                        s_state = ST_RUN;
-                    } else {
-                        /* Same value as last cycle: the capture has not landed
-                           yet. Wait a moment and look again. */
-                        s_poll_at = ptp_now() + ptp_ms(TS_POLL_GAP_MS);
-                        s_state = ST_TS_GAP;
-                    }
+                    s_ts_base_lo = s_reg_val;
+                    ptp_send_sync();
                 }
             }
             break;
 
-        case ST_TS_GAP:
-            if (ptp_elapsed(s_ts_deadline)) {
-                s_cnt_ts_timeout++;
-                s_state = ST_RUN;
-            } else if (ptp_elapsed(s_poll_at)) {
-                s_state = ST_TS_READ_H;
+        case ST_TS_POLL:
+            /* Poll the LOW word, and only read the high word once it has changed.
+               Order matters: a capture landing between two reads of the pair would
+               otherwise pair the old seconds with the new nanoseconds, which shows
+               up as an offset that is wrong by exactly one second - measured on the
+               follower before this was fixed. Reading low first is safe because a
+               landed capture sets TTSCAA, and while that is set the device drops
+               further captures, so the pair is frozen until the next cycle clears
+               the flag. */
+            if (!s_reg_busy) {
+                if (ptp_elapsed(s_ts_deadline)) {
+                    s_cnt_ts_timeout++;
+                    s_state = ST_RUN;
+                } else if (ptp_elapsed(s_poll_at)) {
+                    (void)ptp_reg_read(TTSCAL);
+                }
+            } else if (s_reg_done) {
+                s_reg_busy = false;
+                if (!s_reg_ok) {
+                    s_cnt_reg_err++;
+                    s_state = ST_RUN;
+                } else if (s_reg_val != s_ts_base_lo) {
+                    s_ts_lo = s_reg_val;
+                    s_state = ST_TS_READ_H;
+                } else {
+                    s_poll_at = ptp_now() + ptp_ms(TS_POLL_GAP_MS);
+                }
+            }
+            break;
+
+        case ST_TS_READ_H:
+            if (!s_reg_busy) {
+                (void)ptp_reg_read(TTSCAH);
+            } else if (s_reg_done) {
+                s_reg_busy = false;
+                if (!s_reg_ok) {
+                    s_cnt_reg_err++;
+                    s_state = ST_RUN;
+                } else {
+                    s_ts_hi = s_reg_val;
+                    s_ts_last = ((uint64_t)s_ts_hi << 32u) | (uint64_t)s_ts_lo;
+                    s_ts_valid = true;
+                    ptp_send_follow_up(s_ts_hi, s_ts_lo & TS_NS_MASK);
+                    s_state = ST_RUN;
+                }
             }
             break;
 

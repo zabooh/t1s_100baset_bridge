@@ -12,7 +12,9 @@ It is idempotent, refuses to guess if the layout does not match, and becomes
 unnecessary the moment the project is opened in MPLAB X, which regenerates the
 makefile from configurations.xml.
 
-    python add_source_to_mk.py <new-module> [<template-module>]
+    python add_source_to_mk.py <new-module> [<template-module>] [--follower]
+
+--follower targets follower/firmware/T1S_Follower.X instead of the bridge project.
 
 e.g.  python add_source_to_mk.py ptp_gm noip_test
 
@@ -24,6 +26,7 @@ import re
 import sys
 
 MK = "firmware/T1S_100BaseT_Bridge.X/nbproject/Makefile-default.mk"
+MK_FOLLOWER = "follower/firmware/T1S_Follower.X/nbproject/Makefile-default.mk"
 OBJDIR = "${OBJECTDIR}/_ext/1360937237/"      # object directory for everything in src/
 
 
@@ -31,10 +34,12 @@ def main():
     if len(sys.argv) < 2:
         print(__doc__)
         return 2
-    new = sys.argv[1]
-    old = sys.argv[2] if len(sys.argv) > 2 else "noip_test"
+    args = [a for a in sys.argv[1:] if a != "--follower"]
+    mk = MK_FOLLOWER if "--follower" in sys.argv else MK
+    new = args[0]
+    old = args[1] if len(args) > 1 else "noip_test"
 
-    with open(MK, "r", encoding="utf-8", newline="") as fh:
+    with open(mk, "r", encoding="utf-8", newline="") as fh:
         lines = fh.readlines()
 
     if any(new in ln for ln in lines):
@@ -77,7 +82,7 @@ def main():
         print("only %d variable lines and %d rules matched - patch by hand" % (hits, rules))
         return 1
 
-    with open(MK, "w", encoding="utf-8", newline="") as fh:
+    with open(mk, "w", encoding="utf-8", newline="") as fh:
         fh.writelines(out)
     print("added %s: %d variable lines, %d compile rules" % (new, hits, rules))
     return 0

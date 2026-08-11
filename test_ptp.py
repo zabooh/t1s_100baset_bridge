@@ -24,7 +24,10 @@ Checks, one assertion each so a failure names what is wrong:
     8  timestamp there  preciseOriginTimestamp != 0
     9  timestamp sane   nanoseconds < 1e9, seconds ascending
     10 cadence          median inter-Sync gap ~ the configured interval
-    11 stop             no frames after "ptp stop"
+    11 own counters     no timestamp timeouts, one Follow_Up per Sync over the
+                        whole run - a short capture window cannot see the egress
+                        capture freezing after a few cycles, the counters can
+    12 stop             no frames after "ptp stop"
 
 Not covered here: wire timing on the two-wire segment (these are timestamps of
 mirror clones, taken on a second MAC) and timestamp accuracy against a reference
@@ -33,6 +36,7 @@ clock. Both need an instrument or the follower from phase 2.
 Usage:  python test_ptp.py [--interval MS] [--iface NAME] [--port COMn]
 """
 import argparse
+import re
 import statistics
 import sys
 import threading
@@ -246,7 +250,33 @@ def main():
             notes.append("largest arrival gap %.1f ms - a mirror clone was probably dropped"
                          % max(arr))
 
-    # --- 11: stopped again --------------------------------------------------
+    # --- 11: the device's own view of the run -------------------------------
+    # This catches what a short capture window cannot: the egress capture
+    # freezing after a few cycles. Its symptom is Sync frames without
+    # Follow_Ups, which the frame checks above only notice if the freeze happens
+    # inside the window. The counters see the whole run.
+    print("--- the board's own counters ---")
+    st = console(["ptp status"], read=2.0)
+    m = re.search(r"tx sync:\s*(\d+)\s+follow_up:\s*(\d+)\s+ts timeouts:\s*(\d+)"
+                  r"\s+send fails:\s*(\d+)\s+reg errors:\s*(\d+)", st)
+    if not m:
+        fail("could not read the counters from 'ptp status'")
+    else:
+        sync_n, fup_n, tmo, sfail, regerr = (int(g) for g in m.groups())
+        print("    sync=%d follow_up=%d timeouts=%d send_fails=%d reg_errors=%d"
+              % (sync_n, fup_n, tmo, sfail, regerr))
+        if tmo:
+            fail("%d timestamp timeouts - the egress capture is not being released "
+                 "(TTSCAA must be write-1-cleared before every cycle)" % tmo)
+        if sfail:
+            fail("%d raw sends failed" % sfail)
+        if regerr:
+            fail("%d register errors" % regerr)
+        # One Follow_Up per Sync. A single missing one is the cycle in flight.
+        if sync_n - fup_n > 1:
+            fail("%d Sync but only %d Follow_Up" % (sync_n, fup_n))
+
+    # --- 12: stopped again --------------------------------------------------
     print("--- stopped again: must be silent ---")
     tail = capture_window(int(SETTLE_S + IDLE_WINDOW_S))
     print("    frames after stop: %d" % len(tail))

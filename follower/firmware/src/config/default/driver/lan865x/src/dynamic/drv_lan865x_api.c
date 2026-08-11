@@ -1335,7 +1335,6 @@ void TC6_CB_OnRxEthernetSlice(TC6_t *pInst, const uint8_t *pRx, uint16_t offset,
 void TC6_CB_OnRxEthernetPacket(TC6_t *pInst, bool success, uint16_t len, uint64_t *rxTimestamp, void *pGlobalTag)
 {
     (void)pInst;
-    (void)rxTimestamp;
     TCPIP_MAC_PACKET *macPkt = NULL;
     DRV_LAN865X_DriverInfo *pDrvInst = _Dereference(pGlobalTag);
     if (NULL != pDrvInst) {
@@ -1349,6 +1348,19 @@ void TC6_CB_OnRxEthernetPacket(TC6_t *pInst, bool success, uint16_t len, uint64_
             pDrvInst->rxStats.nRxPendBuffers++;
             macPkt->pMacLayer = macPkt->pDSeg->segLoad;
             macPkt->pNetLayer = macPkt->pMacLayer + sizeof(TCPIP_MAC_ETHERNET_HEADER);
+
+            /* PTP follower: the receive timestamp is only valid inside this
+             * callback, and this is the only place where it is unambiguously
+             * paired with its frame. The hook (ptp_follower.c) filters on
+             * EtherType and copies what it needs; the packet itself goes on to the
+             * stack untouched. Without this the follower receives Sync frames with
+             * no timestamps at all - see CLAUDE.md section 6 on why a patch in
+             * generated code needs a test that notices its absence. */
+            {
+                extern void ptp_follower_rx_hook(const uint8_t *frame, uint16_t len,
+                                                 const uint64_t *rxTimestamp);
+                ptp_follower_rx_hook(macPkt->pDSeg->segLoad, len, rxTimestamp);
+            }
             if (0xFF == macPkt->pDSeg->segLoad[0]) {
                 macPkt->pktFlags = TCPIP_MAC_PKT_FLAG_BCAST;
             } else {

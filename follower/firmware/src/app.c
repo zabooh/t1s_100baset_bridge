@@ -43,6 +43,7 @@
 #include "env.h"
 #include "lan865x_diag.h"
 #include "noip_test.h"
+#include "ptp_follower.h"
 
 
 // *****************************************************************************
@@ -324,6 +325,7 @@ void APP_Initialize(void) {
     Command_Init();
     LAN865X_DIAG_Initialize();
     NOIP_Initialize();
+    PTP_FOL_Initialize();
     /* TODO: Initialize your application's state machine and other
      * parameters.
      */
@@ -382,6 +384,9 @@ void APP_Tasks(void) {
 
             /* Register access / test modes / PLCA - see lan865x_diag.c */
             LAN865X_DIAG_Tasks();
+
+            /* PTP follower: pair Sync/Follow_Up and measure - see ptp_follower.c */
+            PTP_FOL_Tasks();
 
             /* === Deferred packet log output (max 10 entries per APP_Tasks iteration) === */
             if (ticks_per_ms > 0u) {
