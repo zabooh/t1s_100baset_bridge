@@ -324,6 +324,18 @@ Erst zurückstellen, dann Verkehr messen.
   Build fehlerfrei (167 525 B Flash / 16,2 %, 49 359 B RAM / 18,8 %), Baum danach clean. Gefährlich
   ist nicht *Build*, sondern MCC „Generate Code" (Abschnitt 6, Mirror-Patch) — danach
   `python test_mirror.py`.
+- **2026-08-11 — „Baum danach clean" gilt nur für `build.bat`. Ein Build aus der MPLAB-X-IDE macht
+  den Baum dreckig, und beide Symptome sehen schlimmer aus, als sie sind.** Am 2026-08-10 stand nach
+  einem IDE-Lauf des Users (1) `firmware\T1S_100BaseT_Bridge.X\dist\default\production\` mit allen
+  drei getrackten Artefakten als **gelöscht** im Status — die IDE räumt das Verzeichnis vor dem Bauen
+  aus, betroffen sind genau die drei Altlasten aus `6e73b22` (Abschnitt 2); und (2)
+  `nbproject\configurations.xml` als **modified**, obwohl `git diff` leer war und der Blob-Hash mit
+  HEAD übereinstimmte (`050431e8…`) — nur ein veralteter stat-Eintrag, weil die IDE die Datei
+  byteidentisch neu geschrieben hat. Beides ist **kein** Schaden und nichts, was committet werden
+  müsste: `git checkout -- firmware/T1S_100BaseT_Bridge.X/dist/ firmware/T1S_100BaseT_Bridge.X/nbproject/configurations.xml`
+  stellt den Stand wieder her (für Fall 2 genügt auch `git update-index --refresh`).
+  **Merksatz:** vor dem Committen nach einem IDE-Lauf `git diff -- <pfad>` fragen, nicht `git status`
+  — sonst committet man einen ~22 000-Zeilen-Hex-Diff oder eine Datei, die sich gar nicht geändert hat.
 
 ---
 
