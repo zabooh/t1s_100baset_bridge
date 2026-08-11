@@ -6,9 +6,10 @@
 
   Summary:
     Receives the grandmaster's Sync + Follow_Up on eth0, pairs them by
-    sequenceId, and computes the offset between this device's wall clock and the
-    master's. It only measures - the clock is not written yet; the servo is the
-    next step (PTP_IMPLEMENTATION_PLAN.md 2.4).
+    sequenceId, computes the offset between this device's wall clock and the
+    master's, and steers the clock onto it: rate through MAC_TI/MAC_TISUBN, phase
+    through one-shot MAC_TA adjustments. Measured on the bench: FINE reached in
+    about four seconds and held, residual offset -189 to +249 ns.
 
   Description:
     One-way sync: this device sends nothing. What arrives is
@@ -24,11 +25,29 @@
 
       offset = t2 - t1 - D_const
 
-    A large absolute offset is expected and not an error: both clocks count from
-    their own power-up, so the difference is essentially the difference in
-    uptime. The interesting quantity during bring-up is how the offset CHANGES
-    from sample to sample - that is the frequency error the servo will correct,
-    and it is what "ptpf status" reports.
+    The servo has five states (LAN8651_TIME_SYNC.md 7). The order matters: the rate
+    is corrected BEFORE the clock is set, because a clock set on a wrong rate walks
+    away again immediately.
+
+      UNINIT     nominal increment, collect samples, estimate the rate
+      MATCHFREQ  first rate correction applied, then hard-set the clock
+      HARDSYNC   large one-shot MAC_TA steps, plus rate trim
+      COARSE     |offset| < 300 ns, FIR3-filtered half steps
+      FINE       |offset| <= 150 ns
+
+    "ptpf servo off" leaves everything measuring but never writes the clock, which
+    is the mode to use when the numbers are the point.
+
+    A large absolute offset before the clock is set is expected and not an error:
+    both clocks count from their own power-up, so the difference is essentially the
+    difference in uptime. MATCHFREQ removes it in one write. What remains after
+    that, and what "ptpf status" reports, is the offset's change per sample - the
+    frequency error - and the residual spread once locked.
+
+    What the servo cannot remove is the constant part of the assumed path delay: it
+    drives the MEASURED offset to zero, and that measurement is shifted by
+    (real delay - D_const) by construction. That is the deliberate cost of one-way
+    sync, not a control error.
 
   Two things worth knowing about the receive path:
     - The timestamp only exists inside the driver's receive callback and is only

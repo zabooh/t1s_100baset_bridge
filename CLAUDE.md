@@ -380,6 +380,25 @@ Erst zurückstellen, dann Verkehr messen.
   Schleife zu senden; genau das schreibt `PTP_IMPLEMENTATION_PLAN.md` §1.3 vor. Am `noip_test.c`
   selbst ist bisher **nichts** geändert (offen: `NOIP_MAX_COUNT` auf 5 begrenzen oder den Treiber im
   Warten bedienen).
+- **2026-08-11 — Servo-Auslegung: drei Fehler, die alle „das Register wirkt nicht" vortäuschen.**
+  (a) **Einen IIR-Filter nicht bei Null anfangen lassen und dann nach ¹⁄₈ seiner Zeitkonstante
+  eingreifen.** N = 128, Eingriff nach 16 Proben → der Filter zeigt `1 − (127/128)^16` = **11,8 %** des
+  wahren Werts; aus −5120 ppb wurden −566 ppb, und die Regelung blieb hängen. Filter mit der **ersten**
+  gültigen Messung initialisieren. (b) **Einen Schätzer nicht sperren, wenn die Stellgröße wirkt,
+  sondern die Stellgröße verrechnen.** Jeder `MAC_TA`-Schritt verlängert/verkürzt das nächste selbst
+  gemessene Intervall; ich hatte die Ratenschätzung deshalb übersprungen — in `HARDSYNC` wird aber
+  jeden Zyklus gestellt, der Schätzer stand also für immer. Richtig: bekannten Schritt von `d2`
+  abziehen. (c) **Eingriffstakt an die Filterzeit koppeln:** alle 8 Proben mit Verstärkung 1 auf einen
+  128-Proben-Filter ergab Jagen (Korrektur 5115 ↔ 1897 ppb bei ~5100 ppb wahrem Fehler); alle 32
+  Proben mit ¼ Verstärkung ist ruhig. **Merksatz:** wenn eine Regelung „nicht wirkt", erst prüfen, ob
+  die *Messung* der Stellgröße folgen kann — hier hielt der Phasenregler den Offset exakt konstant auf
+  einem Zyklus Drift, was aussieht wie ein wirkungsloses `MAC_TA` (es funktioniert: 100 µs von Hand
+  geschrieben verschieben den Offset um 100 µs).
+- **2026-08-11 — `cli.py` hängt an einer Konsole, die von selbst weiterredet.** Es drainiert bis zur
+  Stille, und mit `ptpf log on` (eine Zeile je PTP-Zyklus) kommt die nie — der Aufruf lief in den
+  300-s-Timeout. Für solche Fälle `python serial_capture.py <port> <sekunden> ["cmd"]`: liest eine
+  feste Zeit und hört auf, Ausgabe als UTF-8 in `_capture.out` (die cp1252-Konsole stolpert sonst über
+  halb angekommene Zeilen).
 - **2026-08-11 — `TTSCAA` ist eine Sperre, keine Meldung: einmal gesetzt, verwirft der Baustein neue
   Captures.** Deshalb muss das Write-1-Clear **vor jedem Sende-Zyklus** stehen, nicht nach jedem
   Erfolg. Ein einzelner Zyklus, der auf seinen Timestamp verzichtet (Timeout), lässt ein verspätetes

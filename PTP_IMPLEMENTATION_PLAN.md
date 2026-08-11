@@ -426,9 +426,47 @@ Write-1-Clear gehört **vor** jeden Zyklus, nicht nach jeden Erfolg), und das Ca
 `TTSCAL` → `TTSCAH` gelesen werden, sonst ist der Offset um genau eine Sekunde falsch. Das ist der
 eigentliche Wert eines zweiten Knotens: die Bridge konnte beides über sich selbst nicht feststellen.
 
-**Als nächstes 2.4:** Servo mit den fünf Zuständen, Frequenzzweig aus dem Abstand aufeinanderfolgender
-`Sync` (die −5,12 ppm sind sein Eingangssignal), Offsetzweig über `MAC_TA`, Feinregelung über
-`MAC_TI`/`MAC_TISUBN`.
+### 2.6 Stand: Servo rastet ein, Phase 2 erfüllt (2026-08-11)
+
+Alle fünf Zustände laufen, `FINE` wird erreicht **und gehalten**: 333 Proben (40 s bei 125 ms) ohne
+einen Zustandswechsel. Damit ist das Abschlusskriterium erfüllt.
+
+| Messgröße | Ergebnis |
+|---|---|
+| Zustandsfolge | `UNINIT` → `MATCHFREQ` → `HARDSYNC` → `COARSE` → `FINE` in ~4 s |
+| Restoffset in `FINE` | **−189 … +249 ns**, Spanne 438 ns, Mittel um −120 ns |
+| Restfrequenzfehler | **−204 ppb** (0,2 ppm) |
+| Angewandte Korrektur | 4671 ppb, stabil — 10 Ratenschreibvorgänge auf 333 Proben |
+| Inkrement | `MAC_TI` 40 ns + 3134/2²⁴ ns |
+| Proben | 333 Sync / 333 Follow_Up, 0 ohne Zeitstempel, 0 unmatched |
+
+Die Spanne von 438 ns liegt in der Größenordnung, die §7 für die Referenzimplementierung nennt
+(93–256 ns). **Was sie nicht enthält:** den konstanten Phasenfehler aus der angenommenen Laufzeit —
+der Servo regelt den *gemessenen* Offset auf Null, und der ist per Konstruktion um
+`echte Laufzeit − D_const` verschoben. Das ist die in §11.4 bewusst gekaufte Ungenauigkeit, keine
+Regelabweichung, und Phase 3 ändert daran nichts (auch nicht messend).
+
+**Die Regelauslegung hat drei Anläufe gebraucht; alle drei Fehler sind lehrreich und in `CLAUDE.md`
+Abschnitt 6 festgehalten:**
+
+1. **Der IIR-Filter war beim ersten Eingriff erst zu 12 % eingelaufen.** N = 128, angewandt nach 16
+   Proben: `1 − (127/128)^16` = 11,8 %. Der wahre Fehler von −5120 ppb kam als −566 ppb heraus — Faktor
+   9 zu klein, und der Servo blieb deshalb in `HARDSYNC` hängen. Lösung: den Filter mit der **ersten**
+   gültigen Schätzung initialisieren statt bei Null anfangen zu lassen.
+2. **Der Schätzer war während der Phasenkorrektur blind.** Jeder `MAC_TA`-Schritt verfälscht das
+   nächste auf der eigenen Uhr gemessene Intervall, deshalb hatte ich die Schätzung dann übersprungen
+   — in `HARDSYNC` passiert das aber **jeden** Zyklus, der Schätzer stand also dauerhaft still. Lösung:
+   nicht überspringen, sondern **verrechnen** (der angewandte Schritt ist bekannt und wird von `d2`
+   abgezogen).
+3. **Eingriffstakt und Filterzeitkonstante müssen zusammenpassen.** Alle 8 Proben mit Verstärkung 1
+   auf einen 128-Proben-Filter ergab Jagen: die Korrektur schwang zwischen 5115 und 1897 ppb bei einem
+   wahren Fehler von ~5100. Jetzt: alle 32 Proben, Verstärkung ¼, Phasenschritt ½ mit Totzone von
+   40 ns (ein Takt).
+
+Am Rand nachgewiesen, weil zwischenzeitlich verdächtigt: **`MAC_TA` funktioniert** — ein Handschreiben
+von 100 µs verschob den gemessenen Offset um denselben Betrag. Der scheinbare Stillstand kam daher, dass
+der Phasenregler die unkorrigierte Drift jeden Zyklus exakt ausglich und der Offset dadurch *konstant*
+auf einem Zyklus Drift stehenblieb — ein Fehlerbild, das wie ein wirkungsloses Register aussieht.
 
 ---
 
