@@ -37,6 +37,12 @@
     application therefore keeps two small responsibilities: recognising a NoIP
     frame on receive and enqueueing it, and calling NOIP_PrintRxLine() when the
     entry comes back out. See pktEth0Handler() and the log drain in app.c.
+
+    Transmit also calls MIRROR_RawTx() from port_mirror.h after each frame, which
+    is what makes these frames visible to Wireshark on eth1 while "mirror 1" is
+    on. The raw driver path bypasses the mirror's normal TX hook, so without that
+    call a capture stays empty and the mirror looks broken. Dropping the call is
+    the only thing needed to make this module independent of port_mirror again.
  *******************************************************************************/
 
 #ifndef NOIP_TEST_H

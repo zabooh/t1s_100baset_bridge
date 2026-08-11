@@ -344,8 +344,12 @@ Erst zurückstellen, dann Verkehr messen.
   und ein selbst erzeugter Frame wird nie empfangen. Betrifft heute schon `noip_send` — dessen Frames
   tauchen im Mirror nicht auf, was leicht als kaputter Mirror gelesen wird. **Der Kommentar
   „the single eth0 egress point"** an `mirror_eth0_tx_hook` (in `drv_lan865x_api.c:678` *und*
-  `port_mirror.c:110`) **ist seit `SendRawEthFrame` falsch.** Wer einen Host-Mitschnitt eigener
-  Rohframes braucht, muss aus dem Sender heraus `mirror_ethpkt_to_eth1()` aufrufen. **Merksatz:**
+  `port_mirror.c`) **war seit `SendRawEthFrame` falsch** und ist korrigiert. **Gelöst auf dem Branch
+  `ptp-time-sync`:** `port_mirror.h` hat einen dritten Eintrittspunkt `MIRROR_RawTx(frame, len)`, den
+  jeder Rohsender nach dem Senden aufruft — `noip_test.c` tut es, der PTP-Grandmaster wird es tun.
+  Er hängt am **selben** `mirror [0|1]`-Schalter (absichtlich kein zweites Gate) und filtert nicht,
+  weil der Aufrufer den Frame gebaut hat. Der frühere Rat, dafür die private
+  `mirror_ethpkt_to_eth1()` zu rufen, ist damit überholt. **Merksatz:**
   „die Bridge flutet Broadcasts" gilt für *durchlaufenden* Verkehr, nicht für selbst erzeugten.
 
 ---

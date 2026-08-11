@@ -175,42 +175,109 @@ unabhängige Gründe:
   [`DRV_LAN865X_SendRawEthFrame()`](firmware/src/config/default/driver/lan865x/src/dynamic/drv_lan865x_api.c#L2416)
   → `TC6_SendRawEthernetPacket()`, der an dieser Funktion vorbeigeht. Aus demselben Grund sind
   `noip_send`-Frames im Mirror unsichtbar. Der Kommentar im Treiber, `PacketTx` sei „the single eth0
-  egress point", ist seit `SendRawEthFrame` **falsch** — dieselbe Behauptung steht in
-  `port_mirror.c` über `mirror_eth0_tx_hook`.
+  egress point", ist seit `SendRawEthFrame` **falsch**.
 
-Drei mögliche Mitschnittwege, gebaut wird der erste:
+**Der Mitschnittweg steht schon — er läuft über den Mirror.** `port_mirror.c` hat seit dem Commit
+zu diesem Abschnitt einen dritten Eintrittspunkt
+[`MIRROR_RawTx(frame, len)`](firmware/src/port_mirror.h), der die bereits vorhandene, bisher private
+Klonfunktion `mirror_ethpkt_to_eth1()` öffnet. `ptp_gm.c` ruft ihn nach jedem erfolgreichen
+`DRV_LAN865X_SendRawEthFrame()` auf, genau wie
+[`noip_test.c`](firmware/src/noip_test.c) es jetzt tut — dessen Frames sind damit auch der Testfall
+für den Weg, bevor es einen Grandmaster gibt.
 
-| Weg | Aufwand | Beweiskraft |
-|---|---|---|
-| `ptp_gm.c` übergibt den fertigen Frame zusätzlich an einen neuen Eintrittspunkt `MIRROR_RawTx(frame, len)` in `port_mirror.c` (ruft intern `mirror_ethpkt_to_eth1()`, respektiert `mirror [0\|1]`) | ~20 Zeilen **Anwendungs**code, keine generierte Datei | Frameaufbau und Kadenz exakt, in Wireshark am Host. **Nicht** das Wire-Timing — es ist eine Softwarekopie desselben Puffers |
-| Sniffer direkt am T1S-Bus, also ein zweiter T1S-Knoten promiscuous | zusätzliche Hardware, in Phase 1 nicht vorhanden | alles, inklusive Wire-Timing |
-| `Sync` über den Stack senden, damit er `PacketTx` durchläuft | keiner | wertlos: ohne `tsc = 1` kein TX-Zeitstempel — und der ist der ganze Zweck von Phase 1 |
+**Ein Schalter, kein zweiter:** `MIRROR_RawTx()` prüft selbst `mirror [0|1]`, ein eigenes PTP-Gate
+gibt es absichtlich nicht. Zwei Flags in Reihe hätten genau das Fehlerbild erzeugt, gegen das dieser
+Abschnitt geschrieben ist — leerer Mitschnitt, obwohl nichts defekt ist. Kein MAC-Filter, anders als
+in den beiden Stack-Richtungen: der Aufrufer hat den Frame gebaut, er ist per Konstruktion unser.
+
+Die verworfenen Alternativen, zum Nachlesen falls die Frage wiederkommt:
+
+| Weg | Warum nicht |
+|---|---|
+| Hook direkt in `DRV_LAN865X_SendRawEthFrame()`, fängt jeden Rohsender automatisch | generierte Datei — MCC „Generate Code" entfernt ihn lautlos, dieselbe Falle wie beim bestehenden Mirror-Patch |
+| Sniffer direkt am T1S-Bus, also ein zweiter T1S-Knoten promiscuous | zusätzliche Hardware, in Phase 1 nicht vorhanden. Der einzige Weg, der auch das **Wire-Timing** belegt |
+| `Sync` über den Stack senden, damit er `PacketTx` durchläuft | wertlos: ohne `tsc = 1` kein TX-Zeitstempel — und der ist der ganze Zweck von Phase 1 |
+| Natives Senden auf **beiden** Interfaces statt Klonen | macht die Bridge zur echten PTP-Quelle im 100BASE-T-Netz, also genau das, was der Default „nicht senden" verhindern soll |
+
+Was der Klon **nicht** beweist: das Wire-Timing. Es ist eine Softwarekopie desselben Puffers, über
+einen anderen MAC verschickt; Frameaufbau, Inhalt und Kadenz stimmen, die Abstände auf dem Draht
+sieht nur ein Messgerät oder der Bus-Sniffer. Und die Kopie ist best-effort — ist der Paketpool
+belegt, fehlt sie im Mitschnitt, statt den Sendepfad aufzuhalten.
 
 Ergänzend zählt `ptp status` gesendete `Sync`/`Follow_Up` und abgebrochene Zyklen, damit „sendet
 überhaupt" auch ohne Mitschnitt beantwortbar ist.
 
-**1.7 Verifikation, in dieser Reihenfolge.**
+**1.7 Verifikation — automatisiert, `test_ptp.py` mit pyshark.**
 
-1. Nach dem Flashen, **vor** jedem `ptp start`: `ptp status` meldet `off` und TX-Zähler `0`. Das ist
-   der Test des Defaults und dauert zehn Sekunden. Ein leerer Wireshark-Mitschnitt taugt dafür
-   **nicht** — der ist auch bei laufendem Grandmaster leer, wenn der Klonweg aus 1.6 nicht steht.
-2. `ptp status` nach `ptp start`: der TX-Zähler läuft. Erst danach Wireshark am Host
-   `192.168.0.100`, mit `mirror 1` **und** dem Klon-Aufruf aus 1.6 — fehlt eines von beidem, ist der
-   Mitschnitt leer, ohne dass am Grandmaster etwas defekt wäre.
-3. Plausibilität der Timestamps: aufeinanderfolgende `preciseOriginTimestamp` müssen im Intervall
-   sauber weiterlaufen. Achtung auf den 1e9-Überlauf in der Nanosekundenstelle.
-4. Intervall: zwei Werte setzen, im Mitschnitt die Frame-Abstände nachmessen. `ptp stop` muss den
-   Verkehr wirklich beenden, und ein erneutes `ptp start` darf keinen Zeitsprung erzeugen — das ist
-   der Test der Abräumlogik aus 1.5.
-5. Autostart: `setenv ptp_auto 1`, `saveenv`, Reset — sendet nach dem Booten von selbst. Danach
+**Der Prüfling ist der Grandmaster in der Bridge, das Messmittel ein PC mit Wireshark an `eth1`.**
+Der Weg dorthin ist der Klon aus 1.6 (`mirror 1` + `MIRROR_RawTx()`), und die Auswertung läuft
+automatisch: **pyshark** (der Python-Aufsatz auf `tshark`) dissektiert die Frames auf Feldebene,
+statt sie nur zu zählen. Das ist der Unterschied zu
+[test_lan8651.py](test_lan8651.py) und [test_mirror.py](test_mirror.py), die `tshark` per
+`subprocess` mit einem BPF-Filter aufrufen und nur Zeilen zählen — für „ist das ein gültiger
+`Sync`?" reicht das nicht.
+
+Beides ist auf dem Entwicklungsrechner vorhanden: `pyshark` ist installiert, `tshark.exe` liegt
+unter `C:\Program Files\Wireshark\tshark.exe`. Konventionen werden aus `test_mirror.py` übernommen,
+nicht neu erfunden: `TSHARK`-Pfad mit `--tshark`-Override, `IFACE` als NPF-Gerätename
+(`\Device\NPF_{5A4D39DB-…}` = „Ethernet 8"), Auflösung eines Adapternamens über `tshark -D` wie in
+`resolve_iface()`, `PORT = "COM8"` und die CLI-Anbindung über `serial` + `drain` aus
+[cli.py](cli.py).
+
+Was das Skript prüft — jede Zeile eine eigene Zusicherung, damit ein Fehlschlag benennt, *was*
+falsch ist:
+
+| Prüfung | Feld / Kriterium | Warum sie drin ist |
+|---|---|---|
+| Default aus | 0 Frames vor jedem `ptp start` | belegt „sendet ungefragt nicht" (1.5) |
+| Frames kommen an | EtherType `0x88F7`, Anzahl > 0 | belegt Sendepfad **und** Klonweg |
+| PTP-Version | `ptp.versionptp == 2` | ein falsches Nibble dissektiert Wireshark noch, ein Follower nicht |
+| Nachrichtentypen | `ptp.v2.messageid` == `0x0` (Sync) und `0x8` (Follow_Up) | beide müssen da sein, sonst ist der Zyklus halb |
+| Paarung | je `sequenceId` genau **ein** Sync und **ein** Follow_Up, Sync zuerst | fängt den „Follow_Up ohne Sync"-Fehler aus 1.5 |
+| Sequenz | `ptp.v2.sequenceid` streng monoton, ohne Lücke | prüft den Zähler und indirekt, dass nichts verloren geht |
+| Two-Step | `twoStepFlag` gesetzt | ein One-Step-Flag mit Zeitstempel im Follow_Up ist widersprüchlich |
+| Zeitstempel vorhanden | `preciseOriginTimestamp` im Follow_Up ≠ 0 | ein Feld voller Nullen heißt: TX-Capture stand nicht bereit |
+| Zeitstempel monoton | Sekunden/Nanosekunden aufsteigend, Δ ≈ Intervall | fängt den 1e9-Überlauf in der Nanosekundenstelle |
+| Kadenz | Ankunftsabstände ≈ gesetztes `ptp interval`, mit Toleranz | prüft die Zeitbasis, zwei Intervalle nacheinander |
+| Stop | nach `ptp stop` 0 Frames im Fenster | „hört auch wirklich auf" |
+
+Ablauf je Prüfschritt wie in `test_mirror.py`: Kommando über die Konsole schicken, `tshark`/pyshark
+in einem Thread über ein festes Zeitfenster mitschneiden, danach auswerten. **Exitcode ≠ 0 bei
+jeder Abweichung**, damit das Skript ohne Sichtprüfung taugt.
+
+Zwei Fallstricke, die das Skript selbst abfangen muss, sonst meldet es Fehler, die keine sind:
+
+- **`mirror 1` ist Vorbedingung, kein Prüfgegenstand.** Das Skript setzt es zu Beginn und prüft die
+  Antwortzeile. Vergisst man es, ist der Mitschnitt leer und sieht wie ein toter Grandmaster aus.
+  Am Ende wieder auf den Ausgangszustand stellen.
+- **Die Kadenz-Toleranz gehört großzügig.** Gemessen werden Ankunftszeiten der **Klone** am PC —
+  best-effort erzeugt und über einen zweiten MAC verschickt. Eine fehlende Kopie (belegter
+  Paketpool) darf die Kadenzprüfung nicht umwerfen; deshalb über den Median der Abstände urteilen,
+  nicht über den größten.
+
+**Was hiermit nicht geprüft ist:** das Wire-Timing auf dem T1S-Bus (1.6, letzter Absatz) und die
+Genauigkeit des Zeitstempels gegenüber einer Referenzuhr. Beides braucht ein Messgerät oder den
+Follower aus Phase 2 — `test_ptp.py` belegt Frameaufbau, Vollständigkeit, Reihenfolge und Kadenz.
+
+Zusätzlich, weil ohne Mitschnitt beantwortbar und deshalb der erste Griff bei einer Störung:
+
+1. `ptp status` **vor** `ptp start`: `off`, TX-Zähler `0`. Der Test des Defaults, in zehn Sekunden.
+   Ein leerer Mitschnitt taugt dafür **nicht** — der ist auch bei laufendem Grandmaster leer, wenn
+   der Klonweg aus 1.6 nicht steht.
+2. `ptp status` nach `ptp start`: der TX-Zähler läuft. Läuft er, und der Mitschnitt bleibt leer, ist
+   der Fehler im Klonweg, nicht im Grandmaster — diese Reihenfolge spart die Fehlersuche am
+   falschen Ende.
+3. Start/Stop mehrfach: ein erneutes `ptp start` darf keinen Zeitsprung erzeugen — der Test der
+   Abräumlogik aus 1.5.
+4. Autostart: `setenv ptp_auto 1`, `saveenv`, Reset — sendet nach dem Booten von selbst. Danach
    `setenv ptp_auto 0`, `saveenv`, Reset — sendet nicht. Beide Richtungen prüfen, nicht nur die
    interessante.
-6. Lasttest: `stats` parallel zu `iperf`, mit dem **kleinsten** freigegebenen Intervall, um zu
+5. Lasttest: `stats` parallel zu `iperf`, mit dem **kleinsten** freigegebenen Intervall, um zu
    belegen, dass der PTP-Zyklus den SPI-Pfad nicht stört.
 
-**Fertig, wenn** die Frames korrekt aufgebaut im Mitschnitt sichtbar sind (Weg aus 1.6), die Zeitstempel monoton
-laufen, Start/Stop/Intervall/Autostart sich so verhalten wie oben und der Durchsatz unverändert ist.
-Bis hierher wurde **keine** generierte Datei angefasst.
+**Fertig, wenn** `test_ptp.py` mit Exitcode 0 durchläuft, Start/Stop/Intervall/Autostart sich wie
+oben verhalten und der Durchsatz unverändert ist. Bis hierher wurde **keine** generierte Datei
+angefasst.
 
 ---
 
@@ -282,7 +349,8 @@ Messung, keine Protokollerweiterung.
 
 Unterverzeichnis `tools\ptp\` **in diesem Repo**, weil hier schon die Skripte liegen, die beide
 Boards über beide COM-Ports bedienen können: [cli.py](cli.py), [test_lan8651.py](test_lan8651.py),
-[test_mirror.py](test_mirror.py).
+[test_mirror.py](test_mirror.py) — dazu `test_ptp.py` aus 1.7, dessen pyshark-Auswertung hier für die
+Follower-Seite wiederverwendbar ist.
 
 Zu prüfen sind:
 
@@ -338,4 +406,6 @@ schuld ist. Die Stufung als Tabelle steht in
 | Absoluttest ohne Berücksichtigung von `D_const` | Testfehlschlag bei korrektem Verhalten | erwarteten Offset in die Testkriterien, siehe Phase 4 |
 | `ENV_VERSION` erhöht, ohne es anzukündigen | gespeicherte IPs/MACs fallen auf die Compile-Defaults zurück | in die Release-Notiz, siehe 1.5 |
 | `ptp stop` ohne Abräumen des Capture-Status | erster `Sync` nach dem nächsten Start trägt einen alten Zeitstempel | Matcher entwaffnen + Write-1-Clear, siehe 1.5 |
-| Mitschnittweg angenommen statt gebaut | leerer Mitschnitt wird als „Grandmaster sendet nicht" gelesen, Fehlersuche am falschen Ende | Klonweg aus 1.6 zuerst bauen, Default über den Zähler prüfen, nicht über Stille |
+| Mitschnittweg angenommen statt gebaut | leerer Mitschnitt wird als „Grandmaster sendet nicht" gelesen, Fehlersuche am falschen Ende | **erledigt:** `MIRROR_RawTx()` steht und `noip_send` nutzt ihn, siehe 1.6. Default trotzdem über den Zähler prüfen, nicht über Stille |
+| `mirror 1` vergessen, bevor gemessen wird | derselbe leere Mitschnitt, derselbe Fehlschluss | `test_ptp.py` setzt den Schalter selbst und prüft die Antwortzeile, siehe 1.7 |
+| Kadenz gegen den größten Frameabstand geprüft | eine fehlende best-effort-Klonkopie lässt einen korrekten Grandmaster durchfallen | über den Median urteilen, Toleranz großzügig, siehe 1.7 |

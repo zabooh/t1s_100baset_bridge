@@ -34,6 +34,7 @@
 #include "config/default/driver/lan865x/drv_lan865x.h"
 #include "system/command/sys_command.h"
 #include "noip_test.h"
+#include "port_mirror.h"                                     /* MIRROR_RawTx() */
 
 /* Interface the frames go out of: 0 = eth0, the 10BASE-T1S MAC-PHY. */
 #define NOIP_IF          0u
@@ -134,6 +135,11 @@ static void cmd_noip_send(SYS_CMD_DEVICE_NODE *pCmdIO, int argc, char **argv)
             break;
         }
         SYS_CONSOLE_PRINT("[NoIP-TX] sent seq=%u\r\n", (unsigned)s_tx_cnt);
+        /* The raw send above bypasses DRV_LAN865X_PacketTx() and therefore the
+         * port mirror's TX hook, and the MAC bridge only floods what it RECEIVES
+         * on a port - so without this call the frame is invisible on eth1 even
+         * with "mirror 1". Respects that switch itself. */
+        MIRROR_RawTx(s_frame, (uint16_t)sizeof(s_frame));
         if (gap_ms > 0u) {
             noip_wait_ms(gap_ms);
         }

@@ -8,12 +8,13 @@
     Implementation of the port mirror described in port_mirror.h.
 
   Description:
-    Both mirror directions funnel into mirror_ethpkt_to_eth1(), which allocates a
+    All three entry points funnel into mirror_ethpkt_to_eth1(), which allocates a
     stack packet, copies the complete Ethernet frame into it and hands it to the
-    GMAC. The own-MAC filters live in the two entry points, because the two
-    directions look at opposite ends of the frame: the RX path compares the
-    DESTINATION MAC (frames addressed to the bridge), the TX path the SOURCE MAC
-    (frames the bridge originated).
+    GMAC. The own-MAC filters live in the entry points, because the two
+    stack-borne directions look at opposite ends of the frame: the RX path
+    compares the DESTINATION MAC (frames addressed to the bridge), the TX path
+    the SOURCE MAC (frames the bridge originated). MIRROR_RawTx() needs no filter
+    at all - its caller built the frame.
 
     Mirror copies are best-effort: if the packet pool is busy the copy is dropped
     rather than blocking or retrying. A dropped mirror frame costs a gap in the
@@ -104,8 +105,19 @@ void MIRROR_Eth0Rx(struct _tag_TCPIP_MAC_PACKET *rxPkt)
     mirror_ethpkt_to_eth1(frame, rxPkt->pDSeg->segLen);
 }
 
-/* TX mirror: called from DRV_LAN865X_PacketTx (the single eth0 egress point) for
- * every frame about to leave on eth0. Mirror it only if the bridge ITSELF
+/* RAW TX mirror: a module built this frame itself and sent it through
+ * DRV_LAN865X_SendRawEthFrame(), which bypasses DRV_LAN865X_PacketTx() and thus
+ * the hook below. No own-MAC filter: the caller originated the frame. See the
+ * long comment in port_mirror.h for why this second entry point is needed. */
+void MIRROR_RawTx(const uint8_t *frame, uint16_t flen)
+{
+    if (!s_mirror_on) return;
+    mirror_ethpkt_to_eth1(frame, flen);
+}
+
+/* TX mirror: called from DRV_LAN865X_PacketTx for every frame about to leave on
+ * eth0 THROUGH THE STACK. Not every eth0 egress passes here - raw sends go
+ * around it, see MIRROR_RawTx() above. Mirror it only if the bridge ITSELF
  * originated it (src MAC == eth0 MAC) - the firmware's own ping/ARP.
  * Frames forwarded from eth1 keep their original (PC) src MAC and are skipped;
  * the PC already has them. The driver transmits from pDSeg->segLoad.

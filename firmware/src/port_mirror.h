@@ -15,11 +15,13 @@
     and the nodes on the bus (its own ARP/ICMP and the replies to it). This
     module copies exactly that traffic onto eth1.
 
-    Both directions are mirrored, each filtered against the bridge's OWN eth0
-    MAC so the capture stays duplicate-free:
+    Three entry points feed the mirror. The two stack-borne ones filter against
+    the bridge's OWN eth0 MAC so the capture stays duplicate-free:
 
       - RX (bus -> bridge): only frames addressed TO the bridge.
       - TX (bridge -> bus): only frames the bridge ITSELF originated.
+      - RAW TX: frames a module built and sent itself, bypassing the stack
+        (MIRROR_RawTx, see below) - no filter, they are ours by construction.
 
     Frames the MAC bridge merely forwards between the PC and the bus keep their
     original MAC addresses and already reach eth1 natively; mirroring them would
@@ -33,6 +35,9 @@
       - DRV_GMAC_PacketTx, i.e. specifically a GMAC as the mirror destination
       - the LAN865x driver patched to call mirror_eth0_tx_hook() from its TX path
       - a call to MIRROR_Eth0Rx() from the eth0 RX packet handler
+      - a call to MIRROR_RawTx() from every module that sends on eth0 with
+        DRV_LAN865X_SendRawEthFrame() (noip_test.c today, the PTP grandmaster
+        next); frames sent that way reach eth1 no other way
 
     It is reusable in another Harmony two-port bridge, not in an arbitrary
     project. Adapting it means replacing the two interface indices (0 = source,
@@ -75,6 +80,30 @@ void MIRROR_Eth0Rx(struct _tag_TCPIP_MAC_PACKET *rxPkt);
  * re-running MCC code generation removes the call site. If a build suddenly
  * mirrors nothing on the TX side, check that the patch is still in place. */
 void mirror_eth0_tx_hook(struct _tag_TCPIP_MAC_PACKET *txPkt);
+
+/* RAW TX path: send a copy of a self-built eth0 frame out eth1 as well, so a PC
+ * on the 100BASE-T side can capture it in Wireshark.
+ *
+ * WHY THIS EXISTS. There are TWO eth0 egress points, not one. Frames handed to
+ * DRV_LAN865X_SendRawEthFrame() go straight into TC6_SendRawEthernetPacket()
+ * and never pass DRV_LAN865X_PacketTx(), so mirror_eth0_tx_hook() above never
+ * sees them - and the MAC bridge cannot help either, because it only forwards
+ * frames it RECEIVES on a port, and a self-generated frame is never received.
+ * Without this call such frames are invisible on eth1 even with "mirror 1".
+ * Raw senders need that path whenever they need the tsc flag (hardware TX
+ * timestamp), so it is not something a caller can simply avoid.
+ *
+ * Gated by the SAME "mirror [0|1]" switch as the other two paths - deliberately
+ * one switch for all of eth0, not a second per-sender flag. Two flags in series
+ * would mean an empty capture with nothing actually broken, the expensive kind
+ * of test failure.
+ *
+ * No MAC filter is applied, unlike the other two entry points: the caller built
+ * the frame, so it is bridge-originated by definition. Pass the complete
+ * Ethernet frame as handed to the driver, including the 14-byte header.
+ * Best-effort like the other paths: a busy packet pool costs a gap in the
+ * capture, never a stalled send. */
+void MIRROR_RawTx(const uint8_t *frame, uint16_t flen);
 
 #ifdef __cplusplus
 }

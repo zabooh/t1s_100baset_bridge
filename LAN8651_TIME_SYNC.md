@@ -583,10 +583,18 @@ leaves through
 which `tsc = 1` makes mandatory, bypassing
 [`DRV_LAN865X_PacketTx()`](firmware/src/config/default/driver/lan865x/src/dynamic/drv_lan865x_api.c#L664)
 where the port mirror's TX hook sits. It is therefore invisible on `eth1` **even with `mirror 1`** —
-exactly like `noip_send` frames. Both the driver and `port_mirror.c` still describe `PacketTx` as
-"the single eth0 egress point"; that stopped being true when `SendRawEthFrame` was added. Getting a
-host-side capture of our own `Sync` needs an explicit clone call from the sender into
-`mirror_ethpkt_to_eth1()`.
+exactly like `noip_send` frames. The driver still describes `PacketTx` as "the single eth0 egress
+point"; that stopped being true when `SendRawEthFrame` was added.
+
+Getting a host-side capture of our own `Sync` therefore needs an explicit clone call from the sender,
+and the port mirror now exposes one:
+[`MIRROR_RawTx(frame, len)`](firmware/src/port_mirror.h). Every raw sender calls it right after a
+successful send — [`noip_test.c`](firmware/src/noip_test.c) already does, and it is what makes those
+frames appear on `eth1` at all. It is gated by the same `mirror [0|1]` switch as the two stack-borne
+paths, deliberately not by a second per-sender flag, and applies no MAC filter because the caller
+built the frame. What the clone proves is frame content, completeness and cadence; the **wire
+timing** on the two-wire segment it does not prove — that needs an instrument or a promiscuous
+second T1S node.
 
 **2. SPI bandwidth is shared with the datapath.** `CLAUDE.md` section 4 records ~5 % UDP loss when
 `lan_read` polled every 200 ms during iperf — five transactions per second was enough to hurt. A
