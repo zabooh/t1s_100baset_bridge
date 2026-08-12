@@ -17,6 +17,7 @@
 | `firmware\T1S_100BaseT_Bridge.X\` | MPLAB-X-Projekt (Makefiles, `dist\`) |
 | `README.md` | Ausführliche Projektdoku (**englisch**): Hardware-BOM, Architektur, CLI, Mirror, iperf, `env` |
 | `LAN8651_TEST_MODES.md` | **Vertiefung zu Abschnitt 3+4 dieser Datei** (**englisch**) — die vier Modi, Messaufbau am Bus, generischer Registerweg vs. `testmode`/`lan_rmw`, Messprotokoll |
+| `CONFIG_BASELINE.md` | **Konfigurationsstand und Neuaufsetz-Anleitung** (**englisch**) — Takt, Stack, Treiber, Timer, Systemdienste je mit Zielwert *und* portabler Regel, die fünf Patch-Stellen in generiertem Code, Prüftabelle. Gedacht als Vorlage für eine komplett neue MCC-Konfiguration, auch auf einem anderen Controller. **Der Follower wird nicht mehr mit MCC konfiguriert** (Begründung dort §0.2), **die Bridge bleibt bewusst ein MCC-Projekt** (Bedingungen dafür in §5.3). Jeder Abschnitt trägt eine *applies to*-Zeile |
 | `cli.py` | Kommandos über COM-Port schicken und Antworten einsammeln |
 
 **Hardware:** SAM E54 Curiosity Ultra (DM320210) + LAN8740A PHY Daughter Board (AC320004-3) an
@@ -463,6 +464,62 @@ Erst zurückstellen, dann Verkehr messen.
   Nebeneffekt ist auch ein Beleg dafür, dass die Frames tatsächlich den Draht erreichen: das
   TX-Capture entsteht am Ende des SFD auf dem MDI, ein frisches Capture pro Zyklus kann es ohne
   echten Sendevorgang nicht geben — der Mirror-Klon allein würde das nicht zeigen.
+- **2026-08-12 — „Generate Code" im Follower-Projekt holt keinen alten Stand zurück, sondern macht
+  eine Bridge daraus.** Die `generatedFileHashHistoryMap` beider Projekte ist **byteidentisch**, und
+  die Modulliste des Followers führt weiter `drvGmac`, `drvMiim`, `drvExtPhyLan8740`, `sercom0` und
+  `tcpipNetConfig_1`: sein MCC-Modell ist das der Bridge, weil `derive_follower.py` den Baum kopiert
+  und die generierten Dateien anschließend per Skript umgeschrieben hat. Ein MCC-Lauf dort liefert
+  also zwei Interfaces, GMAC und MAC-Bridge — ein Fehlerbild, das wie ein kaputtes Projekt aussieht
+  und nicht wie ein regeneriertes. **Der Follower wird deshalb nicht mehr mit MCC konfiguriert**
+  (Entscheidung 2026-08-12); sein Konfigurationsstand steht in `CONFIG_BASELINE.md`, die mechanische
+  Ableitung in `derive_follower.py`. Für die Bridge gilt MCC unverändert weiter.
+  **Nebenbefund, als Messmittel brauchbar:** der Hash in dieser Map ist reines, unsalted SHA-256 des
+  Dateiinhalts — Map gegen Platte vergleichen findet jeden Handpatch in generiertem Code
+  mechanisch. Gemessen: 599 von 617 Dateien (Bridge) bzw. 597 (Follower) unverändert; 12 der
+  Abweichungen sind Blindgänger (stock-TCP/IP-Header, in beiden Projekten byteidentisch, git-clean,
+  veralteter Hash), die echten stehen in `CONFIG_BASELINE.md` §5.
+
+- **2026-08-12 — `SYS_TIME` läuft auf einem 16-Bit-Zähler; alles „genau 1,09 ms" hat hier seine
+  Wurzel.** 65536 Ticks bei 60 MHz sind 1092,27 µs. Überschreitet die Hauptschleife oder die
+  Interruptlatenz **eine** solche Periode, verliert die 64-Bit-Erweiterung einen Überlauf und
+  `SYS_TIME_Counter64Get()` gibt einen um 65536 Ticks falschen Wert zurück — ohne Fehlermeldung. Das
+  erklärte an einem Tag drei scheinbar unabhängige Fehlerbilder: eine 1,09-ms-Mode in den
+  PTP-Rohpaaren, ein Gitterresiduum von 1092,1 µs auf einem Board, und einen **Trigger-Stillstand**
+  (`trig_arm_ticks()` vergleicht `target_L <= now` gegen diesen Zähler und registriert dann einen
+  SYS_TIME-Einmalschuss, der nie im Fenster landet). Wer eine µs-Zeitbasis darauf aufbaut, muss die
+  Latenz unter 1,09 ms halten — oder TC0 auf 32 Bit umstellen (Überlauf 71,6 s). Zweite Lehre daraus:
+  `tb_capture.py` gibt die Zeile „samples near one SYS_TIME period" **aus genau diesem Grund** aus;
+  sie ist kein Beiwerk, sondern die Diagnose.
+- **2026-08-12 — Eine `tbase`-Abfrage kostet 48 ms Hauptschleife und verdirbt damit die Messung, die
+  sie beobachten soll.** 5–8 Konsolenzeilen sind bei 115200 Baud ~560 Zeichen Leitungszeit;
+  `ptpf tb on` schickt dauerhaft eine Zeile je Sync; jeder `pyocd`-Zugriff hält den Kern an. Folge:
+  die Residuen springen jeweils auf **dem Board, das gerade abgefragt wurde** (folA 1,34 ms während
+  folB bei 16 µs lag, nach Wechsel der Reihenfolge umgekehrt) — was wie ein Board-Defekt aussieht und
+  keiner ist. Gemessen 1,10 ms Spitze-Spitze direkt nach einer Abfragerunde gegen 15,3 µs bei Ruhe,
+  gleicher Aufbau, gleiche Stunde. **Ablauf: armieren → ≥150 s Ruhe → aufnehmen → erst danach
+  abfragen** (die Zähler sind kumulativ und warten). Vier pyOCD-Halts haben einen Follower sogar
+  dauerhaft zum Stehen gebracht.
+- **2026-08-12 — `armed: yes` war eine Lüge, weil `rearm_lost` nie ausgegeben wurde.** Der periodische
+  Trigger blieb nach einigen tausend Auslösungen stehen, meldete aber `armed: yes`, `rearm lost: 0`
+  und ein **lebendiges** SYS_TIME-Handle in Stufe 2 — ein Einmalschuss, der angenommen wurde und nie
+  zurückrief. Der Kommentar an der Re-Arm-Schleife fordert seit E1, dass ein stehender Trigger sich
+  „entweder erholt oder es sagt"; er tat beides nicht. Behoben mit (1) einer `chain:`-Zeile
+  (`stage2`/`hw_pending`/`systime_timer`/`target-now`) plus ausdrücklichem `STALLED`, und (2) einem
+  Wachhund in `PTP_TRIG_Tasks()`, der eine armierte Kette mit >2 ms vergangenem Zeitpunkt **aus der
+  Hauptschleife** neu auf das absolute Gitter armiert — nie aus dem SYS_TIME-Callback, denn genau
+  diese Registrierung ist die fragile. **Merksatz: einen Zustandszähler, den man nicht ausgibt, hat
+  man nicht.**
+- **2026-08-12 — Die User-LEDs stehen im BSP, nicht im Board-User-Guide: LED1 = PC21, LED2 = PA16,
+  beide aktiv low.** Das User Guide des SAM E54 Curiosity Ultra erwähnt nur „Programmable user buttons
+  and LEDs" und nennt **keinen** Pin; die belastbare Quelle ist Harmony3 `bsp`,
+  `boards/sam_e54_cult/config/bsp.py` (Pin 75 = LED1, Pin 66 = LED2, Typ `LED_AL`, `LAT=High` = nach
+  Reset dunkel). Gegen `pin_configurations.csv` gegenprüfen: dort stehen Pin 75/66 als `PC21`/`PA16`
+  und „Available". **Nicht** die Xplained-Pro-Variante als Vorlage nehmen, deren LED liegt anders.
+  Beim Initialisieren erst `OUTSET`, dann `DIRSET`, sonst blitzt die LED beim Booten.
+- **2026-08-12 — Eine periodische Größe nicht mit periodischen Stichproben prüfen.** Acht
+  gleichmäßige pyOCD-Lesezugriffe (~1,4 s Abstand) zeigten `PORTC.OUT` Bit 21 **konstant**, obwohl die
+  LED mit 250 ms blinkte — Aliasing gegen den 500-ms-Vollzyklus. Mit gewürfelten Wartezeiten kamen
+  sofort beide Zustände heraus. Ich hätte daraus fast geschlossen, der Blink-Code laufe nicht.
 
 ---
 
@@ -478,11 +535,18 @@ ins Memory** (dann reist es auch mit einem Klon auf einen anderen Rechner):
   Datei. Es gibt kein separates deutsches Registerdokument mehr.
 - **Build-/Toolchain-/Flash-Fallstricke, CLI-Verhalten** → Abschnitt 2 bzw. 6 **dieser** Datei.
 - **Architektur, Hardware, Bedienung** → `README.md` (englisch).
+- **Konfigurations- und Registerwerte samt Begründung** (Takt, Stack, Treiber, Timer, Systemdienste)
+  → `CONFIG_BASELINE.md` (englisch), Abschnitte 1–6 — dort gehört der Wert selbst hin, mitsamt der
+  Messung oder Sackgasse, die ihn belegt. **Nachträgliche Erkenntnisse und Korrekturen in dessen
+  Abschnitt 9 (Log)**, Format `YYYY-MM-DD — Erkenntnis → Folge`. Das gilt **auch ohne ausdrückliche
+  Aufforderung**: das Dokument ist die Vorlage für ein Neuaufsetzen, und ein Wert, der nur im
+  Kommentar einer generierten Datei steht, ist genau dort verloren, wo er gebraucht wird.
+  Git-, Build- und Werkzeug-Erkenntnisse gehören **nicht** dorthin, sondern hierher.
 
 Format: knapp, ein bis zwei Sätze je Erkenntnis, bei Bedarf ein Snippet, datiert
 (`YYYY-MM-DD — Fehler/Erkenntnis → Lösung`). Zieldatei vorher lesen, um Duplikate zu vermeiden.
 Besonders festhalten: **Fehler samt richtiger Lösung** und **Sackgassen** („Weg A geht nicht, weil …
 → nicht nochmal versuchen").
 
-**Sprachstand:** `README.md` und `LAN8651_TEST_MODES.md` sind englisch, **nur diese Datei** ist
-deutsch. Beim Ergänzen die Sprache der jeweiligen Datei beibehalten.
+**Sprachstand:** `README.md`, `LAN8651_TEST_MODES.md` und `CONFIG_BASELINE.md` sind englisch,
+**nur diese Datei** ist deutsch. Beim Ergänzen die Sprache der jeweiligen Datei beibehalten.

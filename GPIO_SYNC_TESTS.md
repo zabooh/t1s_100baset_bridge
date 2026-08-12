@@ -17,6 +17,7 @@
 
 - [1. Aufbau](#1-aufbau)
 - [2. Vorbedingungen prüfen](#2-vorbedingungen-prüfen)
+- [2.5 Während der Messung nicht hineinsehen](#25-während-der-messung-nicht-hineinsehen)
 - [3. Ohne Analyzer: nur über die Konsole](#3-ohne-analyzer-nur-über-die-konsole)
 - [4. Mit Analyzer: der Versatz zweier Boards](#4-mit-analyzer-der-versatz-zweier-boards)
 - [5. Warum die Firmware-Zahlen nicht genügen](#5-warum-die-firmware-zahlen-nicht-genügen)
@@ -43,6 +44,26 @@ jedes Board EXT1 GND   ──── Saleae GND
 zweimal falsch geraten worden.
 
 Logic 8 hat eine feste Schwelle von 1,65 V; 3,3-V-Logik passt ohne Pegelwandler.
+
+### 1.1 Welches Terminal gehört zu welchem Board?
+
+Bei drei offenen Terminals ist das die häufigste Verwechslung. Zwei Wege:
+
+**Sichtbar am Board** — `tbase led blink` lässt LED1 (**PC21**) im Sekundentakt blinken, `tbase led off`
+beendet es. `2` als zweites Argument nimmt LED2 (**PA16**). Beide sind **aktiv low** und nach Reset
+dunkel. Die Pins stammen aus dem offiziellen BSP dieses Boards (Harmony3 `bsp`,
+`boards/sam_e54_cult/config/bsp.py`, Pin 75/66) — das Board-User-Guide nennt sie nicht.
+
+**Über den Debug-Probe** — die Zuordnung dieses Aufbaus:
+
+| COM | Probe (Seriennummer) | Board | PLCA | IP | Saleae |
+|---|---|---|---|---|---|
+| COM8 | `ATML3264031800001049` | Bridge / Grandmaster | 0 | `.200`/`.210` | Ch3 |
+| COM10 | `ATML3264031800001290` | Follower A | 7 | `.201` | Ch1 |
+| COM23 | `ATML3264031800001103` | Follower B | 1 | `.202` | Ch0 |
+
+Probes auflisten: `python flash_same54.py --list`. Die COM-Nummern wandern beim Umstecken, die
+Seriennummern nicht — deshalb ist die Seriennummer die verlässliche Spalte.
 
 ---
 
@@ -112,6 +133,42 @@ Zufallstreffer aus. **Diese Kanalnummern in die folgenden Aufrufe einsetzen.**
 
 ---
 
+## 2.5 Während der Messung nicht hineinsehen
+
+**Der Aufbau muss während der Aufnahme in Ruhe gelassen werden — sonst misst man die Beobachtung.**
+Das ist die wichtigste Betriebsregel dieser Anleitung, und sie ist teuer erkauft
+([test_results.md §E2.3](test_results.md)).
+
+`SYS_TIME` läuft auf einem **16-Bit-Zähler mit 1,092 ms Überlaufperiode**. Blockiert etwas die
+Hauptschleife länger als das, verliert die 64-Bit-Erweiterung einen Überlauf und
+`SYS_TIME_Counter64Get()` liefert einen um genau **65536 Ticks** falschen Wert — die Zeitbasis
+schluckt das als Messpaar, und der Trigger kann daran hängen bleiben.
+
+Was lange genug blockiert:
+
+| Handlung | Wirkung |
+|---|---|
+| `tbase` oder `tbase trig` | 5–8 Konsolenzeilen ≈ **48 ms** Leitungszeit bei 115200 Baud |
+| `ptpf tb on` | eine Zeile **je Sync**, also dauerhaft |
+| `pyocd` (jeder Zugriff) | hält den Kern an; vier Zugriffe haben einen Follower zum Stehen gebracht |
+
+Die Residuen springen dann genau auf **dem Board, das man gerade abgefragt hat** — was leicht als
+Board-Defekt gelesen wird und keiner ist. Gemessen: Spitze-Spitze **1,10 ms** direkt nach einer
+Abfragerunde gegen **15,3 µs** bei Ruhe. Beide Zahlen stammen vom selben Aufbau innerhalb einer
+Stunde.
+
+**Der Ablauf, der gilt:**
+
+```
+1.  arm:      tbase per 20 1     auf jedem Follower
+2.  Ruhe:     >= 150 s ohne jeden seriellen oder SWD-Zugriff
+              (16 Gewinner x 3,2 s = 51 s Ringlaufzeit, plus Einschwingen)
+3.  messen:   python saleae_skew.py ...
+4.  erst DANACH  tbase trig  abfragen  (die Zähler sind kumulativ, sie warten)
+```
+
+---
+
 ## 3. Ohne Analyzer: nur über die Konsole
 
 Auf der **Bridge** den Grandmaster starten:
@@ -152,9 +209,21 @@ tbase trig
 [TRIG] backend: E1 (TC1 compare)   PD10: on
 [TRIG] armed: yes   mode: STRICT   action: 1   period: 20 ms
 [TRIG] fired: 2075   refused: 0   skipped periods: 0   rearm lost: 0
+[TRIG] stalls recovered by watchdog: 0
+[TRIG] chain: stage2=yes  hw_pending=no  systime_timer=live  target-now=107925 ticks (1798 us)
 [TRIG] lateness over 2075 fires, ticks (60 ticks = 1 us):
 [TRIG]   last 127 (2116 ns)   min 127 (2116 ns)   max 227 (3783 ns)
 ```
+
+**Die drei Zeilen, auf die es ankommt, wenn etwas nicht stimmt:**
+
+- `rearm lost` > 0 — der periodische Trigger hat aufgegeben (Zeitbasis oder Last).
+- `stalls recovered by watchdog` > 0 — die Armierkette war tot und wurde aus der Hauptschleife
+  gerettet. Über ~34 500 Auslösungen je Board waren es 1 bzw. 2; ein Hinweis auf Last oder
+  SWD-Zugriffe, kein Grund zur Beunruhigung.
+- `chain: … target-now=` — ist der Wert stark negativ und wächst, steht der Trigger. Bis 2 ms greift
+  der Wachhund, darüber erscheint zusätzlich `STALLED`. **Vor diesen Zeilen las sich ein toter
+  Trigger als `armed: yes` und sonst nichts** — genau daran ist ein halber Nachmittag vergangen.
 
 Beenden mit `tbase cancel` auf jedem Board.
 
@@ -209,15 +278,21 @@ fehlgeschlagenes Nachladen, das den Trigger dauerhaft tötete (**ein Kanal 20 Ü
 
 ## 6. Erwartete Werte
 
-Stand 2026-08-12, zwei Follower, 1500 Paare über 30 s, Periode 20 ms:
+Stand 2026-08-12, zwei Follower, ~1500 Paare über 30 s, Periode 20 ms, **ungestörter Aufbau**
+(Abschnitt [2.5](#25-während-der-messung-nicht-hineinsehen)):
 
 | Größe | Wert |
 |---|---|
-| Median-Versatz (fest) | **−160 ns** |
-| MAD | **1 080 ns** |
-| p90 / p99 | 2 680 / 3 620 ns |
-| Spitze-Spitze | **7 880 ns** |
-| Verspätung je Board (Zähler) | 127…227 Ticks = 2,12…3,78 µs |
+| Median-Versatz (fest) | **−1 300 ns** |
+| MAD | **1 120 ns** |
+| p90 / p99 | 5 200 / 7 280 ns |
+| Spitze-Spitze | **15 280 ns** |
+| Pegel beider Kanäle | gleichphasig (gleicher `initial_state`) |
+| Verspätung je Board (Zähler) | 129…275 Ticks = 2,15…4,58 µs |
+
+Ein früherer Lauf lieferte 7 880 ns Spitze-Spitze bei −160 ns Median. Die Streuung dieser Kennzahl
+zwischen Läufen ist reell und stammt aus dem Zustand der beiden Zeitbasis-Modelle, nicht aus dem
+Auslösepfad — die Verspätung je Board bleibt in jedem Lauf bei 2…5 µs.
 
 Die 2,1 µs Verspätung sind **fester Pfadaufwand** und auf beiden Boards gleich — für Gleichzeitigkeit
 also gleichgültig, sie fallen in der Differenz heraus.
@@ -226,11 +301,14 @@ also gleichgültig, sie fallen in der Differenz heraus.
 
 | Beobachtung | wahrscheinliche Ursache |
 |---|---|
-| Spitze-Spitze im Bereich **1,09 ms** | eine TC1-Wrap-Periode — fehlender `SYNCBUSY`-Wait, siehe test_results.md |
+| Spitze-Spitze im Bereich **1,09 ms** | 65536 Ticks bei 60 MHz. Entweder ein fehlender `SYNCBUSY`-Wait am TC1, oder — häufiger — ein verlorener `SYS_TIME`-Überlauf, weil der Aufbau während der Messung abgefragt wurde: Abschnitt [2.5](#25-während-der-messung-nicht-hineinsehen) |
 | Spitze-Spitze im Bereich **1,5 ms** | Stufe-2-Rückfall feuert zu früh statt zu warten |
 | Spitze-Spitze **20 ms** bei „0 Paare" | steigende Flanken statt aller Übergänge verglichen |
 | Spitze-Spitze **~20 µs**, MAD ~4 µs | Zeitbasis-Modellsprünge — Ring noch nicht voll, oder Glättung aus |
-| ein Kanal viel weniger Übergänge | Trigger auf dem Board hat aufgehört, `rearm lost` prüfen |
+| ein Kanal viel weniger Übergänge | Trigger auf dem Board hat aufgehört: `rearm lost` **und** `stalls recovered by watchdog` prüfen |
+| ein Kanal **null** Übergänge, `armed: yes` | Armierkette stand. Seit dem Wachhund holt sich das selbst zurück; die `chain:`-Zeile zeigt, wo es hing |
+| beide Kanäle blinken, Pegel **invers** | veraltete Firmware. Der Pegel kommt seit 2026-08-12 aus dem absoluten Gitterindex und stimmt per Konstruktion |
+| Kennzahlen driften zwischen zwei Kanälen um Zehner-ppm | die Schrittweiten je Kanal einzeln nachrechnen (Residuum gegen ein ideales 20-ms-Gitter); ein Schrittunterschied von 1 µs je Periode sind schon 50 ppm |
 
 ---
 
@@ -252,6 +330,7 @@ das Projekt am Limit ist.
 | `tbase hw on\|off` | Auslöse-Backend: `on` = TC1-Compare (E1), `off` = SYS_TIME (Phase C) |
 | `tbase pin on\|off` | PD10 bei jeder Auslösung toggeln |
 | `tbase mode strict\|free` | `free` feuert auch ohne brauchbare Zeitbasis — **nicht synchronisiert** |
+| `tbase led on\|off\|blink [1\|2]` | LED1 = PC21, LED2 = PA16, aktiv low. Zum Zuordnen von Terminal zu Board, siehe [1.1](#11-welches-terminal-gehört-zu-welchem-board) |
 
 Auf der Bridge zusätzlich `ptp start` / `stop` / `interval <ms>` / `status`.
 
@@ -271,6 +350,8 @@ Firmware vergleichen, ohne neu zu flashen. Erwartung C: Verspätung streut über
 | `a trigger is already armed` | erst `tbase cancel` |
 | `rearm lost` > 0 | der periodische Trigger hat aufgegeben; Zeitbasis oder Last prüfen |
 | Analyzer sieht nichts | `tbase pin` steht auf `off`, oder falscher Kanal — Abschnitt 2.4 wiederholen |
+| unklar, welches Terminal welches Board ist | `tbase led blink`, danach `tbase led off` — Abschnitt [1.1](#11-welches-terminal-gehört-zu-welchem-board) |
+| LED scheint nicht zu blinken, obwohl das Kommando angenommen wurde | beim Nachprüfen per Register nicht in gleichmäßigem Abstand abfragen: die Blinkperiode (250 ms) aliast mit der Abfragekadenz und zeigt einen konstanten Pegel. Wartezeiten verstimmen |
 | Konsole antwortet nicht mehr | ein Dauerlog läuft und `cli.py` hängt im Drain; `tb_capture.py` benutzen, sonst Reset über `flash_same54.py --reset-only` |
 | Zahlen ändern sich zwischen Läufen um µs | normal: der Median-Versatz folgt den Neufits und ist **kein** kalibrierbarer Festwert |
 

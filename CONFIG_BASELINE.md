@@ -268,6 +268,7 @@ pure SPI load. Only frames sent with `TSC ≠ 0` are stamped, so stack traffic i
 | Clock | **GCLK1 = 60 MHz** → **16.667 ns/tick**, hardware wrap every **1.092 ms** | The counter width the datasheet gives is not the width you get; check what the PLIB configured. |
 | Config | `HW_COUNTER_WIDTH 16`, `HW_COUNTER_PERIOD 0xFFFF`, `CPU_CLOCK_FREQUENCY 120000000`, `COMPARE_UPDATE_EXECUTION_CYCLES 232`, `MAX_TIMERS 5` | `MAX_TIMERS` is a budget — the trigger of plan phase C consumes one. |
 | Free for later | only `plib_tc0.c` exists → **TC1…TC7 and all TCC are free**; `evsys` is in the model with **zero** channels | Phase E needs a 32-bit TC, which on this family is an **instance pair**; pick one with **both channels** free so phase F can capture on the same instance. |
+| **Open — counter width** | `COUNT16` is the MCC default and was inherited, not chosen | **For a fresh setup pick `COUNT32` for the `SYS_TIME` instance** (wrap 71.6 s instead of 1.092 ms) and accept that it consumes an instance *pair*. The 16-bit wrap is a correctness hazard, see the second bullet below. |
 
 Two things that look like bugs and are not:
 
@@ -275,7 +276,19 @@ Two things that look like bugs and are not:
   the crystal error, and determining it *is* the job of the affine fit. Never treat it as calibrated.
 - **The 16-bit hardware wrap shows up as a spike at exactly 1.092 ms** in a latency histogram: a
   blocked compare interrupt costs one whole period. Sharp spike = missed overflow; smeared = jitter.
-  A min-filter is immune to it, because the error is always positive.
+  ~~A min-filter is immune to it, because the error is always positive.~~ **Wrong — corrected
+  2026-08-12.** A *delayed sample* has a positive error and a min-filter does reject it. A **missed
+  overflow is different in kind**: the 64-bit extension fails to increment, so
+  `SYS_TIME_Counter64Get()` returns a value 65536 ticks **too small**, the residual goes **negative**,
+  and a filter that keeps the minimum residual therefore *prefers* the corrupted sample. Measured with
+  the console under load: winner spread 970 210 ns on one board and 966 195 ns on the other, last
+  residual −193 555 ns, and `tb_capture.py` counting 36 and 47 samples within one 1.092 ms period.
+  The same corruption reaches `trig_arm_ticks()`, whose `target_L <= now` test then registers a
+  one-shot that never lands in its window — a periodic trigger that stops while still reporting
+  `armed: yes`. **So the wrap is a correctness hazard for the whole timebase, not a cosmetic spike:
+  either keep main-loop and interrupt latency below 1.092 ms, or widen the counter.** Detail in
+  [test_results.md §E2.3](test_results.md), operating rule in
+  [GPIO_SYNC_TESTS.md §2.5](GPIO_SYNC_TESTS.md).
 
 **Do not reach for `DWT->CYCCNT`.** Finer (8.3 ns) but 32 bits wrap every 35.8 s at 120 MHz, it hangs
 off the debug block (`TRCENA` — the probe sets it and thereby hides a missing init), and it freezes in
@@ -423,6 +436,28 @@ Every row is a check that fails loudly rather than degrading quietly.
 Newest first. Format: `YYYY-MM-DD — finding → consequence`, one or two sentences, a snippet where it
 helps. Values that belong in a section above go **into that section**; this log is for things learned
 after the fact and for corrections.
+
+**2026-08-12 — `SYS_TIME` on a 16-bit counter is a correctness hazard, and the min-filter does not
+save it → for a fresh setup configure the `SYS_TIME` timer as `COUNT32`.** A missed overflow makes
+`SYS_TIME_Counter64Get()` return a value 65536 ticks **too small**, so the residual goes *negative* and
+a min-filter *prefers* the corrupted sample — the opposite of what [§4](#4-timebase) claimed, now
+corrected there. One root cause produced three unrelated-looking failures in a single afternoon: a
+1.09 ms mode in the raw PTP pairs, a 1092.1 µs grid residual on one board, and a periodic trigger that
+stalled while still reporting `armed: yes`. Values: winner spread 970 210 / 966 195 ns under console
+load versus 13 421 ns at rest; 36 and 47 samples inside one wrap period. **Consequence for this
+project:** latency must stay under 1.092 ms, which means querying `tbase` or enabling `ptpf tb on`
+*during* a measurement invalidates it (48 ms of line time per query) — the rule is in
+[GPIO_SYNC_TESTS.md §2.5](GPIO_SYNC_TESTS.md), and the trigger now has a main-loop watchdog so the
+stall is a counted, recovered event instead of a silent death. Widening the counter is not done; it is
+an MCC change on the bridge and a `plib_tc0.c` change on the follower.
+
+**2026-08-12 — The two user LEDs are usable and were free: LED1 = PC21 (pin 75), LED2 = PA16
+(pin 66), both active low.** Source is this board's own BSP (`Harmony3/bsp`,
+`boards/sam_e54_cult/config/bsp.py`) — the board user guide names no pin at all, and the Xplained Pro
+variant differs, so neither is a substitute. Both pins read "Available" in `pin_configurations.csv`, so
+nothing in either project contends for them; the follower now drives LED1 from `tbase led`. Worth a
+line here because a fresh MCC setup would otherwise have to rediscover which pins the board wires to
+LEDs. Initialise with `OUTSET` before `DIRSET`, or the LED blinks during boot.
 
 **2026-08-12 — Document created.** Trigger was the decision to stop configuring the follower with
 MCC: the distance had grown too large and the benefit no longer covered the effort, while a new

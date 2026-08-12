@@ -860,6 +860,154 @@ scheinbar, weil er den Stream stoppt.
 
 ---
 
+## E2 — Pegel aus dem Gitterindex, ein stiller Trigger-Tod, und ein Beobachtereffekt
+
+2026-08-12, nach E1. Drei Dinge in einem Durchgang, weil sie sich gegenseitig maskiert haben.
+
+### E2.1 Die inversen Pegel — behoben und nachgemessen
+
+Zwei Boards liefen auslösungssynchron, aber ihre PD10-**Pegel** waren komplementär: der Trigger
+*toggelt*, also trägt der Pegel die **Parität der Auslösezahl**, und die Boards waren eine ungerade
+Zahl von Perioden versetzt gestartet (706 gegen 952 Auslösungen). Die Flanken lagen richtig — deshalb
+paart [saleae_skew.py](saleae_skew.py) `--edges all` — aber im Bild sah es nach einer halben Periode
+Versatz aus.
+
+**Lösung:** `PTP_TRIG_SchedulePeriodic()` leitet den Pegel jetzt aus dem **absoluten Gitterindex** `n`
+ab und stellt ihn vor dem Armieren ein. Damit stimmen alle Knoten per Konstruktion überein, auch einer,
+der mitten im Lauf dazukommt. Nachgemessen an den `initial_state`-Feldern des Saleae-Exports:
+
+```
+  Ch0 (folB) initial level 0, 1507 transitions
+  Ch1 (folA) initial level 0, 1507 transitions
+  in phase: yes
+```
+
+### E2.2 `armed: yes` bei totem Trigger — der Status hat gelogen
+
+Beide Boards blieben nach einigen tausend Auslösungen stehen. Der Status meldete dabei:
+
+```
+[TRIG] armed: yes   mode: STRICT   action: 1   period: 20 ms
+[TRIG] fired: 1292  refused: 0   skipped periods: 0   rearm lost: 0
+[TRIG] chain: stage2=yes  hw_pending=no  systime_timer=live  target-now=-1122445557 ticks
+[TRIG] STALLED: armed but the instant is 18707425 us gone
+```
+
+Also: **Stufe 2 wartet auf einen SYS_TIME-Einmalschuss, der angenommen wurde und nie zurückrief**,
+`rearm lost` bleibt 0, das Handle gilt als lebendig, und der Zielzeitpunkt entfernt sich sekundenweise.
+Der Kommentar an der Re-Arm-Schleife fordert seit E1: *„A trigger that stops must either recover or say
+so, never just stop."* Bis hierher tat es **beides nicht**.
+
+Der Zähler `rearm_lost` wurde außerdem **nie ausgegeben** — deshalb las sich ein toter Trigger wie ein
+gesunder. Das war der eigentliche Grund, dass es so lange unentdeckt blieb.
+
+**Zwei Änderungen:**
+
+1. **Diagnose:** `tbase trig` zeigt jetzt `rearm lost`, den Kettenzustand (`stage2`, `hw_pending`,
+   `systime_timer`, `target-now`) und meldet `STALLED` ausdrücklich.
+2. **Wachhund in `PTP_TRIG_Tasks()`:** ein armierter periodischer Trigger, dessen Zeitpunkt mehr als
+   2 ms vorbei ist, wird verworfen und **aus der Hauptschleife** neu auf das absolute Gitter armiert —
+   nie aus dem SYS_TIME-Callback, denn genau diese Registrierung ist die fragile. Die Schwelle von
+   2 ms ist das 33-fache der größten je gemessenen Verspätung, kann also nicht bei einer bloß späten
+   Auslösung anschlagen. Gezählt als `stalls recovered by watchdog`.
+
+Gemessen über ~34 500 Auslösungen je Board: **1 bzw. 2 Wachhund-Rettungen**, danach lief der Trigger
+weiter. Ohne den Wachhund war jeder dieser Fälle das endgültige Ende.
+
+### E2.3 Jede Messung, die man beobachtet, verdirbt man — quantifiziert
+
+Der Wert nach den Fixes war zunächst **schlechter** statt besser: Spitze-Spitze 1 095 380 ns, also
+genau eine 65536-Tick-Periode. Die Zuordnung auf ein Board über die Abstände der Einzelkanäle:
+
+| Kanal | Schritt je Periode | Residuum Spitze-Spitze | Abstände > 200 µs neben 20 ms |
+|---|---|---|---|
+| Ch0 (folB) | 19,999249 ms | 201,1 µs | 0 von 1503 |
+| Ch1 (folA) | 19,998304 ms | **1092,1 µs** | 2 von 1503 |
+
+1092,1 µs ist 65536 Ticks bei 60 MHz. Und der Schrittunterschied von 0,945 µs je Periode heißt: die
+beiden Modelle waren in der **Rate um 47 ppm** auseinander.
+
+Die Ursache steht in der letzten Zeile von [tb_capture.py](tb_capture.py)s eigener Ausgabe, auf
+**beiden** Boards gleich:
+
+```
+  SPREAD OF WINNERS    : 970210 ns
+  samples near one SYS_TIME period (1.092 ms): 36    (folA)   /   47   (folB)
+```
+
+**`SYS_TIME` läuft auf einem 16-Bit-Zähler mit 1,092 ms Überlaufperiode.** Sobald die Hauptschleife
+oder die Interruptlatenz eine solche Periode überschreitet, verliert die 64-Bit-Erweiterung einen
+Überlauf, und `SYS_TIME_Counter64Get()` liefert einen um genau 65536 Ticks falschen Wert. Damit erklärt
+sich **alles ≈1,09 ms an diesem Tag** aus einer Wurzel:
+
+- die 1,09-ms-Mode in den Rohpaaren und im Gitterresiduum,
+- die 493 µs Verspätung (eine halbe Übergabefenster-Periode),
+- und der Trigger-Stillstand aus E2.2: `trig_arm_ticks()` vergleicht `target_L <= now` gegen genau
+  diesen Zähler, bekommt einen um eine Wrap-Periode verschobenen Wert und registriert einen
+  Einmalschuss, der nie im Fenster landet.
+
+**Was die Latenz erzeugt, war ich selbst.** Ein `tbase`/`tbase trig` sind 5–8 Konsolenzeilen; bei
+115200 Baud sind 560 Zeichen rund **48 ms** Leitungszeit, und `ptpf tb on` schickt eine Zeile je Sync.
+Die Residuen sprangen jeweils auf **dem Board, das ich gerade abgefragt hatte** — folA 1,34 ms während
+folB bei 16 µs lag, nach dem Wechsel der Abfragereihenfolge umgekehrt. Dass beide Boards unter
+identischer Loglast **identische** Kennzahlen liefern (970 210 gegen 966 195 ns), stützt das: es ist
+lastinduziert, nicht boardspezifisch.
+
+Eine pyOCD-Halt-Sequenz wirkt genauso — Follower A blieb nach vier Halts stehen, während Follower B
+weiterlief.
+
+### E2.4 Der Wert bei ungestörtem Aufbau
+
+Armieren, dann **150 s ohne jeden seriellen Zugriff**, dann 30 s aufnehmen. 1507 Paare, Periode 20 ms:
+
+| Größe | E1 (2026-08-12, vorher) | E2.4 (nach den Fixes) |
+|---|---|---|
+| Median-Versatz | −160 ns | **−1 300 ns** |
+| MAD | 1 080 ns | **1 120 ns** |
+| stdev | 1 638 ns | 2 653 ns |
+| p90 / p99 | 2 680 / 3 620 ns | 5 200 / 7 280 ns |
+| Spitze-Spitze | 7 880 ns | **15 280 ns** |
+| Pegel gleichphasig | nein | **ja** |
+
+Beide Zahlen gelten nur für den **ungestörten** Aufbau. Die Verspätung je Board gegen das eigene Ziel
+blieb dabei durchweg bei 2,15…4,6 µs — der Trigger ist nicht das begrenzende Glied, die Zeitbasis ist es.
+
+### E2.5 Konsequenzen
+
+- **Messen und Beobachten schließen sich hier aus.** Der Ablauf gehört ins Runbook: armieren, dann
+  Ruhe, dann aufnehmen. `tbase`-Abfragen und `ptpf tb on` sind Diagnose, nicht Begleitung. Steht in
+  [GPIO_SYNC_TESTS.md](GPIO_SYNC_TESTS.md) §2.5.
+- **Offen und substanziell: `SYS_TIME` auf einen 32-Bit-Zähler umstellen** (Überlauf 71,6 s statt
+  1,092 ms). Damit verschwindet die Klasse „genau eine Wrap-Periode" als Fehlerbild, statt nur
+  abgefangen zu werden. Das ist eine MCC-/`plib_tc0`-Änderung und gehört in den Plan, nicht in einen
+  Nebenfix.
+- Der Wachhund bleibt trotzdem richtig: er macht aus einem stillen Totalausfall ein gezähltes,
+  behobenes Ereignis.
+
+### E2.6 Board-Identifikation: `tbase led`
+
+Für den Bank-Alltag mit drei Boards und drei Terminals: `tbase led on|off|blink [1|2]`.
+
+**Pinquelle ist der offizielle BSP dieses Boards**, nicht Erinnerung und nicht die
+Xplained-Pro-Variante — Harmony3 `bsp`, `boards/sam_e54_cult/config/bsp.py`: Pin 75 = **PC21** = LED1,
+Pin 66 = **PA16** = LED2, beide `LED_AL` (**aktiv low**, `LAT=High`, also nach Reset dunkel). Das
+Board-User-Guide nennt die Pins **überhaupt nicht** — es erwähnt nur „Programmable user buttons and
+LEDs" ([Tabelle 1-1](https://onlinedocs.microchip.com/oxy/GUID-02C253DF-26B6-461A-AE6B-6D243DB24A6D-en-US-2/GUID-79DC8D39-6AEC-448D-9806-31D78F0EAB03.html),
+Position 14). Gegengeprüft gegen `pin_configurations.csv`: Pin 75/66 sind dort `PC21`/`PA16` und
+„Available", es gibt also keinen Konflikt.
+
+**Elektrisch verifiziert** über pyOCD, ohne Sichtkontakt: `PORTC.DIR` Bit 21 = 1 (also hat `led_init()`
+gelaufen), `led on` → `PORTC.OUT` Bit 21 = **0** (aktiv low, LED leuchtet), `led blink` → beide Zustände
+beobachtet.
+
+**Ein Fallstrick beim Nachprüfen:** acht Stichproben in gleichmäßigem Abstand zeigten
+`OUT.21` **konstant 1** — Aliasing zwischen der Abfragekadenz (~1,4 s je pyOCD-Aufruf) und der
+Blinkperiode (250 ms, Vollzyklus 500 ms). Erst mit **gewürfelten** Wartezeiten kamen beide Zustände
+heraus. Wer eine periodische Größe mit periodischen Stichproben prüft, muss die Kadenz verstimmen —
+sonst liest man „bewegt sich nicht" und sucht einen Fehler, den es nicht gibt.
+
+---
+
 ## Nebenbefunde
 
 **1. `noip_send N gap` mit N > 1 liefert falsche Sequenznummern — die Nutzlast wird vor dem Senden

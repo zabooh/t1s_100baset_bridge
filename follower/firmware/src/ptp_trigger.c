@@ -54,6 +54,7 @@ static uint32_t s_cnt_fired;
 static uint32_t s_cnt_refused;
 static uint32_t s_cnt_missed;
 static uint32_t s_cnt_rearm_lost;   /* periodic trigger gave up entirely */
+static uint32_t s_cnt_stalled;      /* watchdog found an armed-but-dead chain */
 static int32_t  s_late_last;
 static int32_t  s_late_max;
 static int32_t  s_late_min;
@@ -104,6 +105,24 @@ static uint32_t s_late_n;
 #define PD10_MASK           (1u << 10)
 #define PD10_TOGGLE()       (PORT_REGS->GROUP[PD10_GROUP].PORT_OUTTGL = PD10_MASK)
 
+/* Board identification LEDs.  Taken from the official BSP of this very board
+ * (Harmony3 bsp repo, boards/sam_e54_cult/config/bsp.py), NOT from memory and
+ * not from the Xplained Pro variant, whose LED sits elsewhere:
+ *     pin 75 = PC21 = LED1      pin 66 = PA16 = LED2      both LED_AL
+ * "LED_AL" is active low, and the BSP sets LAT=High, i.e. dark after reset.
+ * Cross-checked against pin_configurations.csv of this project, where pins 75
+ * and 66 read PC21/PA16 and are "Available" - so nothing here contends for them.
+ * The board user guide does not name the pins at all; only the BSP does.
+ *
+ * The purpose is prosaic bench hygiene: with three boards and three terminals
+ * open, `tbase led blink` answers "which window is this board?". */
+#define LED1_GROUP          2u           /* PORTC */
+#define LED1_MASK           (1u << 21)
+#define LED2_GROUP          0u           /* PORTA */
+#define LED2_MASK           (1u << 16)
+#define LED_COUNT           2u
+#define LED_BLINK_MS        250u
+
 /* Handing over to TC1 needs the remaining delay to fit its 16-bit counter.
  * 60000 ticks = 1 ms, comfortably below the 65536-tick wrap. */
 #define TC1_MAX_ARM_TICKS   60000u
@@ -121,6 +140,65 @@ static void hw_pin_init(void)
 {
     PORT_REGS->GROUP[PD10_GROUP].PORT_DIRSET = PD10_MASK;
     PORT_REGS->GROUP[PD10_GROUP].PORT_OUTCLR = PD10_MASK;
+}
+
+/* --------------------------------------------------------------------------- */
+/* identification LEDs                                                         */
+/* --------------------------------------------------------------------------- */
+
+typedef struct { uint8_t group; uint32_t mask; } led_t;
+
+static const led_t s_led[LED_COUNT] =
+{
+    { LED1_GROUP, LED1_MASK },
+    { LED2_GROUP, LED2_MASK },
+};
+
+static uint8_t  s_led_blink;          /* bit per LED */
+static uint64_t s_led_next_L;
+static bool     s_led_phase;
+
+static void led_set(unsigned i, bool on)
+{
+    /* Active low: clearing the pin sinks the LED current. */
+    if (on) { PORT_REGS->GROUP[s_led[i].group].PORT_OUTCLR = s_led[i].mask; }
+    else    { PORT_REGS->GROUP[s_led[i].group].PORT_OUTSET = s_led[i].mask; }
+}
+
+static void led_init(void)
+{
+    unsigned i;
+    for (i = 0u; i < LED_COUNT; i++)
+    {
+        /* Drive high before enabling the output, or the LED flashes at boot. */
+        PORT_REGS->GROUP[s_led[i].group].PORT_OUTSET = s_led[i].mask;
+        PORT_REGS->GROUP[s_led[i].group].PORT_DIRSET = s_led[i].mask;
+    }
+}
+
+static void led_service(void)
+{
+    uint64_t now;
+    unsigned i;
+
+    if (s_led_blink == 0u)
+    {
+        return;
+    }
+    now = SYS_TIME_Counter64Get();
+    if (now < s_led_next_L)
+    {
+        return;
+    }
+    s_led_next_L = now + (uint64_t)LED_BLINK_MS * 1000u * s_ticks_per_us;
+    s_led_phase = !s_led_phase;
+    for (i = 0u; i < LED_COUNT; i++)
+    {
+        if ((s_led_blink & (1u << i)) != 0u)
+        {
+            led_set(i, s_led_phase);
+        }
+    }
 }
 
 static void hw_tc1_init(void)
@@ -454,6 +532,7 @@ void PTP_TRIG_Initialize(void)
     trig_disarm();
     hw_disarm();
     hw_pin_init();
+    led_init();
     hw_tc1_init();
     s_hw_mode = true;      /* E1 by default; 'tbase hw off' falls back to phase C */
     s_pin_armed = true;    /* the pin is the whole point of the Saleae measurement */
@@ -466,6 +545,7 @@ void PTP_TRIG_Initialize(void)
     s_cnt_refused = 0u;
     s_cnt_missed = 0u;
     s_cnt_rearm_lost = 0u;
+    s_cnt_stalled = 0u;
     s_late_last = 0;
     s_late_max = 0;
     s_late_min = 0;
@@ -594,15 +674,90 @@ PTP_TRIG_RESULT PTP_TRIG_ScheduleAt(uint16_t action_id, uint32_t cmd_seq, uint64
     return PTP_TRIG_OK;
 }
 
+/* Arms the next instant on the absolute grid defined by s_period_ns/s_phase_ns.
+   Shared by the CLI/command path and by the stall watchdog so the two cannot
+   drift apart - in particular so a recovered trigger lands on the same grid, and
+   with the same pin level, as one that was armed normally. */
+static bool trig_arm_grid(void)
+{
+    uint64_t now_ns;
+    uint64_t n;
+    uint64_t next;
+    uint64_t target_L;
+    uint32_t tries;
+
+    if (s_period_ns == 0u || !PTP_TB_Now(&now_ns))
+    {
+        return false;
+    }
+
+    /* Absolute phase: the next instant on the global grid, not "now + period".
+       This is the whole reason two nodes can align at all (plan G.1). */
+    if (now_ns <= s_phase_ns)
+    {
+        next = s_phase_ns;
+        n = 0u;
+    }
+    else
+    {
+        n = (now_ns - s_phase_ns) / s_period_ns + 1u;
+        next = s_phase_ns + n * s_period_ns;
+    }
+    /* Respect the same minimum lead as a one-shot. */
+    while (next < now_ns + (uint64_t)PTP_TRIG_MIN_LEAD_MS * 1000000ULL)
+    {
+        next += s_period_ns;
+        n++;
+    }
+
+    for (tries = 0u; tries < 8u; tries++)
+    {
+        /* Pre-set the pin so its LEVEL is a function of the absolute grid index,
+         * not of how many times this particular board has toggled.
+         *
+         * Toggling alone made the two boards come out complementary whenever
+         * they were started an odd number of periods apart - the edges lined up
+         * (which is all the measurement needs, hence --edges all) but the traces
+         * looked inverted, which is confusing in a demo and would mislead anyone
+         * comparing levels.  Deriving the level from n makes every node agree by
+         * construction, including one that joins halfway through.  The pin is set
+         * to the state it should hold BEFORE that instant, so the fire itself
+         * still produces the transition. */
+        if (s_pin_armed)
+        {
+            if ((n & 1u) != 0u)
+            {
+                PORT_REGS->GROUP[PD10_GROUP].PORT_OUTCLR = PD10_MASK;
+            }
+            else
+            {
+                PORT_REGS->GROUP[PD10_GROUP].PORT_OUTSET = PD10_MASK;
+            }
+        }
+
+        if (PTP_TB_LocalFor(next, &target_L))
+        {
+            s_target_ns = next;
+            s_target_L = target_L;
+            if (trig_arm_ticks(target_L))
+            {
+                s_armed = true;
+                return true;
+            }
+        }
+        next += s_period_ns;
+        n++;
+        s_cnt_missed++;
+    }
+    return false;
+}
+
 PTP_TRIG_RESULT PTP_TRIG_SchedulePeriodic(uint16_t action_id, uint32_t cmd_seq,
                                           uint64_t period_ns, uint64_t phase_ns)
 {
     action_t *a = NULL;
     PTP_TRIG_RESULT r = trig_check(action_id, cmd_seq, &a);
     uint64_t now_ns;
-    uint64_t n;
-    uint64_t next;
-    uint64_t target_L;
 
     if (r != PTP_TRIG_OK)
     {
@@ -622,42 +777,16 @@ PTP_TRIG_RESULT PTP_TRIG_SchedulePeriodic(uint16_t action_id, uint32_t cmd_seq,
 
     trig_disarm();
 
-    /* Absolute phase: the next instant on the global grid, not "now + period".
-       This is the whole reason two nodes can align at all (plan G.1). */
-    if (now_ns <= phase_ns)
-    {
-        next = phase_ns;
-    }
-    else
-    {
-        n = (now_ns - phase_ns) / period_ns + 1u;
-        next = phase_ns + n * period_ns;
-    }
-    /* Respect the same minimum lead as a one-shot. */
-    while (next < now_ns + (uint64_t)PTP_TRIG_MIN_LEAD_MS * 1000000ULL)
-    {
-        next += period_ns;
-    }
-
-    if (!PTP_TB_LocalFor(next, &target_L))
-    {
-        s_cnt_refused++;
-        return PTP_TRIG_ERR_NO_TIME;
-    }
-
-    s_target_ns = next;
-    s_target_L = target_L;
     s_period_ns = period_ns;
     s_phase_ns = phase_ns;
     s_armed_id = action_id;
 
-    if (!trig_arm_ticks(target_L))
+    if (!trig_arm_grid())
     {
         s_period_ns = 0u;
         s_cnt_refused++;
         return PTP_TRIG_ERR_ARM;
     }
-    s_armed = true;
     a->last_seq = cmd_seq;
     a->seq_valid = true;
     return PTP_TRIG_OK;
@@ -690,8 +819,41 @@ bool PTP_TRIG_HwGet(void)
     return s_hw_mode;
 }
 
+/* An armed periodic trigger whose instant is long gone will never fire again.
+ *
+ * Measured on the bench, both boards: fire counter frozen, `armed: yes`,
+ * stage2 = yes, a LIVE SYS_TIME handle and rearm lost = 0 - i.e. the coarse
+ * one-shot was accepted and then never called back.  It is registered from
+ * inside the SYS_TIME callback (ISR context), which is the fragile part, so the
+ * recovery deliberately happens HERE, in the main loop, and re-arms onto the
+ * absolute grid rather than "now + period" so the board rejoins in phase.
+ *
+ * The threshold is generous: 2 ms is already 33 times the worst lateness ever
+ * measured (60 us), so this cannot trip on a merely late fire. */
+static void trig_watchdog(void)
+{
+    int64_t togo;
+
+    if (!s_armed || s_period_ns == 0u)
+    {
+        return;
+    }
+    togo = (int64_t)s_target_L - (int64_t)SYS_TIME_Counter64Get();
+    if (togo > -(int64_t)(2u * TC1_MAX_ARM_TICKS))
+    {
+        return;
+    }
+
+    trig_disarm();
+    s_cnt_stalled++;
+    (void)trig_arm_grid();     /* leaves it disarmed if the timebase is gone */
+}
+
 void PTP_TRIG_Tasks(void)
 {
+    led_service();
+    trig_watchdog();
+
     if (s_pending_defer)
     {
         action_t *a;
@@ -833,6 +995,49 @@ bool PTP_TRIG_CliTry(int argc, char **argv)
         return true;
     }
 
+    if (argc >= 2 && !strcmp(argv[1], "led"))
+    {
+        /* Which board is this terminal talking to?  `led blink` answers it from
+           across the bench.  Defaults to LED1 (PC21); pass 2 for LED2 (PA16). */
+        unsigned which = (argc >= 4) ? (unsigned)strtoul(argv[3], NULL, 0) : 1u;
+        const char *what = (argc >= 3) ? argv[2] : "";
+
+        if (which < 1u || which > LED_COUNT)
+        {
+            SYS_CONSOLE_PRINT("[LED] no LED %u, only 1 (PC21) and 2 (PA16)\r\n", which);
+            return true;
+        }
+        which -= 1u;
+
+        if (!strcmp(what, "on") || !strcmp(what, "1"))
+        {
+            s_led_blink &= (uint8_t)~(1u << which);
+            led_set(which, true);
+        }
+        else if (!strcmp(what, "off") || !strcmp(what, "0"))
+        {
+            s_led_blink &= (uint8_t)~(1u << which);
+            led_set(which, false);
+        }
+        else if (!strcmp(what, "blink"))
+        {
+            s_led_blink |= (uint8_t)(1u << which);
+            s_led_next_L = 0u;          /* service it on the next pass */
+        }
+        else
+        {
+            /* Refuse a typo instead of doing something adjacent - the same
+               lesson the `mirror` command learned in cff7cdf. */
+            SYS_CONSOLE_PRINT("[LED] unknown '%s'\r\nusage: tbase led on|off|blink [1|2]\r\n",
+                              what);
+            return true;
+        }
+        SYS_CONSOLE_PRINT("[LED] LED%u (%s): %s\r\n", which + 1u,
+                          (which == 0u) ? "PC21" : "PA16",
+                          ((s_led_blink & (1u << which)) != 0u) ? "blink" : what);
+        return true;
+    }
+
     if (argc >= 3 && !strcmp(argv[1], "mode"))
     {
         bool free_mode = (!strcmp(argv[2], "free"));
@@ -855,8 +1060,30 @@ bool PTP_TRIG_CliTry(int argc, char **argv)
                       st.armed ? "yes" : "no",
                       (st.mode == PTP_TRIG_MODE_FREE) ? "FREE" : "STRICT",
                       (unsigned)st.action_id, (unsigned long long)(st.period_ns / 1000000ULL));
-    SYS_CONSOLE_PRINT("[TRIG] fired: %lu   refused: %lu   skipped periods: %lu\r\n",
-                      (unsigned long)st.fired, (unsigned long)st.refused, (unsigned long)st.missed);
+    SYS_CONSOLE_PRINT("[TRIG] fired: %lu   refused: %lu   skipped periods: %lu   rearm lost: %lu\r\n",
+                      (unsigned long)st.fired, (unsigned long)st.refused, (unsigned long)st.missed,
+                      (unsigned long)s_cnt_rearm_lost);
+    SYS_CONSOLE_PRINT("[TRIG] stalls recovered by watchdog: %lu\r\n",
+                      (unsigned long)s_cnt_stalled);
+
+    /* Where the arm chain is sitting right now.  Printing only "armed: yes" was
+       a lie worth an hour: both boards reported armed while their fire counters
+       were frozen, and nothing in the output said which stage had stalled. */
+    {
+        uint64_t nowL = SYS_TIME_Counter64Get();
+        int64_t  togo = (int64_t)s_target_L - (int64_t)nowL;
+        SYS_CONSOLE_PRINT("[TRIG] chain: stage2=%s  hw_pending=%s  systime_timer=%s"
+                          "  target-now=%ld ticks (%ld us)\r\n",
+                          s_stage2 ? "yes" : "no",
+                          s_hw_pending ? "yes" : "no",
+                          (s_timer == SYS_TIME_HANDLE_INVALID) ? "none" : "live",
+                          (long)togo, (long)(togo / (int64_t)s_ticks_per_us));
+        if (s_armed && togo < -(int64_t)(2u * TC1_MAX_ARM_TICKS))
+        {
+            SYS_CONSOLE_PRINT("[TRIG] STALLED: armed but the instant is %ld us gone\r\n",
+                              (long)(-togo / (int64_t)s_ticks_per_us));
+        }
+    }
     if (st.late_n > 0u)
     {
         int32_t tpu = (int32_t)st.ticks_per_us;

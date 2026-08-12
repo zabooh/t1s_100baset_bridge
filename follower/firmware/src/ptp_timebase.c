@@ -541,6 +541,20 @@ static void cmd_tbase(SYS_CMD_DEVICE_NODE *pCmdIO, int argc, char **argv)
         return;
     }
 
+    /* Anything with arguments that got this far is a typo, and printing status
+       for it is worse than useless: "tbase 20 1" (a forgotten "per") looked like
+       it had been accepted, and the board sat there with armed: no while the
+       other one ran.  Same lesson the mirror command learned in cff7cdf -
+       refuse a typo, do not quietly do something else. */
+    if (argc >= 2)
+    {
+        SYS_CONSOLE_PRINT("[TBASE] unknown subcommand '%s'\r\n", argv[1]);
+        SYS_CONSOLE_PRINT("usage: tbase | now | at <ns> | reset | trig | fire <ms> [id]"
+                          " | per <ms> [id] | cancel | hw on|off | pin on|off"
+                          " | mode strict|free | led on|off|blink [1|2]\r\n");
+        return;
+    }
+
     PTP_TB_StatusGet(&st);
     SYS_CONSOLE_PRINT("[TBASE] state: %s   usable: %s   age: %llu ms\r\n",
                       tb_state_name(st.state), PTP_TB_IsUsable() ? "yes" : "no",
