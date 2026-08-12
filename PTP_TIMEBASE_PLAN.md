@@ -781,6 +781,50 @@ Grandmaster-Zeit, siehe G.1). Zusätzlich `trigto <ip> …` für den Unicast-Fal
 
 ## Phase E — Trigger, Stufe Hardware
 
+> **Recherchiert am 2026-08-12, und der Plan unten wird dadurch billiger.** Es gibt verifizierte
+> Vorarbeit in [zabooh/net_10base_t1s](https://github.com/zabooh/net_10base_t1s), die genau diese
+> Aufgabe gelöst hat — samt Saleae-Messkette.
+>
+> **Der Pin ist entschieden, nicht hergeleitet: `PD10` = „GPIO1" auf **EXT1, physisch Pin 5**, ein
+> 2,54-mm-Durchsteckpin, direkt anklemmbar. Die Referenz treibt dort `cyclic_fire` und `pd10_blink`.
+> Damit erübrigt sich die Pinout-Recherche und der EVSYS-Rückfallweg aus E.3 vorläufig.
+>
+> **Und die Referenz feuert nicht per Waveform-Ausgang, sondern per dediziertem TC-Compare-Interrupt,
+> der im ISR toggelt** (`cyclic_fire_isr.c`: `TC1_REGS`, 16 Bit, `TC1_MAX_ARM_TICKS` = 1 ms unter dem
+> Wrap von 1,092 ms). Das ist eine **Zwischenstufe**, die der Plan nicht kannte:
+>
+> | Stufe | Mechanismus | erwarteter Jitter | Kosten |
+> |---|---|---|---|
+> | C (gemessen) | `SYS_TIME`-Callback, µs-Raster | **25,5 µs** | — |
+> | **E1 (neu)** | **dedizierter TC-Compare → ISR toggelt** | Interrupt-Latenz, ~100 ns typisch | ein TC, kein Pinmux |
+> | E2 | Waveform-Ausgang oder EVSYS → PORT | ~1 Tick (17 ns) | Pinmux bzw. EVSYS |
+>
+> **E1 ist der richtige nächste Schritt**: er beseitigt genau die beiden Ursachen der 25,5 µs — die
+> Abrundung auf ganze Mikrosekunden und den Verwaltungsaufwand der `SYS_TIME`-Timerliste — und lässt
+> nur die Interrupt-Latenz übrig. Erst wenn *die* nicht reicht, lohnt E2.
+>
+> **Eigene Aussage zurückgenommen:** in E.1 stand, TC1 sei unbrauchbar, weil es GCLK-Kanal 9 mit TC0
+> teilt. Zu stark formuliert — der Kanal liefert den **Takt**, nicht die Konfiguration. Solange man
+> dieselben 60 MHz will, ist das Teilen genau richtig, und die Referenz macht es so. Was TC0 belegt,
+> sind seine **Compare-Kanäle** (`CC0`/`CC1`), nicht der GCLK-Kanal.
+>
+> **Messkette** (Saleae Logic 8, `documentation/testing/saleae_logic_analyzer.md` der Referenz):
+> Logic 2 mit „Enable scripting socket server", `pip install logic2-automation pyserial`, gRPC auf
+> `localhost:10430`. 100 MS/s → 10 ns Kantenauflösung, feste 1,65-V-Schwelle, 3,3-V-Logik ohne
+> Pegelwandler. Erprobter Ablauf aus `cyclic_fire_hw_test.py`: gemeinsamen Anker 2 s in die Zukunft
+> legen, beiden Boards denselben Anker schicken, 3 s bei 50 MS/s aufnehmen, CSV + `.sal` exportieren,
+> dann Median, MAD, Verteilung und Driftrate der Flankendifferenz rechnen.
+>
+> **Unabhängige Bestätigung von [§0.5](#05-was-der-ansatz-grundsätzlich-nicht-kann):** die Referenz
+> dokumentiert ihren `--compensate-offset`-Modus als **defekt**, und zwar mit genau meiner Begründung
+> — „the USB-CDC serial round-trip jitter is ~ms-level while the real offset is ~µs-level, so the
+> compensation is dominated by noise". Gleichzeitigkeit lässt sich per Software nicht herstellen, auch
+> nicht durch Klammern zweier Lesevorgänge.
+>
+> **Was die Referenz-Skripte falsch machen und ich nicht übernehme:** COM-Ports als Defaults
+> (`--gm-port COM10`). Boards gehören über die **Probe-Seriennummer** aufgelöst, die am Gerät klebt —
+> ein Umstecken auf eine andere USB-Buchse darf die Messung nicht brechen.
+
 Erst hier entsteht ein MCC-Eingriff. Vorher prüfen, ob er nötig ist: **ist der Worst Case aus C.2
 klein gegen die Anforderung, entfällt diese Phase vollständig.**
 
