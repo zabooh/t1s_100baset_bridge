@@ -40,10 +40,12 @@
 **Zuordnung empirisch bestimmt**, nicht aus `boards.json`: `stats` nennt auf COM8 `eth0` *und* `eth1`
 (Bridge), auf COM10 nur `eth0` (Follower).
 
-**Abweichung:** COM10 trägt die Probe-Seriennummer `ATML3264031800001290`, in
-[boards.json](boards.json) steht als Follower `ATML3264031800001103`. Die Zuordnung dort ist also
-veraltet oder gilt für ein anderes Board — `flash.bat --project follower` würde eine nicht
-angeschlossene Probe adressieren.
+~~**Abweichung:** COM10 trägt `…1290`, in `boards.json` steht als Follower `…1103` — die Zuordnung
+dort ist veraltet.~~ **Falsch, richtiggestellt am 2026-08-12.** Der Eintrag zeigte auf ein **reales,
+nur nicht angeschlossenes** Board: `…1103` ist das **zweite** Follower-Board, das später an den Bus
+kam (COM23, Node 1, `.202`). `boards.json` führt jetzt beide — `follower` = `…1103` (Board B),
+`follower_a` = `…1290` (Board A). **Merksatz:** eine Zuordnung, die nicht auf ein *angeschlossenes*
+Gerät passt, ist nicht automatisch falsch — sie kann auf ein abgestecktes zeigen.
 
 **Nicht verifiziert:** ob die auf den Boards laufende Firmware dem Commit `7a1354a` entspricht. Der
 Commit beschreibt den Repo-Stand während der Messung, nicht nachweislich den Build im Flash.
@@ -409,6 +411,58 @@ Modul die erste Verweigerung gibt.
 **Für jedes künftige Modul heißt das: keine neue Kommandogruppe mehr, sondern in eine bestehende
 falten.** Und der Fehlschlag ist stumm — wer eine Gruppe registriert und sie nicht wiederfindet,
 sucht sonst am falschen Ende.
+
+---
+
+## Zwei Boards: hebt sich `Δ_min` auf? — die Annahme aus §1, gemessen
+
+2026-08-12, drei Knoten am Bus: Bridge Node 0, Follower A Node 7 (`.201`, COM10, Probe `…1290`),
+Follower B Node 1 (`.202`, COM23, Probe `…1103`). Beide Follower mit Taktpatch, beide `LOCKED`.
+
+**Verfahren.** Beide Boards empfangen **dieselben** `Sync`-Frames, für eine gegebene `sequenceId` ist
+`t1` also identisch. Zwei gleichzeitige `tb_capture.py`-Läufe über 180 s, dann über `seq` gepaart,
+jedes Board für sich detrendet und die **Differenz der Residuen pro Frame** gebildet. Das ist der
+einzige Weg zur Gleichzeitigkeit ohne Oszilloskop — zwei serielle Abfragen sind eben nicht
+gleichzeitig. `python tb_capture.py --compare A B`.
+
+| Größe | Wert |
+|---|---|
+| gepaarte `sequenceId` | 1797 von 1798 / 1797 |
+| Rate Board A / B | −62,1 / −51,0 ppm |
+| **Ratenunterschied der Oszillatoren** | **−11,2 ppm** (jedes Modell rechnet den eigenen heraus) |
+| **fester Versatz, pro Frame** | **−363 ns** |
+| pro Frame: p50 / p90 / p99 der Abweichung | **160 ns** / 10 791 ns / 23 523 ns |
+| pro Frame: Spitze-Spitze | 104 956 ns |
+| **nach Min-Filter (1 Gewinner je 32 Frames, 56 Blöcke):** | |
+| fester Versatz | **−528 ns** |
+| **Spitze-Spitze** | **10 795 ns** |
+| stdev | **2 724 ns** |
+
+**Urteil: die Annahme trägt, und der konstante Anteil ist praktisch weg.** §1 veranschlagte die
+Differenz der `Δ_min` als „dominiert, vermutlich einstellige µs, **unbewiesen**". Gemessen:
+
+- der **konstante** Anteil hebt sich auf **unter eine Mikrosekunde** auf (363 bzw. 528 ns) — deutlich
+  besser als geschätzt. Das ist die Rechtfertigung für [§0.4](PTP_TIMEBASE_PLAN.md#04-die-kennzahl-ist-gleichzeitigkeit-nicht-absolutzeit):
+  der gemeinsame Fehleranteil fällt tatsächlich heraus.
+- die **Streuung** liegt nach Filter bei 2,7 µs stdev und 10,8 µs Spitze-Spitze — „einstellige µs"
+  war die richtige Größenordnung.
+- **Der Min-Filter verdient sein Geld:** Spitze-Spitze fällt von 105 µs auf 10,8 µs. Die Hälfte aller
+  Frames stimmt ohnehin auf **160 ns** überein; es ist der Schwanz, den der Filter wegnimmt.
+
+**Und die Einordnung, die über Phase E entscheidet:**
+
+| Beitrag | Spitze-Spitze |
+|---|---|
+| Zeitbasis, zwei Boards, nach Filter | **10,8 µs** |
+| **Trigger-Pfad, Software (Phase C)** | **25,5 µs** |
+
+Der Trigger-Pfad dominiert um mehr als das Doppelte. Damit ist Phase E nicht nur begründet, sondern
+**der einzige Hebel, der noch etwas bringt** — an der Zeitbasis zu feilen wäre verschwendete Mühe,
+solange die Auslösung 25 µs streut.
+
+**Einschränkung:** 180 s, ein Master-Intervall (100 ms), geringe Buslast. Und beide Boards sind
+baugleich mit identischer Firmware — bei unterschiedlicher Hauptschleifenlast wäre der feste Versatz
+nicht mehr so klein.
 
 ---
 

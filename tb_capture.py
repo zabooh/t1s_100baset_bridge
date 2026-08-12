@@ -16,6 +16,7 @@ Usage:
   python tb_capture.py --analyse pairs.txt        # re-run the maths offline
 """
 import argparse
+import io
 import re
 import statistics
 import sys
@@ -171,6 +172,109 @@ def analyse(pairs, tick_hz, block=32):
     return 0
 
 
+
+def detrend(pairs):
+    """Return {seq: residual_ns} after removing the linear rate difference.
+
+    Each board has its own arbitrary counter epoch and its own oscillator, so the
+    absolute values are not comparable - only the residual around each board's own
+    fitted line is.  Same two-pass fit as analyse(): plain least squares is pulled
+    up by the long tail, so refit on the lower half to sit nearer the floor.
+    """
+    t0 = pairs[0][2]
+    x = [(p[2] - t0) / 1e9 for p in pairs]           # seconds since start
+    d = [p[1] * (1e9 / DEFAULT_TICK_HZ) - p[2] for p in pairs]
+
+    def fit(xs, ys):
+        n = len(xs)
+        mx = sum(xs) / n
+        my = sum(ys) / n
+        sxx = sum((v - mx) ** 2 for v in xs)
+        if sxx == 0.0:
+            return my, 0.0
+        sxy = sum((a - mx) * (b - my) for a, b in zip(xs, ys))
+        s = sxy / sxx
+        return my - s * mx, s
+
+    ic, sl = fit(x, d)
+    res = [dv - (ic + sl * xv) for xv, dv in zip(x, d)]
+    keep = sorted(range(len(res)), key=lambda i: res[i])[: max(4, len(res) // 2)]
+    ic, sl = fit([x[i] for i in keep], [d[i] for i in keep])
+    res = [dv - (ic + sl * xv) for xv, dv in zip(x, d)]
+    # sl is ns per second, so ppm = sl / 1e3.
+    return {p[0]: r for p, r in zip(pairs, res)}, sl / 1e3
+
+
+def compare(path_a, path_b):
+    """The measurement PTP_TIMEBASE_PLAN.md section 1 calls unproven: does the
+    handover delay cancel between two boards?
+
+    Both boards receive the SAME Sync frames, so for a given sequenceId t1 is
+    identical on both.  Matching on seq therefore compares two independent
+    observations of one physical event - which is the only way to get at
+    simultaneity without a scope, because reading two serial ports is not
+    simultaneous.
+    """
+    a = parse(io.open(path_a, encoding="utf-8", errors="replace").read())
+    b = parse(io.open(path_b, encoding="utf-8", errors="replace").read())
+    if len(a) < 64 or len(b) < 64:
+        print(f"too few pairs: {len(a)} / {len(b)}")
+        return 1
+
+    ra, slope_a = detrend(a)
+    rb, slope_b = detrend(b)
+    common = sorted(set(ra) & set(rb))
+    if len(common) < 64:
+        print(f"only {len(common)} common sequence ids - captures did not overlap")
+        return 1
+
+    diff = [ra[s] - rb[s] for s in common]
+    mean = sum(diff) / len(diff)
+    centred = sorted(v - mean for v in diff)
+    n = len(centred)
+
+    print(f"board A pairs          : {len(a)}   rate {slope_a:+.1f} ppm")
+    print(f"board B pairs          : {len(b)}   rate {slope_b:+.1f} ppm")
+    print(f"rate difference        : {slope_a - slope_b:+.1f} ppm  (the two oscillators)")
+    print(f"matched sequence ids   : {len(common)}")
+    print()
+    print("PER-FRAME DIFFERENCE of the two boards' handover delay (ns):")
+    print(f"  mean (fixed skew)    : {mean:+.0f}")
+    print("     -> constant part; cancels for 'all nodes together', shows up as a fixed offset")
+    print(f"  spread min..max      : {min(centred):+.0f} .. {max(centred):+.0f}")
+    print(f"  peak-to-peak         : {max(centred) - min(centred):.0f}")
+    print(f"  stdev                : {statistics.pstdev(centred):.0f}")
+    for q in (50, 90, 99):
+        k = max(0, min(n - 1, int(round(q / 100 * (n - 1)))))
+        print(f"  p{q:<2} of |deviation|   : {abs(centred[k]):.0f}")
+    # The model does not use single frames - it uses one min-filtered winner per
+    # block.  Comparing winners is therefore the number a trigger actually
+    # inherits; the per-frame figure above is an upper bound.
+    block = 32
+    wa = []
+    wb = []
+    for i in range(0, len(common) - block + 1, block):
+        chunk = common[i:i + block]
+        wa.append(min(chunk, key=lambda s: ra[s]))
+        wb.append(min(chunk, key=lambda s: rb[s]))
+    if len(wa) >= 2:
+        # Winners are chosen per board, so compare block by block: each board's
+        # own best sample in that block, which is what its fit would have kept.
+        wdiff = [ra[sa] - rb[sb] for sa, sb in zip(wa, wb)]
+        wmean = sum(wdiff) / len(wdiff)
+        wc = sorted(v - wmean for v in wdiff)
+        print()
+        print(f"AFTER MIN-FILTERING, one winner per {block} frames ({len(wa)} blocks):")
+        print(f"  mean (fixed skew)    : {wmean:+.0f} ns")
+        print(f"  spread min..max      : {min(wc):+.0f} .. {max(wc):+.0f}")
+        print(f"  peak-to-peak         : {max(wc) - min(wc):.0f} ns")
+        print(f"  stdev                : {statistics.pstdev(wc):.0f} ns")
+        print()
+        print("  => THIS is the floor a trigger inherits from the timebase; the")
+        print("     per-frame figure above is an upper bound the filter removes")
+    return 0
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--port", default="COM10")
@@ -180,7 +284,12 @@ def main():
     ap.add_argument("--tick-hz", type=int, default=DEFAULT_TICK_HZ)
     ap.add_argument("--raw", help="write the captured console text here")
     ap.add_argument("--analyse", help="skip capturing, analyse this file instead")
+    ap.add_argument("--compare", nargs=2, metavar=("A", "B"),
+                    help="compare two raw captures, matched on sequence id")
     args = ap.parse_args()
+
+    if args.compare:
+        return compare(args.compare[0], args.compare[1])
 
     if args.analyse:
         with open(args.analyse, encoding="utf-8", errors="replace") as fh:

@@ -146,7 +146,8 @@ Erwartet zwischen zwei Followern, Frame-Weg, Hardware-Trigger:
 
 | Beitrag | Größe | Anmerkung |
 |---|---|---|
-| Differenz der `Δ_min` beider Boards | **dominiert**, vermutlich einstellige µs | **unbewiesen** — siehe unten |
+| Differenz der `Δ_min` beider Boards | **gemessen 2026-08-12:** fester Versatz **0,5 µs**, Streuung **2,7 µs** stdev / **10,8 µs** Spitze-Spitze | bestätigt, siehe unten |
+| **Trigger-Pfad, Software (Phase C)** | **gemessen: 25,5 µs Spitze-Spitze** | **dominiert jetzt** — nur Phase E hilft noch |
 | Steigungsfehler × Vorlaufzeit | 10 ns bei 1 s, 1 µs bei 100 s | über die Vorlaufzeit steuerbar |
 | Buslaufzeit (Position am Multidrop) | ~5 ns/m, bei 25 m ~125 ns | notfalls kalibrierbar |
 | Hardware-Compare + Pin | ~17 ns | vernachlässigbar |
@@ -155,10 +156,21 @@ Erwartet zwischen zwei Followern, Frame-Weg, Hardware-Trigger:
 Absolut gegen die Grandmaster-Zeit bleibt dagegen `Δ_min + D_const` ≈ **100 µs** stehen. Beides ist
 konstant, beides zusammen nicht trennbar — und für diesen Anwendungsfall auch nicht nötig.
 
-**Die Annahme, auf der das günstige Urteil ruht:** dass `Δ_min` zwischen zwei Boards mit gleicher
-Firmware und gleicher Hardware sich weitgehend aufhebt. Plausibel, weil die dominierenden Anteile
-identisch sind — die Übertragungszeit des Frames auf dem Draht (64 Byte bei 10 Mbit/s = **51 µs**)
-und der SPI-Chunk-Transfer. Aber nicht gemessen. **Phase A misst genau das.**
+~~**Die Annahme, auf der das günstige Urteil ruht:** dass `Δ_min` zwischen zwei Boards sich
+weitgehend aufhebt. Aber nicht gemessen.~~ **Am 2026-08-12 gemessen und bestätigt** — mit zwei
+Followern am Bus, gepaart über die `sequenceId` derselben `Sync`-Frames (beide Boards sehen dasselbe
+`t1`, was der einzige Weg zur Gleichzeitigkeit ohne Oszilloskop ist):
+
+- **fester Versatz 363 ns pro Frame, 528 ns nach Min-Filter** — der gemeinsame Anteil hebt sich also
+  auf unter eine Mikrosekunde auf, deutlich besser als „einstellige µs". Das rechtfertigt
+  [§0.4](#04-die-kennzahl-ist-gleichzeitigkeit-nicht-absolutzeit) nachträglich.
+- **Streuung nach Filter: 2,7 µs stdev, 10,8 µs Spitze-Spitze.** Pro Frame stimmt die Hälfte aller
+  Werte auf **160 ns** überein; der Min-Filter drückt Spitze-Spitze von 105 µs auf 10,8 µs.
+- Ratenunterschied der beiden Oszillatoren: −11,2 ppm, von jedem Modell selbst herausgerechnet.
+
+**Konsequenz für die Reihenfolge:** die Zeitbasis trägt 10,8 µs bei, der Software-Trigger 25,5 µs.
+**Nur Phase E bringt noch etwas** — an der Zeitbasis zu feilen wäre verschwendete Mühe.
+Zahlen in [test_results.md](test_results.md#zwei-boards-hebt-sich-δ_min-auf--die-annahme-aus-1-gemessen).
 
 ---
 
