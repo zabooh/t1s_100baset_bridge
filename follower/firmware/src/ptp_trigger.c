@@ -170,6 +170,12 @@ static bool hw_arm_final(uint64_t target_L)
                 while ((TC1_SYNCBUSY & TC_SYNCBUSY_CC0_Msk) != 0u) { }
                 TC1_INTFLAG = TC_MC0;
                 TC1_CTRLBSET = TC_CMD_RETRIGGER;
+                /* CTRLB is write-synchronised too.  Enabling the match interrupt
+                 * before the retrigger has crossed into the 60 MHz domain leaves
+                 * the counter still running high - past CC0 - so the match lands
+                 * a whole 65536-tick wrap later, 1.09 ms off.  The analyser saw
+                 * exactly that on more than a tenth of the fires. */
+                while ((TC1_SYNCBUSY & TC_SYNCBUSY_CTRLB_Msk) != 0u) { }
                 TC1_INTENSET = TC_MC0;
                 s_hw_pending = true;
                 ok = true;
@@ -389,8 +395,25 @@ static void trig_cb(uintptr_t context)
         s_stage2 = false;
         if (!hw_arm_final(s_target_L))
         {
-            /* Window missed - fire now rather than not at all; the lateness
-               figure will show it. */
+            /* Two very different reasons to land here, and treating them alike
+               was a bug worth 1.5 ms.
+
+               TOO EARLY: SYS_TIME's coarse stage can fire well before its window,
+               leaving more than TC1 can span.  The first version fired
+               immediately, which is early by the whole remaining delay - the
+               logic analyser saw -1.49 ms, matching the -89403 ticks the counter
+               reported.  The right answer is to wait longer, not to fire.
+
+               TOO LATE: the instant is gone.  Then firing now is the best
+               available, and the lateness figure shows how bad it was. */
+            if (s_target_L > now)
+            {
+                if (trig_arm_ticks(s_target_L))
+                {
+                    s_armed = true;
+                    return;
+                }
+            }
             if (s_pin_armed) { PD10_TOGGLE(); }
             s_armed = false;
             trig_fire(now);

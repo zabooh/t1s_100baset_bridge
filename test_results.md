@@ -513,17 +513,46 @@ Messgerät.
 
 Board gegen Board, 1509 Paare über 30 s, gemessen am Draht:
 
-| Größe | Wert |
-|---|---|
-| Median-Versatz | **−2 160 ns** |
-| MAD | 4 000 ns |
-| stdev | 5 390 ns |
-| Spanne um den Median | −10 200 … +11 260 ns |
-| **Spitze-Spitze** | **21 460 ns** |
-| p90 / p99 | 9 460 / 10 560 ns |
+| Größe | E1 roh | **nach allen Fixes** |
+|---|---|---|
+| Median-Versatz | −2 160 ns | **−160 ns** |
+| MAD | 4 000 ns | **1 080 ns** |
+| stdev | 5 390 ns | **1 638 ns** |
+| Spanne um den Median | −10 200 … +11 260 ns | **−3 560 … +4 320 ns** |
+| **Spitze-Spitze** | 21 460 ns | **7 880 ns** |
+| p90 / p99 | 9 460 / 10 560 ns | **2 680 / 3 620 ns** |
 
-**Der Flaschenhals ist gewandert.** Jedes Board feuert innerhalb **1,1 µs** seines eigenen Ziels, die
-Boards liegen aber 21,5 µs auseinander — also unterscheiden sich die **Ziele**. Das kann der
+Der Weg dorthin, jede Zeile ein gefundener Fehler:
+
+| Stand | Spitze-Spitze | MAD |
+|---|---|---|
+| E1 roh | 21,5 µs | 4,00 µs |
+| + Neufit-Glättung (Gain 1/4 auf Steigung und Offset) | 1,50 ms *(Ausreißer)* | 2,53 µs |
+| + Rückfall wartet statt zu feuern, wenn das Fenster noch nicht da ist | 1,08 ms *(Ausreißer)* | 1,10 µs |
+| **+ `SYNCBUSY.CTRLB`-Wait nach dem Retrigger** | **7,88 µs** | **1,08 µs** |
+
+**Nachtrag: die Glättung der Zeitbasis war nötig, aber nicht das Ende.** Die Neufit-Gains
+(`TB_SLOPE_DIV`/`TB_OFFSET_DIV` = 4, erst ab vollem Ring) drückten MAD von 4,0 auf 1,1 µs. Sichtbar
+blieben danach aber zwei Ausreißerklassen, und **beide waren Firmwarefehler, nicht Zeitbasis**:
+
+**3. Der Stufe-2-Rückfall feuerte, wenn er hätte warten müssen.** Kommt der SYS_TIME-Callback deutlich
+zu früh, findet `hw_arm_final()` eine Restzeit über der TC1-Spanne und verweigert. Der Code feuerte
+dann sofort — also um die ganze Restzeit zu früh, gemessen **−1,49 ms**. „Zu früh" und „zu spät"
+brauchen verschiedene Reaktionen: warten bzw. feuern.
+
+**4. `CTRLB` ist ebenso schreibsynchronisiert wie `CC0`.** Wird der Match-Interrupt freigegeben, bevor
+der Retrigger im 60-MHz-Bereich angekommen ist, läuft der Zähler noch hoch — an `CC0` vorbei — und der
+Treffer landet einen ganzen **65 536-Tick-Umlauf später, 1,09 ms daneben**. Das traf über ein Zehntel
+aller Auslösungen. Merksatz für diese Peripherie: **jedes synchronisierte Register braucht seinen
+`SYNCBUSY`-Wait, und zwar vor der nächsten abhängigen Operation** — bei `CC0` vor dem Retrigger, bei
+`CTRLB` vor dem Interrupt-Enable.
+
+**Der Flaschenhals war also doch nicht nur die Zeitbasis.** Nach allen vier Fixes liegen zwei Follower
+bei **7,88 µs Spitze-Spitze, MAD 1,08 µs, Median −160 ns** — der feste Versatz ist praktisch weg, und
+das schlägt die in §1 erhoffte „einstellige µs" deutlich.
+
+**Ursprünglicher Zwischenstand, zur Einordnung:** jedes Board feuert innerhalb **1,1 µs** seines
+eigenen Ziels, die Boards lagen aber 21,5 µs auseinander — also unterscheiden sich die **Ziele**. Das kann der
 Firmware-Zähler prinzipiell nicht sehen, er misst nur gegen das eigene Modell. Die 21,5 µs passen zu
 Phase As Vorhersage von ~10,8 µs Modellfehler *pro Board*. **Damit bringt E2 (Waveform-Ausgang) fast
 nichts mehr; die Zeitbasis ist jetzt die Grenze** — konkret die 9,1 µs Gewinnerspanne des Min-Filters

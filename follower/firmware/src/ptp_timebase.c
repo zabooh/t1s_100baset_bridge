@@ -37,6 +37,15 @@
    the measured p99 is 33 us. */
 #define TB_RESID_MAX_NS 50000000LL      /* 50 ms */
 
+/* Refit gains, applied only once the winner ring is full so locking stays fast.
+   A refit lands every TB_BLOCK * interval (~3.2 s at 100 ms), and replacing the
+   model outright each time stepped it by up to the winner spread.  Dividing the
+   correction by four gives a time constant of about four refits - roughly 13 s,
+   comfortably slower than the filter that feeds it and far quicker than the
+   thermal drift it has to track. */
+#define TB_SLOPE_DIV    4
+#define TB_OFFSET_DIV   4
+
 /* No fresh pair for this long -> HOLDOVER.  At a 100 ms interval that is 30
    missed cycles; at 500 ms it is 6.  Deliberately in ms, not in cycles, so it
    does not silently change meaning when the master's interval changes. */
@@ -84,6 +93,7 @@ static uint32_t s_cnt_pairs;
 static uint32_t s_cnt_rejected;
 static uint32_t s_cnt_reanchor;
 static int64_t  s_last_resid;
+static int64_t  s_last_offset_err;   /* model minus newest winner, at refit */
 static uint64_t s_baseline_ns;
 
 /* --------------------------------------------------------------------------- */
@@ -160,15 +170,49 @@ static void tb_refit(void)
     {
         uint64_t q = dns / dL;
         uint64_t r = dns - q * dL;
-        s_slope_q24 = (q << TB_Q) + ((r << TB_Q) / dL);
+        uint64_t measured = (q << TB_Q) + ((r << TB_Q) / dL);
+
+        if (s_win_cnt < TB_WINNERS)
+        {
+            /* Still filling the ring: take the measurement outright so locking
+               stays fast (about ten seconds). */
+            s_slope_q24 = measured;
+        }
+        else
+        {
+            /* Steady state: move a fraction of the way.  A refit every ~3.2 s
+               that replaced the slope outright stepped the model each time, and
+               those steps were the dominant term in the 21.5 us of cross-board
+               skew the logic analyser measured - the 5 s capture (one or two
+               refits) showed 4.7 us, the 30 s capture (about ten) showed 21.5. */
+            int64_t d = (int64_t)measured - (int64_t)s_slope_q24;
+            s_slope_q24 = (uint64_t)((int64_t)s_slope_q24 + d / (int64_t)TB_SLOPE_DIV);
+        }
     }
 
     s_baseline_ns = dns;
 
-    /* Re-base onto the newest winner so the anchor sits on a measured point
-       rather than on an extrapolation. */
-    s_anchor_L  = b->L;
-    s_anchor_ns = b->ns;
+    /* Re-anchor onto the newest winner's tick, but do NOT swallow its whole
+       residual: that winner carries up to the winner spread (~9 us measured), and
+       adopting it wholesale is exactly what made the model jump.  Correct only a
+       fraction of the offset error and let the rest converge over a few refits.
+       The model stays continuous in value; the offset still converges, just
+       without a step. */
+    {
+        uint64_t model_at_b = tb_model_ns(b->L);
+        int64_t  err = (int64_t)model_at_b - (int64_t)b->ns;   /* + = model ahead */
+
+        s_anchor_L = b->L;
+        if (s_win_cnt < TB_WINNERS)
+        {
+            s_anchor_ns = b->ns;                       /* full correction while locking */
+        }
+        else
+        {
+            s_anchor_ns = (uint64_t)((int64_t)model_at_b - err / (int64_t)TB_OFFSET_DIV);
+        }
+        s_last_offset_err = err;
+    }
     s_state = PTP_TB_LOCKED;
 }
 
@@ -206,6 +250,7 @@ void PTP_TB_Initialize(void)
     s_cnt_rejected = 0u;
     s_cnt_reanchor = 0u;
     s_last_resid = 0;
+    s_last_offset_err = 0;
     s_baseline_ns = 0u;
 
     if (hz == 0u)
