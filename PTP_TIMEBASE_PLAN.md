@@ -167,6 +167,13 @@ und der SPI-Chunk-Transfer. Aber nicht gemessen. **Phase A misst genau das.**
 Voraussetzung für Phase D, weil die Kommandos über UDP laufen. Ausgangslage: **alle Follower tragen
 dieselbe Firmware, also per Compile-Default dieselbe Adresse** — und zwar dieselbe wie die Bridge.
 
+> **Am 2026-08-12 durchgemessen.** Verfahren in
+> [PLCA_BOOTSTRAP_TESTS.md](PLCA_BOOTSTRAP_TESTS.md), Ergebnisse und Beurteilung in
+> **[test_results.md](test_results.md)**. Die Aussagen dieses Abschnitts sind entsprechend
+> überarbeitet; welche davon auf Messung ruhen und welche weiter Annahme sind, steht kompakt in
+> [2.6](#26-was-davon-gemessen-ist-und-was-nicht). **Ein früher hier behaupteter Vorteil war falsch
+> und ist in [2.2](#22-die-ip-kommt-aus-der-plca-node-id) richtiggestellt.**
+
 ### 2.1 Was heute schon stimmt: die MAC
 
 Beide Projekte leiten die MAC aus der SAME54-Seriennummer ab, das Problem existiert dort nicht mehr:
@@ -183,10 +190,12 @@ Zwei Nachbesserungen, beide klein:
   OUI zu belegen. Kosten: eine Zeile Code und eine Zeile Doku (`CLAUDE.md` Abschnitt 6 nennt die
   konkrete `00:04:25:ca:ce:d9`; **kein** Testskript tut das). Nicht dringend, aber vor jedem Einsatz
   außerhalb des Labors fällig.
-- **CRC32 über alle vier Serial-Worte** statt der unteren 3 Bytes von Word 0. Die Eindeutigkeit
-  hängt derzeit an der ungeprüften Annahme, dass dort die Variation sitzt und nicht ein Lot-Code.
-  **Vorher messen:** `dump 0x008061FC 1` auf beiden Boards vergleichen. Unterscheiden sich die
-  unteren 24 Bit, ist nichts zu tun; sonst räumt der CRC die Frage ein für alle Mal aus dem Weg.
+- **CRC32 über alle vier Serial-Worte** statt der unteren 3 Bytes von Word 0 — **Empfehlung, keine
+  Pflicht.** Gemessen (T0): die beiden vorhandenen Boards tragen `0xCACED9` und `0x9D4C63`, also
+  verschieden, und die abgeleiteten MACs stimmen damit überein. Das ist **n = 2** und sagt nichts über
+  eine ganze Charge; sitzt dort bei anderen Boards ein Lot-Code, kollidieren zwei MACs. Der CRC über
+  alle vier Worte macht die Frage unabhängig davon, wo im 128-Bit-Feld die Variation liegt.
+  Nachmessen mit `dump 0x008061FC 4` — **`dump` zählt Bytes, nicht Worte.**
 
 ### 2.2 Die IP kommt aus der PLCA-Node-ID
 
@@ -195,13 +204,22 @@ IP       = 192.168.0.(64 + plca_id)     ->  .65, .66, .67 …   (id 0 = Koordina
 Hostname = t1s-follower-<plca_id>
 ```
 
-Begründung: **jeder Knoten auf einem 10BASE-T1S-Multidrop-Segment braucht ohnehin eine eindeutige
-PLCA-Node-ID**, sonst funktioniert PLCA selbst nicht — zwei Knoten würden im selben Beat senden. Die
-Eindeutigkeit wird also von derselben Bedingung erzwungen, die den Bus überhaupt zum Laufen bringt,
-und `plca_id` ist bereits pro Board provisioniert (`plca_node`, `setenv plca_id`). Damit sinkt die
-Provisionierung von drei Werten je Board auf **einen** — den, den man sowieso setzen muss.
-Nebeneffekt: die Adresse verrät die Busposition, was beim Vergleich zweier Follower am Oszilloskop
-praktisch ist.
+~~Begründung: jeder Knoten braucht ohnehin eine eindeutige PLCA-Node-ID, sonst funktioniert PLCA
+selbst nicht. Die Eindeutigkeit wird also von derselben Bedingung erzwungen, die den Bus überhaupt zum
+Laufen bringt.~~ **Falsch, korrigiert am 2026-08-12.** Der Bus **verlangt** Eindeutigkeit, er
+**erzwingt** sie nicht — er arbeitet schlechter, wenn sie fehlt, und zwar so unauffällig, dass man es
+nicht bemerkt. Gemessen (T4b, [test_results.md](test_results.md)): bei doppelter Node-ID gehen **rund
+17 % der gesendeten Frames verloren**, während der **Empfang völlig unbeeinträchtigt** bleibt und der
+Servo im Zustand `FINE` weiterläuft. Kein Ausfall, den jemand bemerkt. Und schlimmer: beide Projekte
+kompilieren `DRV_LAN865X_PLCA_NODE_ID_IDX0 = 7`
+([configuration.h:144](follower/firmware/src/config/default/configuration.h#L144)), jeder frisch
+geflashte Follower ist also **Node 7**.
+
+**Die Begründung, die trägt:** `plca_id` ist der **einzige** Wert, der ohnehin je Board gesetzt werden
+muss. IP und Hostname daraus abzuleiten senkt die Provisionierung von drei Werten auf **einen** — es
+macht sie nicht überflüssig. Wie dieser eine Wert vergeben wird, steht in
+[2.5](#25-node-id-vergabe). Nebeneffekt bleibt: die Adresse verrät die Busposition, was beim Vergleich
+zweier Follower am Oszilloskop praktisch ist.
 
 **Verworfene Alternative: IP ebenfalls aus der Seriennummer** (oder IPv4 Link-Local). Kostet keine
 Provisionierung, macht die Adresse aber unvorhersagbar und **mDNS damit zwingend**. Das ist der
@@ -216,15 +234,18 @@ laut auf der Konsole klagen**. Das fängt genau den Fall, der schon einmal einen
 hat — `ENV_VERSION` erhöht, alle persistenten Werte zurück auf Compile-Defaults, `plca_id` bei allen
 Knoten gleich (`CLAUDE.md` Abschnitt 6). Ohne Probe ist das ein stiller Fehler.
 
-### 2.4 Zwei Altlasten, die vorher weg müssen
+### 2.4 Eine Altlast, die vorher weg muss
 
-**`eth1` im Follower ist unversorgt.** `env` verwaltet dort nur *ein* Interface, `configuration.h`
-bringt aber weiter zwei Netzwerke mit — `eth1` behält also **`192.168.0.210` und
-`00:04:25:01:02:04` auf jedem Follower**
-([follower/…/configuration.h:272-275](follower/firmware/src/config/default/configuration.h#L272-L275)).
-Solange dort kein Kabel steckt, passiert nichts; am Tag, an dem eines hineingeht, kollidieren alle
-Follower untereinander und mit der Bridge. Entweder `eth1` im Follower nicht mehr konfigurieren oder
-in die Ableitung aufnehmen.
+~~**`eth1` im Follower ist unversorgt** und behält `192.168.0.210` auf jedem Board.~~ **Falsch,
+gemessen am 2026-08-12.** Der Follower-Stack bringt **nur `eth0`** hoch: `stats` nennt ein einziges
+Interface, `showenv` ebenfalls. Die zweite `TCPIP_NETWORK_DEFAULT_*_IDX1`-Gruppe in
+`configuration.h` ist nicht aktiv. Hier ist nichts zu tun.
+
+Übrig bleibt der IP-Konflikt selbst, und der ist **derzeit nicht live** (T7): die Bridge steht auf
+`.200`, der Follower auf `.201`, beide antworten, die ARP-Einträge sind eindeutig. Jemand hat ihn per
+`saveenv` schon behoben. **Der Mechanismus bleibt trotzdem offen** — ein frisch geflashtes Board kommt
+weiter mit dem Compile-Default `.200` hoch und kollidiert dann mit der Bridge. 2.2 und 2.3 sind
+deshalb eine **Absicherung für neue Boards**, nicht die Reparatur eines laufenden Fehlers.
 
 **Multicast-Empfang hängt an einer einzigen Zeile.**
 `DRV_LAN865X_RxFilterHashTableEntrySet()` ist ein **Stub** und gibt `TCPIP_MAC_RES_OP_ERR` zurück
@@ -239,9 +260,154 @@ Multicast-Entdeckung lautlos.
 **Folge für den Entwurf:** der **kritische** Pfad (Kommandos) läuft über **Broadcast** und ist damit
 von dieser Zeile unabhängig; nur der **Komfort**pfad (mDNS) darf Multicast benutzen. Siehe D.3.
 
+### 2.5 Node-ID-Vergabe
+
+Alles in 2.2 hängt an diesem einen Wert, und out of the box ist er auf **jedem** Board gleich. Vier
+Maßnahmen, gestaffelt.
+
+**(a) Den Default ungültig machen — das Wichtigste, und es sind zehn Zeilen.**
+
+```c
+#define PLCA_ID_UNSET  0xFFu     /* nicht 7, nicht 0 — kein gültiger Wert */
+```
+
+Ein Knoten mit `PLCA_ID_UNSET` **aktiviert PLCA nicht**, meldet es auf der Konsole und über die
+Statusleitung, und **verweigert Trigger-Kommandos** (C.6). Aus „alle heimlich identisch" wird damit
+ein unüberhörbarer Zustand, und die `ENV_VERSION`-Falle ist grundsätzlich entschärft: nach einem Wipe
+ist ein Knoten *unprovisioniert*, nicht *falsch provisioniert*. **Ein gültiger Default ist hier die
+eigentliche Fehlerquelle**, nicht die Zahl 7.
+
+Warum das nicht optional ist, zeigt T4b: doppelte IDs erzeugen ~17 % Sendeverlust bei einwandfreiem
+Empfang. Das ist kein Fehlerbild, das jemand als Adressproblem erkennt.
+
+**(b) Provisionieren beim Flashen — der eigentliche Mechanismus.**
+
+`flash_same54.py` hat bereits `read_memory(address, length, …)`. Damit liest pyOCD die Seriennummer
+bei `0x008061FC` **ohne jede Mitwirkung der Firmware**, also bevor das Image läuft — der Flasher weiß
+exakt, welches Silizium vor ihm liegt. `boards.json` von `Projekt → Probe` auf einen Datensatz je
+Board erweitern:
+
+```json
+{ "probe": "ATML…1290", "serial": "0x349D4C63", "node_id": 1, "ip": "192.168.0.65" }
+```
+
+Nach dem Flashen `setenv plca_id 1`, `setenv plca_cnt 8`, `saveenv` über `cli.py`. An die Seriennummer
+gebunden statt an die Steckreihenfolge.
+
+> **`boards.json` ist derzeit falsch:** als Follower steht `ATML3264031800001103` drin, angeschlossen
+> ist `ATML3264031800001290` ([test_results.md](test_results.md), Durchlauf 1).
+
+**(c) Hardware-Strapping — nur, wenn Provisionierung ganz entfallen soll.** Drei freie Header-Pins,
+beim Booten gelesen, per **Jumperdraht** auf GND — kein Löten, nichts am Click-Board. Überlebt jeden
+`ENV_VERSION`-Wipe und jedes Neuflashen, und die Adresse ist am Board **sichtbar**.
+
+**(d) Einweg-Vergabe über den Bus — für Neuvergabe ohne Flashen.** Der Master sendet per Broadcast
+„MAC `aa:…:ff` → du bist Node 3", jeder Follower vergleicht mit seiner **eigenen, bereits
+eindeutigen** MAC und übernimmt. **Keine Antwort nötig**, funktioniert also selbst dann, wenn
+Sendeversuche der Follower kollidieren.
+
+**Empfehlung: (a) sofort und unbedingt, (b) als Mechanismus.** (d) später, (c) nur bei Bedarf.
+
+#### 2.5.1 Bootstrap-Fenster, wenn ein Knoten sich selbst melden soll
+
+Braucht man nur für echtes Plug-and-Play — ein Board, dessen MAC der Master **nicht** kennt. Dann muss
+der Follower senden, und dafür müssen **alle** Knoten in CSMA sein, der Koordinator eingeschlossen:
+bleibt der Koordinator in PLCA, sendet ein CSMA-Knoten irgendwann in das BEACON hinein und zerrüttet
+das Slotting für **alle**.
+
+| | vor dem Fenster | im Fenster | nach dem Fenster |
+|---|---|---|---|
+| Bridge (Koordinator) | PLCA an, Beacons | **PLCA aus** | PLCA an |
+| provisionierter Follower | PLCA an, eigener Slot | **PLCA aus**, ruhig | PLCA an, per eigenem Timer |
+| unprovisionierter Follower | PLCA aus, **ruhig** | PLCA aus, meldet sich | ruhig, oder mit neuer ID PLCA an |
+
+Vier Festlegungen, jede aus einem gemessenen oder benannten Grund:
+
+1. **Jeder Knoten schaltet PLCA explizit ab**, statt sich auf den Fallback zu verlassen. Der Fallback
+   *funktioniert* (T2/K3), aber er ist damit ein zweites Netz und nicht der Mechanismus.
+2. **Das Fenster wird als Dauer angekündigt**, nicht als Start/Stop-Paar — „Bootstrap, 10 Sekunden ab
+   jetzt", wiederholt gesendet. Jeder Knoten startet einen eigenen Timer und schaltet danach von
+   selbst zurück. Ein verlorenes „Ende"-Kommando kostet damit nichts, weil es keins gibt.
+3. **Unprovisioniert heißt still**, nicht gesprächig: ein Knoten meldet sich ausschließlich innerhalb
+   eines angekündigten Fensters. Ein vergessenes Board belastet den Bus also nicht.
+4. **Das Fenster wird vom Bediener geöffnet** (`bootstrap` auf der Bridge), nicht automatisch. Es
+   kostet das **ganze** Segment — PTP wird unzuverlässig, Trigger-Kommandos können verloren gehen —,
+   und ein frisch geflashtes Board darf keine laufende Scope-Aufnahme zerstören.
+
+**Beim Öffnen entlässt der Bus einen Rückstau.** Gemessen in K3: Frames, die ein Knoten ohne gültigen
+Slot senden wollte, werden **gehalten, nicht verworfen**, und laufen gesammelt ab, sobald PLCA nicht
+mehr taktet (5 gesendet, 10 angekommen). Beim Dimensionieren des Fensters mitdenken.
+
+**Der Zustand ist lokal prüfbar, aber nur halb.** `PLCA_STATUS` Bit 15 meldet „Beacons vorhanden"
+(T1) — es meldet **nicht** „ich habe einen gültigen Slot": mit ID 20 bei Zyklus 8 stand dort weiter
+`0x8000`, obwohl der Knoten nichts senden konnte (K2A). Und `0` heißt auch „lokal abgeschaltet", also
+muss `PLCA_CTRL0` mitgelesen werden.
+
+**Und einen Knoten kann man nicht über `plca_cnt` stilllegen.** `NODE_CNT` ist auf einem Follower
+wirkungslos, die Zykluslänge gibt allein der Koordinator vor (K2). Wirksam ist nur die **ID**.
+
+**Ein Registerschreibzugriff genügt.** Der Treiber schreibt PLCA nicht nach — `PLCA_CTRL0` blieb über
+einen Link-Abbruch durch `testmode 4` und über einen PMA-Reset auf `0x0000` (T5). Das Fenster braucht
+also keinen Firmware-Zustand, der es hält. **Offen:** physisches Abziehen des Kabels ist nicht geprüft.
+
+### 2.6 Was davon gemessen ist, und was nicht
+
+| Aussage | Beleg | Stand |
+|---|---|---|
+| MACs aus der Seriennummer sind verschieden | T0 | **gemessen**, aber n = 2 |
+| Doppelte Node-ID ⇒ ~17 % Sendeverlust, Empfang ok | T4b + K1 | **gemessen**, Ersatzvariante, geringe Last |
+| PLCA taktet das Senden überhaupt | **K2A** (0/5 bei ID außerhalb des Zyklus) | **gemessen** |
+| Ohne Beacons kann ein PLCA-Knoten senden | **K3** (0 → 10, nur Beacons verändert) | **gemessen** |
+| Empfang ist modusunabhängig | T3 | **gemessen**, aber ohne Gegenprobe → schwach |
+| `PLCA_STATUS` Bit 15 = Beacons vorhanden | T1 | **gemessen** |
+| `NODE_CNT` auf einem Follower wirkungslos | K2 | **gemessen** |
+| PLCA-Registerschreibzugriff ist reinit-fest | T5 | **teilweise** — Kabelabzug offen |
+| `Δ_min` hebt sich zwischen Boards auf | — | **ungemessen**, Phase A |
+| Verhalten unter Buslast | — | **ungemessen** |
+| Verhalten mit drei Knoten (echtes Duplikat) | — | **ungemessen**, kein dritter Knoten am Bus |
+
+Die vollständigen Rohausgaben, Einschränkungen und offenen Punkte stehen in
+**[test_results.md](test_results.md)**.
+
 ---
 
 ## Phase A — Messreihe, ohne einen Algorithmus zu bauen
+
+> **Gefahren am 2026-08-12 — Ergebnis: BESTANDEN, nach einer Taktreparatur.**
+>
+> **Erster Durchgang blockiert.** Die lokale Tickquelle hatte **keine Quarzreferenz**: `SYS_TIME`/TC0
+> hing über DPLL0 am **open-loop DFLL48M**, weil `OSCCTRL_Initialize()` und `DFLL_Initialize()` leer
+> waren. Gemessen +601 ppm (60 s) und +783 ppm (180 s, 20 min später), also ~180 ppm Wanderung —
+> Zehner-ppm **pro Minute** statt der in B.4 angenommenen ~1 ppm/°C. Das Detrend-Residuum wuchs
+> deshalb mit der Fensterlänge (0,9 ms über 60 s, 4,0 ms über 180 s): Signatur einer wandernden Rate,
+> nicht von Übergabejitter.
+>
+> **Reparatur.** Auf XIN0 liegen **50 MHz** (der RMII-Referenztakt), nicht die 12 MHz — per Zählmessung
+> über TC2 belegt, nicht angenommen. DPLL0 daraus mit `DIV = 9` → 2,5 MHz und `LDR = 47` → 120 MHz
+> exakt; GCLK0/GCLK1 bleiben bei 120/60 MHz. **Handpatch in generiertem Code**
+> ([plib_clock.c](follower/firmware/src/config/default/peripheral/clock/plib_clock.c)), mit begrenztem
+> Lock-Wartelauf und Rückfall auf den DFLL-Weg.
+>
+> **Zweiter Durchgang, dieselbe Messung:**
+>
+> | | DFLL | **XOSC0** |
+> |---|---|---|
+> | Rate gegen Master | +783 ppm | **−62,7 ppm** |
+> | Residuum Median / Max | 1903 / 3997 µs | **14,9 / 62,7 µs** |
+> | Gewinnerspanne (Min-Filter) | 3780 µs | **9,1 µs** |
+> | Ratenunsicherheit | ±22,2 ppm | **±0,053 ppm** |
+>
+> **Damit ist Δ zum ersten Mal gemessen** (Median 14,9 µs, p99 33,3 µs — Hauptschleifen-Jitter), das
+> Residuum wächst nicht mehr mit der Fensterlänge, und die **9,1 µs Gewinnerspanne sind das
+> „einstellige µs", an dem dieser Abschnitt den Plan aufgehängt hat.** Der günstige Zweig gilt.
+>
+> **Offen:** nur der Follower ist umgestellt — die Bridge hat dieselbe Taktkonfiguration, und für
+> Follower-zu-Follower-Gleichzeitigkeit brauchen **alle** Knoten den Patch. Dauerhaft gehört er in den
+> MCC-Clock-Configurator (XOSC0, External Clock, 50 MHz, DPLL0-Referenz = XOSC0), weil ein
+> „Generate Code" ihn lautlos entfernt.
+>
+> Vollständige Zahlen, Belege, Fallstricke und der `cli.py`-Fallstrick in
+> [test_results.md](test_results.md#phase-a--l-t1-messreihe-für-die-mcu-zeitbasis).
 
 Die Machbarkeit hängt an drei Zahlen, die niemand kennt. Sie kosten fast nichts, weil der
 Grandmaster längst sendet.
@@ -774,6 +940,9 @@ abhängen, nicht von Absichten.
 
 | Risiko | Symptom | Gegenmittel |
 |---|---|---|
+| ~~lokale Tickquelle ohne Quarzreferenz~~ **BEHOBEN 2026-08-12** | Rate wanderte um Zehner-ppm/min, Δ war nicht messbar | DPLL0 auf XOSC0 (50 MHz, `DIV=9`, `LDR=47`) — Handpatch, dauerhaft in den MCC-Clock-Configurator |
+| **derselbe Fehler auf der Bridge und weiteren Followern** | dort noch open-loop DFLL; Gleichzeitigkeit bleibt unmöglich, solange ein Knoten wandert | Patch auf **jeden** Knoten ausrollen |
+| „Generate Code" entfernt den Taktpatch | Rate wandert wieder, ohne dass sich etwas anderes ändert | im Clock Configurator verankern; sonst nach jedem MCC-Lauf `dump 0x40001038` prüfen (`0x00090040` = XOSC0) |
 | `Δ_min` hebt sich zwischen Boards **nicht** auf | Gleichzeitigkeit deutlich schlechter als erwartet | Phase A.2 auf zwei Boards, **vor** allem anderen |
 | Hauptschleife dominiert Δ | Streuung nach Filter in hunderten µs | `L` früher lesen (Treiber-Callback statt Packet-Handler) — dann doch ein Patch |
 | Längste kritische Sektion zu lang | einzelne Trigger stark verspätet | `late_ticks`-Histogramm, NVIC-Priorität, notfalls Phase E |
@@ -781,8 +950,9 @@ abhängen, nicht von Absichten.
 | Kein TC-Paar mit zwei freien Kanälen | Phase F kann die Instanz nicht weiterbenutzen | zweiter Timer am selben GCLK (E.1) |
 | Verlorene Kommandos bleiben unentdeckt | ein Follower schaltet nicht, keiner merkt es | Statusleitung (siehe unten) |
 | `promiscuous` wird auf `false` gestellt | mDNS und jede Multicast-Entdeckung sterben **lautlos** | §2.4; Kommandos laufen deshalb über Broadcast |
-| `ENV_VERSION` erhöht → `plca_id` überall gleich | alle Follower dieselbe IP | ARP-Probe mit Konsolenmeldung (§2.3) |
-| Serial-Word 0 trägt einen Lot-Code | zwei Boards mit identischer MAC, sieht wie ein Bridge-Fehler aus | `dump 0x008061FC 1` auf beiden Boards (§2.1) |
+| `ENV_VERSION` erhöht → `plca_id` überall gleich | **gemessen (T4b): ~17 % Sendeverlust, Empfang einwandfrei** — wird als Adressproblem nicht erkannt | ungültiger Default (§2.5 a) + ARP-Probe (§2.3) |
+| Serial-Word 0 trägt einen Lot-Code | zwei Boards mit identischer MAC, sieht wie ein Bridge-Fehler aus | `dump 0x008061FC 4` je Board (§2.1); bei n = 2 verschieden |
+| Knoten mit falscher Node-ID | **sieht in `PLCA_STATUS` gesund aus** (`0x8000`) und kann trotzdem nicht senden (K2A) | ID gegen `NODE_CNT` prüfen; `plca_cnt` taugt dafür nicht (K2) |
 | mDNS-Modul erfordert MCC-Lauf | Mirror-Hook und `<itemPath>` weg | `python test_mirror.py` danach (D.6) |
 
 **Der ungelöste Punkt: die Einbahnregel.** Weil die Follower nichts senden, erfährt der Master

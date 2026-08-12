@@ -101,6 +101,7 @@ typedef struct {
     bool     used;
     uint16_t seq;
     uint64_t t2;                  /* arrival of the Sync, master-independent */
+    uint64_t host;                /* SYS_TIME tick at the Sync's handover    */
 } pending_t;
 
 typedef struct {
@@ -108,6 +109,7 @@ typedef struct {
     uint64_t t1;                  /* master egress, from Follow_Up          */
     uint64_t t2;                  /* our arrival, from the hardware         */
     uint64_t host;                /* SYS_TIME tick when the pair completed  */
+    uint64_t host_sync;           /* SYS_TIME tick at the SYNC's handover    */
 } sample_t;
 
 typedef enum {
@@ -144,6 +146,11 @@ static const char *servo_name(servo_state_t s)
 static fol_state_t s_state = ST_OFF;
 static bool s_run_requested = false;
 static bool s_verbose = false;
+/* Phase A of PTP_TIMEBASE_PLAN.md: raw (L, t1) pairs for offline analysis on the
+   host. Deliberately a separate switch from s_verbose so the bring-up log keeps
+   its shape, and deliberately raw - no unit conversion, no rounding, because the
+   whole point is to measure the spread of the handover delay. */
+static bool s_tb_raw = false;
 
 /* driver context <-> task context */
 static volatile pending_t s_pending[PENDING_SLOTS];
@@ -277,6 +284,11 @@ void ptp_follower_rx_hook(const uint8_t *frame, uint16_t len, const uint64_t *rx
         }
         s_pending[i].seq = seq;
         s_pending[i].t2 = ts_from_hw(*rxTimestamp);
+        /* Local counter at the moment THIS Sync reached the application. Paired
+           with t1 it is the (L, t1) sample that PTP_TIMEBASE_PLAN.md phase A
+           needs: t1 is the Sync's egress time, so the local half has to be the
+           Sync's arrival - not the Follow_Up's, which is what .host below is. */
+        s_pending[i].host = SYS_TIME_Counter64Get();
         s_pending[i].used = true;
         return;
     }
@@ -294,6 +306,7 @@ void ptp_follower_rx_hook(const uint8_t *frame, uint16_t len, const uint64_t *rx
                     s_ring[head].t1 = ts_from_wire(&frame[ETH_HDR_LEN + PTP_HDR_LEN]);
                     s_ring[head].t2 = s_pending[i].t2;
                     s_ring[head].host = SYS_TIME_Counter64Get();
+                    s_ring[head].host_sync = s_pending[i].host;
                     s_ring_head = next;
                 }
                 s_pending[i].used = false;
@@ -690,6 +703,15 @@ static void fol_consume(const sample_t *s)
                           servo_name(s_servo), (long long)s_rate_est_ppb);
     }
 
+    if (s_tb_raw) {
+        /* Raw pair for phase A. L is in SYS_TIME ticks (TC0, 60 MHz -> 16.67 ns),
+           t1/t2 in wall-clock nanoseconds. Parsed on the host, so no formatting
+           beyond what a regex needs. */
+        SYS_CONSOLE_PRINT("[TB] seq=%u L=%llu t1=%llu t2=%llu\r\n",
+                          (unsigned)s->seq, (unsigned long long)s->host_sync,
+                          (unsigned long long)s->t1, (unsigned long long)s->t2);
+    }
+
     servo_update(offset, s->t1, s->t2, t1_prev, t2_prev, s->host);
 }
 
@@ -877,6 +899,14 @@ static void cmd_ptpf(SYS_CMD_DEVICE_NODE *pCmdIO, int argc, char **argv)
         SYS_CONSOLE_PRINT("[PTPF] per-cycle log: %s\r\n", s_verbose ? "on" : "off");
         return;
     }
+    if (!strcmp(argv[1], "tb")) {
+        if (argc >= 3) {
+            s_tb_raw = (!strcmp(argv[2], "on") || !strcmp(argv[2], "1"));
+        }
+        SYS_CONSOLE_PRINT("[PTPF] raw (L,t1) log: %s   L unit: SYS_TIME ticks @ %lu Hz\r\n",
+                          s_tb_raw ? "on" : "off", (unsigned long)SYS_TIME_FrequencyGet());
+        return;
+    }
     if (!strcmp(argv[1], "reset")) {
         s_samples = 0u;
         s_cnt_sync = s_cnt_sync_nots = s_cnt_fup = 0u;
@@ -891,11 +921,11 @@ static void cmd_ptpf(SYS_CMD_DEVICE_NODE *pCmdIO, int argc, char **argv)
         SYS_CONSOLE_PRINT("[PTPF] counters cleared\r\n");
         return;
     }
-    SYS_CONSOLE_PRINT("usage: ptpf on | off | status | servo [on|off] | log [on|off] | reset\r\n");
+    SYS_CONSOLE_PRINT("usage: ptpf on | off | status | servo [on|off] | log [on|off] | tb [on|off] | reset\r\n");
 }
 
 static const SYS_CMD_DESCRIPTOR ptpf_cmd_tbl[] = {
-    {"ptpf", (SYS_CMD_FNC)cmd_ptpf, ": PTP follower + servo (ptpf on | off | status | servo [on|off] | log | reset)"},
+    {"ptpf", (SYS_CMD_FNC)cmd_ptpf, ": PTP follower + servo (ptpf on | off | status | servo [on|off] | log | tb | reset)"},
 };
 
 void PTP_FOL_Initialize(void)
