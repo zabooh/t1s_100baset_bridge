@@ -47,16 +47,145 @@ static volatile uint16_t s_pending_id;
 
 static SYS_TIME_HANDLE s_timer = SYS_TIME_HANDLE_INVALID;
 static PTP_TRIG_MODE   s_mode = PTP_TRIG_MODE_STRICT;
+static bool            s_stage2;   /* SYS_TIME callback hands over to TC1 */
 
 static uint64_t s_ticks_per_us;
 static uint32_t s_cnt_fired;
 static uint32_t s_cnt_refused;
 static uint32_t s_cnt_missed;
+static uint32_t s_cnt_rearm_lost;   /* periodic trigger gave up entirely */
 static int32_t  s_late_last;
 static int32_t  s_late_max;
 static int32_t  s_late_min;
 static uint64_t s_late_sum;
 static uint32_t s_late_n;
+
+/* --------------------------------------------------------------------------- */
+/* hardware firing backend - phase E1                                          */
+/*                                                                             */
+/* Phase C fires from SYS_TIME_CallbackRegisterUS and measured -11.7 .. +13.8 us
+ * of lateness.  Two causes, both removable: the delay is truncated to whole
+ * microseconds, and SYS_TIME has to walk its timer list.
+ *
+ * E1 keeps SYS_TIME only to get within a millisecond, then hands the last hop to
+ * a dedicated TC compare.  Deliberately NOT a free-running TC1 whose count is
+ * mapped onto TC0's: the two counters share the clock but not the phase, and
+ * determining that offset needs two reads that are not atomic - the same
+ * simultaneity problem as everywhere else in this project.  Instead TC1 is
+ * RETRIGGERED from zero with interrupts off, so the only error is the fixed,
+ * deterministic path between reading SYS_TIME and issuing the retrigger.  That
+ * fixed part is calibrated away by TB_HW_LATENCY_TICKS; what remains is jitter
+ * of a few instructions plus interrupt latency.
+ *
+ * TC1 shares GCLK channel 9 with TC0, which is correct rather than a conflict:
+ * the channel supplies the 60 MHz clock, and that is exactly the clock wanted.
+ * What TC0 occupies is its two compare channels, not the GCLK channel.
+ */
+
+#define TC1_REG_BASE        0x40003C00u
+#define TC1_CTRLA           (*(volatile uint32_t *)(TC1_REG_BASE + 0x00u))
+#define TC1_CTRLBSET        (*(volatile uint8_t  *)(TC1_REG_BASE + 0x05u))
+/* Offsets from the DFP header, not from memory: INTENCLR 0x08, INTENSET 0x09,
+   INTFLAG 0x0A (tc.h TC_INTEN*_REG_OFST).  Getting INTENSET and INTFLAG one byte
+   too high cost a debugging round: the "enable" write landed in INTFLAG and
+   cleared flags instead, so TC1 counted and matched but never interrupted. */
+#define TC1_INTENCLR        (*(volatile uint8_t  *)(TC1_REG_BASE + 0x08u))
+#define TC1_INTENSET        (*(volatile uint8_t  *)(TC1_REG_BASE + 0x09u))
+#define TC1_INTFLAG         (*(volatile uint8_t  *)(TC1_REG_BASE + 0x0Au))
+#define TC1_SYNCBUSY        (*(volatile uint32_t *)(TC1_REG_BASE + 0x10u))
+#define TC1_CC0_16          (*(volatile uint16_t *)(TC1_REG_BASE + 0x1Cu))
+
+#define TC_MC0              0x10u        /* INTENSET/INTFLAG bit 4 = MC0        */
+#define TC_CMD_RETRIGGER    (1u << 5)    /* CTRLBSET.CMD = RETRIGGER            */
+
+/* PD10 = EXT1 pin 5 ("GPIO1"), a through-hole pin - the probe point the
+ * reference implementation in zabooh/net_10base_t1s also uses. */
+#define PD10_GROUP          3u
+#define PD10_MASK           (1u << 10)
+#define PD10_TOGGLE()       (PORT_REGS->GROUP[PD10_GROUP].PORT_OUTTGL = PD10_MASK)
+
+/* Handing over to TC1 needs the remaining delay to fit its 16-bit counter.
+ * 60000 ticks = 1 ms, comfortably below the 65536-tick wrap. */
+#define TC1_MAX_ARM_TICKS   60000u
+
+/* Fixed cost of the arming path, subtracted from the compare value.  Measured
+ * against the Saleae, not guessed - see test_results.md.  Starts at 0 so the
+ * first measurement shows the raw offset. */
+#define TB_HW_LATENCY_TICKS 0u
+
+static bool     s_hw_mode;            /* true = fire from TC1                   */
+static bool     s_pin_armed;          /* toggle PD10 on every fire              */
+static volatile bool s_hw_pending;    /* TC1 is armed for the final hop         */
+
+static void hw_pin_init(void)
+{
+    PORT_REGS->GROUP[PD10_GROUP].PORT_DIRSET = PD10_MASK;
+    PORT_REGS->GROUP[PD10_GROUP].PORT_OUTCLR = PD10_MASK;
+}
+
+static void hw_tc1_init(void)
+{
+    /* TC1's APB clock is off out of the box: MCLK_APBAMASK is 0x77ff, and bit 15
+     * (TC1) is clear while bit 14 (TC0, used by SYS_TIME) is set. */
+    MCLK_REGS->MCLK_APBAMASK |= (1u << 15);
+
+    TC1_CTRLA = 0u;                                   /* disable before config  */
+    while ((TC1_SYNCBUSY & 0x2u) != 0u) { }           /* ENABLE sync            */
+    /* 16-bit mode, prescaler 1, no waveform output - the pin is driven by the
+     * ISR, not by the compare unit.  That is E1; E2 would use WO instead. */
+    TC1_CTRLA = 0u;
+    TC1_CC0_16 = 0xFFFFu;
+    TC1_INTENCLR = 0xFFu;
+    TC1_INTFLAG = 0xFFu;
+    TC1_CTRLA = 0x2u;                                 /* ENABLE                 */
+    while ((TC1_SYNCBUSY & 0x2u) != 0u) { }
+
+    NVIC_SetPriority(TC1_IRQn, 0);                    /* above the stack's ISRs */
+    NVIC_EnableIRQ(TC1_IRQn);
+}
+
+/* Final hop: fire exactly remaining_ticks from now.  Interrupts off so the path
+ * from reading the counter to the retrigger is deterministic. */
+static bool hw_arm_final(uint64_t target_L)
+{
+    bool ok = false;
+    uint32_t st = __get_PRIMASK();
+    __disable_irq();
+    {
+        uint64_t now = SYS_TIME_Counter64Get();
+        if (target_L > now)
+        {
+            uint64_t rem = target_L - now;
+            if (rem <= TC1_MAX_ARM_TICKS)
+            {
+                uint16_t cc = (uint16_t)((rem > TB_HW_LATENCY_TICKS) ? (rem - TB_HW_LATENCY_TICKS) : 1u);
+                TC1_CC0_16 = cc;
+                /* CC0 is a write-synchronised register.  Retriggering before the
+                 * new value has crossed into the 60 MHz domain makes the counter
+                 * compare against the PREVIOUS CC0 and fire far too early - the
+                 * Saleae saw -1.49 ms on one board while the other was clean,
+                 * because the race depends on where in the sync period the arming
+                 * lands.  The wait is a few GCLK cycles, constant, and disappears
+                 * into TB_HW_LATENCY_TICKS. */
+                while ((TC1_SYNCBUSY & TC_SYNCBUSY_CC0_Msk) != 0u) { }
+                TC1_INTFLAG = TC_MC0;
+                TC1_CTRLBSET = TC_CMD_RETRIGGER;
+                TC1_INTENSET = TC_MC0;
+                s_hw_pending = true;
+                ok = true;
+            }
+        }
+    }
+    if (st == 0u) { __enable_irq(); }
+    return ok;
+}
+
+static void hw_disarm(void)
+{
+    TC1_INTENCLR = TC_MC0;
+    TC1_INTFLAG = TC_MC0;
+    s_hw_pending = false;
+}
 
 /* --------------------------------------------------------------------------- */
 /* helpers                                                                     */
@@ -75,8 +204,12 @@ static action_t *act_find(uint16_t id)
     return NULL;
 }
 
+static void hw_disarm(void);
+
 static void trig_disarm(void)
 {
+    hw_disarm();
+    s_stage2 = false;
     if (s_timer != SYS_TIME_HANDLE_INVALID)
     {
         SYS_TIME_TimerDestroy(s_timer);
@@ -104,8 +237,8 @@ static void trig_note_late(int32_t late)
     s_late_n++;
 }
 
-/* Arms the SYS_TIME one-shot for a target already known in local ticks.
-   Returns false if the target is not far enough away to arm. */
+/* Arms for a target already known in local ticks.  Two backends, chosen at
+   runtime so both can be measured from one flash (see 'tbase hw'). */
 static bool trig_arm_ticks(uint64_t target_L)
 {
     uint64_t now = SYS_TIME_Counter64Get();
@@ -117,6 +250,29 @@ static bool trig_arm_ticks(uint64_t target_L)
         return false;
     }
     delay_ticks = target_L - now;
+
+    if (s_hw_mode)
+    {
+        /* Close enough for the precise hop straight away? */
+        if (delay_ticks <= TC1_MAX_ARM_TICKS)
+        {
+            s_stage2 = false;
+            return hw_arm_final(target_L);
+        }
+        /* Otherwise let SYS_TIME get us to ~0.5 ms out, then hand over.  Its own
+           jitter does not matter here: it only has to land inside the window. */
+        s_stage2 = true;
+        delay_us = (uint32_t)((delay_ticks - (TC1_MAX_ARM_TICKS / 2u)) / s_ticks_per_us);
+        if (delay_us == 0u)
+        {
+            s_stage2 = false;
+            return hw_arm_final(target_L);
+        }
+        s_timer = SYS_TIME_CallbackRegisterUS(trig_cb, (uintptr_t)0, delay_us, SYS_TIME_SINGLE);
+        return (s_timer != SYS_TIME_HANDLE_INVALID);
+    }
+
+    s_stage2 = false;
     delay_us = (uint32_t)(delay_ticks / s_ticks_per_us);
     if (delay_us == 0u)
     {
@@ -126,7 +282,8 @@ static bool trig_arm_ticks(uint64_t target_L)
     /* Truncating to whole microseconds means the callback can arrive a fraction
        EARLY - hence the signed lateness.  Rounding up instead would bias every
        trigger late, which is worse: early is correctable by the handler, late is
-       not. */
+       not.  This truncation is one of the two reasons phase C measured 25.5 us,
+       and the hw backend above removes it. */
     s_timer = SYS_TIME_CallbackRegisterUS(trig_cb, (uintptr_t)0, delay_us, SYS_TIME_SINGLE);
     return (s_timer != SYS_TIME_HANDLE_INVALID);
 }
@@ -135,15 +292,13 @@ static bool trig_arm_ticks(uint64_t target_L)
 /* the callback - ISR context                                                  */
 /* --------------------------------------------------------------------------- */
 
-static void trig_cb(uintptr_t context)
+/* Shared by both backends.  'now' is read by the caller as its very first act,
+   so the lateness figure is not inflated by this function's own prologue. */
+static void trig_fire(uint64_t now)
 {
-    uint64_t now;
     int64_t  late_t;
     action_t *a;
-    (void)context;
 
-    /* Lateness first, before anything else can add to it. */
-    now = SYS_TIME_Counter64Get();
     late_t = (int64_t)now - (int64_t)s_target_L;
     if (late_t > INT32_MAX) { late_t = INT32_MAX; }
     if (late_t < INT32_MIN) { late_t = INT32_MIN; }
@@ -189,15 +344,79 @@ static void trig_cb(uintptr_t context)
             }
         }
 
-        if (PTP_TB_LocalFor(next, (uint64_t *)&s_target_L))
+        /* Retry across the following periods instead of giving up.
+         *
+         * The first version set s_armed only on success and stopped otherwise -
+         * so ONE failed re-arm killed the periodic trigger for good, silently.
+         * The firmware counters only hinted at it (a single 494 us outlier);
+         * what actually exposed it was the logic analyser seeing 20 transitions
+         * on one board where the other had 1504.  A trigger that stops must
+         * either recover or say so, never just stop. */
+        uint32_t tries;
+        for (tries = 0u; tries < 8u; tries++)
         {
-            s_target_ns = next;
-            if (trig_arm_ticks(s_target_L))
+            if (PTP_TB_LocalFor(next, (uint64_t *)&s_target_L))
             {
-                s_armed = true;
+                s_target_ns = next;
+                if (trig_arm_ticks(s_target_L))
+                {
+                    s_armed = true;
+                    break;
+                }
             }
+            /* Too close now, or the model refused - aim a period further out. */
+            next += s_period_ns;
+            s_cnt_missed++;
+        }
+        if (!s_armed)
+        {
+            s_cnt_rearm_lost++;
         }
     }
+}
+
+/* SYS_TIME callback: either the software backend firing, or - in hw mode - the
+   coarse stage handing the last millisecond over to TC1. */
+static void trig_cb(uintptr_t context)
+{
+    uint64_t now = SYS_TIME_Counter64Get();
+    (void)context;
+
+    s_timer = SYS_TIME_HANDLE_INVALID;
+
+    if (s_stage2)
+    {
+        s_stage2 = false;
+        if (!hw_arm_final(s_target_L))
+        {
+            /* Window missed - fire now rather than not at all; the lateness
+               figure will show it. */
+            if (s_pin_armed) { PD10_TOGGLE(); }
+            s_armed = false;
+            trig_fire(now);
+        }
+        return;
+    }
+
+    if (s_pin_armed) { PD10_TOGGLE(); }
+    s_armed = false;
+    trig_fire(now);
+}
+
+/* TC1 compare match - the precise backend.  The pin is toggled as the first
+   instruction after the counter read, so the edge carries as little of this
+   handler as possible. */
+void TC1_Handler(void)
+{
+    uint64_t now = SYS_TIME_Counter64Get();
+
+    if (s_pin_armed) { PD10_TOGGLE(); }
+
+    TC1_INTFLAG = TC_MC0;
+    TC1_INTENCLR = TC_MC0;
+    s_hw_pending = false;
+    s_armed = false;
+    trig_fire(now);
 }
 
 /* --------------------------------------------------------------------------- */
@@ -210,6 +429,12 @@ void PTP_TRIG_Initialize(void)
 
     memset(s_act, 0, sizeof(s_act));
     trig_disarm();
+    hw_disarm();
+    hw_pin_init();
+    hw_tc1_init();
+    s_hw_mode = true;      /* E1 by default; 'tbase hw off' falls back to phase C */
+    s_pin_armed = true;    /* the pin is the whole point of the Saleae measurement */
+    s_stage2 = false;
     s_period_ns = 0u;
     s_phase_ns = 0u;
     s_pending_defer = false;
@@ -217,6 +442,7 @@ void PTP_TRIG_Initialize(void)
     s_cnt_fired = 0u;
     s_cnt_refused = 0u;
     s_cnt_missed = 0u;
+    s_cnt_rearm_lost = 0u;
     s_late_last = 0;
     s_late_max = 0;
     s_late_min = 0;
@@ -425,6 +651,22 @@ void PTP_TRIG_ModeSet(PTP_TRIG_MODE mode)
     s_mode = mode;
 }
 
+bool PTP_TRIG_ArmPin(bool enable)
+{
+    s_pin_armed = enable;
+    return true;
+}
+
+void PTP_TRIG_HwSet(bool enable)
+{
+    s_hw_mode = enable;
+}
+
+bool PTP_TRIG_HwGet(void)
+{
+    return s_hw_mode;
+}
+
 void PTP_TRIG_Tasks(void)
 {
     if (s_pending_defer)
@@ -521,7 +763,7 @@ bool PTP_TRIG_CliTry(int argc, char **argv)
         if (!PTP_TB_Now(&now_ns))
         {
             SYS_CONSOLE_PRINT("[TRIG] no timebase\r\n");
-            return;
+            return true;
         }
         r = PTP_TRIG_ScheduleAt(id, ++seq, now_ns + (uint64_t)ahead_ms * 1000000ULL);
         SYS_CONSOLE_PRINT("[TRIG] schedule id=%u in %lu ms: %s\r\n",
@@ -549,6 +791,25 @@ bool PTP_TRIG_CliTry(int argc, char **argv)
         return true;
     }
 
+    if (argc >= 2 && !strcmp(argv[1], "hw"))
+    {
+        if (argc >= 3)
+        {
+            PTP_TRIG_HwSet(!strcmp(argv[2], "on") || !strcmp(argv[2], "1"));
+        }
+        SYS_CONSOLE_PRINT("[TRIG] backend: %s\r\n",
+                          PTP_TRIG_HwGet() ? "E1 (TC1 compare)" : "C (SYS_TIME callback)");
+        return true;
+    }
+
+    if (argc >= 3 && !strcmp(argv[1], "pin"))
+    {
+        (void)PTP_TRIG_ArmPin(!strcmp(argv[2], "on") || !strcmp(argv[2], "1"));
+        SYS_CONSOLE_PRINT("[TRIG] PD10 toggle: %s\r\n",
+                          (!strcmp(argv[2], "on") || !strcmp(argv[2], "1")) ? "on" : "off");
+        return true;
+    }
+
     if (argc >= 3 && !strcmp(argv[1], "mode"))
     {
         bool free_mode = (!strcmp(argv[2], "free"));
@@ -564,6 +825,9 @@ bool PTP_TRIG_CliTry(int argc, char **argv)
     }
 
     PTP_TRIG_StatusGet(&st);
+    SYS_CONSOLE_PRINT("[TRIG] backend: %s   PD10: %s\r\n",
+                      PTP_TRIG_HwGet() ? "E1 (TC1 compare)" : "C (SYS_TIME callback)",
+                      s_pin_armed ? "on" : "off");
     SYS_CONSOLE_PRINT("[TRIG] armed: %s   mode: %s   action: %u   period: %llu ms\r\n",
                       st.armed ? "yes" : "no",
                       (st.mode == PTP_TRIG_MODE_FREE) ? "FREE" : "STRICT",

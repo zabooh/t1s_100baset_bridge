@@ -466,6 +466,108 @@ nicht mehr so klein.
 
 ---
 
+## Phase E1 mit Logic Analyzer — der erste unabhängig gemessene Wert
+
+2026-08-12. Alles davor wurde von den Boards selbst gemessen; das hier ist die erste Zahl von einem
+**unabhängigen Beobachter**. Das ist kein Formalismus: [§0.5](PTP_TIMEBASE_PLAN.md#05-was-der-ansatz-grundsätzlich-nicht-kann)
+argumentiert, dass Software Gleichzeitigkeit nicht herstellen kann — dann kann sie auch nicht der
+letzte Richter darüber sein.
+
+**Aufbau.** Saleae Logic 8, `logic2-automation` über den gRPC-Socket auf `localhost:10430`, 50 MS/s
+(20 ns je Sample). PD10 = EXT1 Pin 5, Durchsteckpin. Kanalzuordnung **gemessen**, nicht notiert:
+
+| Board | Probe | Kanal |
+|---|---|---|
+| Bridge | …1049 | Ch3 |
+| Follower A (Node 7, `.201`) | …1290 | Ch1 |
+| Follower B (Node 1, `.202`) | …1103 | Ch0 |
+
+### E1.1 Erst das Messgerät, dann die Messung
+
+`saleae_wiring_check.py` toggelt PD10 **per pyOCD über die PORT-Register**, ohne jede
+Firmware-Beteiligung — deshalb funktioniert es auch auf der Bridge, die keinen PD10-Code hat. Der
+`--signature`-Modus gibt jedem Board eine **andere Flankenzahl** in **einer** Aufnahme:
+
+```
+  Ch0:  14 transitions, first at 4304.1 ms
+  Ch1:  10 transitions, first at 2882.9 ms
+  Ch2:   0 transitions
+  Ch3:   6 transitions, first at 1336.0 ms
+  bridge (6) -> Ch3   follower A (10) -> Ch1   follower B (14) -> Ch0
+  first-edge order matches drive order: bridge -> follower A -> follower B
+```
+
+Die Flankenzahl identifiziert jeden Kanal, und die Reihenfolge der ersten Flanken schließt einen
+Zufallstreffer aus. **Weder die Verdrahtungsnotiz noch meine Annahme stimmten** — behauptet waren
+1/2/3, dann 0/1/2; gemessen sind 0/1/3, und Ch2 trägt nichts. Dasselbe Prinzip wie
+[K1](#kontrollversuche): eine Kette, die nie eine Null und nie ein Signal erzeugt hat, ist kein
+Messgerät.
+
+### E1.2 Ergebnis
+
+| | Phase C (SYS_TIME) | **E1 (TC1-Compare)** |
+|---|---|---|
+| Verspätung je Board, Spanne | 25 516 ns | **~1 100 ns** |
+| Follower A min…max | −729…+864 Ticks | **129…194** (2,15…3,23 µs) |
+| Follower B min…max | — | **131…196** (2,18…3,27 µs) |
+
+Board gegen Board, 1509 Paare über 30 s, gemessen am Draht:
+
+| Größe | Wert |
+|---|---|
+| Median-Versatz | **−2 160 ns** |
+| MAD | 4 000 ns |
+| stdev | 5 390 ns |
+| Spanne um den Median | −10 200 … +11 260 ns |
+| **Spitze-Spitze** | **21 460 ns** |
+| p90 / p99 | 9 460 / 10 560 ns |
+
+**Der Flaschenhals ist gewandert.** Jedes Board feuert innerhalb **1,1 µs** seines eigenen Ziels, die
+Boards liegen aber 21,5 µs auseinander — also unterscheiden sich die **Ziele**. Das kann der
+Firmware-Zähler prinzipiell nicht sehen, er misst nur gegen das eigene Modell. Die 21,5 µs passen zu
+Phase As Vorhersage von ~10,8 µs Modellfehler *pro Board*. **Damit bringt E2 (Waveform-Ausgang) fast
+nichts mehr; die Zeitbasis ist jetzt die Grenze** — konkret die 9,1 µs Gewinnerspanne des Min-Filters
+und die Modellsprünge bei jedem Neufit (alle ~3,2 s).
+
+Eine kürzere Aufnahme (5 s, 254 Paare) ergab 4,74 µs Spitze-Spitze und +750 ns Median. Der Median
+wandert zwischen Läufen um Mikrosekunden — er ist **kein kalibrierbarer Festwert**, sondern folgt den
+Neufits.
+
+### E1.3 Zwei Firmwarefehler, die nur der Analyzer gefunden hat
+
+**1. Ein fehlgeschlagenes Nachladen tötete den periodischen Trigger dauerhaft.** Der Code setzte
+`s_armed` nur bei Erfolg und hörte sonst auf. Die Zähler gaben nur einen Hinweis (ein einzelner
+494-µs-Ausreißer); **aufgefallen ist es daran, dass ein Kanal 20 Übergänge hatte und der andere
+1504.** Behoben durch Wiederholung über bis zu acht Folgeperioden plus einen Zähler `rearm lost`, denn
+ein Trigger, der aufhört, muss sich erholen oder es sagen — nie einfach aufhören.
+
+**2. `CC0` ist ein schreibsynchronisiertes Register.** Ich habe retriggert, ohne auf
+`SYNCBUSY.CC0` zu warten. Landet der Wert nicht rechtzeitig im 60-MHz-Bereich, vergleicht der Zähler
+gegen den **vorherigen** CC0 und feuert weit zu früh: gemessen **−1,49 ms** auf einem Board, während
+das andere sauber war — das Rennen hängt davon ab, wo im Synchronisationsfenster die Armierung
+landet. Behoben durch die Warteschleife; sie kostet ein paar GCLK-Takte und verschwindet in der
+Kalibrierkonstante.
+
+### E1.4 Ein Messfallstrick, der eine ganze Periode Versatz vortäuscht
+
+Bei einem **Toggle**-Ausgang trägt die Flankenpolarität die **Parität der Auslösezahl**. Zwei Boards
+können auslösungssynchron sein und trotzdem gegenphasige *steigende* Flanken haben — ein Vergleich
+nur der steigenden Flanken meldete hier **0 Paare innerhalb 10 ms** und hätte 20 ms Versatz
+suggeriert, wo der echte im Nanosekundenbereich liegt. Deshalb paart `saleae_skew.py` standardmäßig
+**alle** Übergänge; jede Auslösung ist genau einer.
+
+### E1.5 Offen
+
+- **Kanal 3 (Bridge) ist stumm** — die Bridge hat keinen Trigger. Sobald sie einen hat, misst der
+  Master-zu-Follower-Versatz `D_const + Δ_min` **absolut**, also die Konstante, die Phase 3 des
+  PTP-Plans nur schätzen wollte.
+- `TB_HW_LATENCY_TICKS` steht auf 0. Die gemessenen ~130 Ticks (2,2 µs) fester Vorlauf ließen sich
+  damit wegkalibrieren; für Gleichzeitigkeit ist es gleichgültig, weil beide Boards denselben Betrag
+  tragen.
+- Verhalten unter Buslast und über Stunden ist ungemessen.
+
+---
+
 ## Kontrollversuche
 
 Nachträglich gefahren, weil die Ergebnisse der ersten Runde durchweg positiv ausfielen und keiner

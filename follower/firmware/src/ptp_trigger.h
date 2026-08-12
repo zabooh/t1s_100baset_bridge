@@ -132,6 +132,18 @@ PTP_TRIG_RESULT PTP_TRIG_ScheduleAt(uint16_t action_id, uint32_t cmd_seq, uint64
 PTP_TRIG_RESULT PTP_TRIG_SchedulePeriodic(uint16_t action_id, uint32_t cmd_seq,
                                           uint64_t period_ns, uint64_t phase_ns);
 
+/* Toggles PD10 (EXT1 pin 5) as the first act of every fire, before statistics
+   and before any handler.  That edge is what the logic analyser sees, so it must
+   carry as little software as possible. */
+bool PTP_TRIG_ArmPin(bool enable);
+
+/* Firing backend.  true = phase E1: SYS_TIME gets within a millisecond, then a
+   dedicated TC1 compare does the last hop, retriggered with interrupts off.
+   false = phase C: SYS_TIME alone, which measured 25.5 us of spread.
+   Switchable at runtime so both can be measured from one flash. */
+void PTP_TRIG_HwSet(bool enable);
+bool PTP_TRIG_HwGet(void);
+
 void PTP_TRIG_Cancel(void);
 void PTP_TRIG_ModeSet(PTP_TRIG_MODE mode);
 void PTP_TRIG_StatusGet(PTP_TRIG_STATUS *out);
