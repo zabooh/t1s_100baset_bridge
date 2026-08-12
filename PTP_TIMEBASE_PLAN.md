@@ -447,6 +447,22 @@ ein früheres Lesen von `L`.
 
 ## Phase B — Kern der Zeitbasis
 
+> **Gebaut und auf Hardware verifiziert am 2026-08-12.** Modul
+> [ptp_timebase.c](follower/firmware/src/ptp_timebase.c) /
+> [.h](follower/firmware/src/ptp_timebase.h), CLI-Gruppe `tbase`, gefüttert aus `fol_consume()`
+> mit `(host_sync, t1)`. `LOCKED` in unter 10 s; Steigung **+62 545 ppb**, was der unabhängigen
+> Offline-Messung aus Phase A (−62,7 ppm, andere Blickrichtung) auf **0,2 ppm** entspricht.
+> **Rundreise `LocalFor` → `Convert`: −8 ns bei 1 s, −4 ns bei 60 s Vorlauf** — damit steht die
+> Grundlage für Phase C. Holdover wird erkannt und macht `usable: no`, während `ptpf status` im
+> selben Augenblick weiter `FINE` meldet. Zahlen und Einschränkungen in
+> [test_results.md](test_results.md#phase-b--kern-der-zeitbasis-auf-hardware-verifiziert).
+>
+> Abweichungen von der Planung unten: `Convert()` ist **absichtlich nicht** monotonie-geschützt
+> (nur `Now()`), damit vergangene Zeitstempel reproduzierbar umrechnen; dazu kam ein
+> **Re-Anker-Mechanismus**, der `(L − anchor_L) · slope_q24` vor dem 64-Bit-Überlauf bewahrt (ohne
+> ihn wäre nach ~18 Minuten Holdover Schluss), und eine **Ausreißergrenze** von 50 ms, die ein über
+> eine Frame-Lücke gebildetes Paar verwirft, statt den Anker um ein Intervall zu verschieben.
+
 **B.1 Modell und Festkomma.**
 
 ```c

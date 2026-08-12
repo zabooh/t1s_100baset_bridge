@@ -44,6 +44,7 @@
 #include "lan865x_diag.h"
 #include "noip_test.h"
 #include "ptp_follower.h"
+#include "ptp_timebase.h"
 
 /* Banner printed once at start-up and by the 'timestamp' command. It names the
  * firmware and the role, because a demo runs two boards side by side and the
@@ -334,6 +335,10 @@ void APP_Initialize(void) {
     LAN865X_DIAG_Initialize();
     NOIP_Initialize();
     PTP_FOL_Initialize();
+    /* Corrected MCU timebase. Fed by ptp_follower.c once per Sync/Follow_Up
+     * pair; independent of the servo (PTP_TIMEBASE_PLAN.md phase B). */
+    PTP_TB_Initialize();
+    PTP_TB_CliRegister();
     /* TODO: Initialize your application's state machine and other
      * parameters.
      */
@@ -398,6 +403,9 @@ void APP_Tasks(void) {
 
             /* PTP follower: pair Sync/Follow_Up and measure - see ptp_follower.c */
             PTP_FOL_Tasks();
+
+            /* Holdover detection and anchor refresh - no I/O, never blocks. */
+            PTP_TB_Tasks();
 
             /* === Deferred packet log output (max 10 entries per APP_Tasks iteration) === */
             if (ticks_per_ms > 0u) {

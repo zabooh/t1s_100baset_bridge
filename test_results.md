@@ -287,6 +287,57 @@ nach `eth0` weiterleitet.
 
 ---
 
+## Phase B — Kern der Zeitbasis, auf Hardware verifiziert
+
+Gebaut und gemessen 2026-08-12. Modul
+[ptp_timebase.c](follower/firmware/src/ptp_timebase.c) /
+[.h](follower/firmware/src/ptp_timebase.h), gefüttert aus `fol_consume()` mit
+`(host_sync, t1)`, CLI-Gruppe **`tbase`**.
+
+| Prüfung | Ergebnis |
+|---|---|
+| Zeit bis `LOCKED` | **< 10 s** (2 Gewinner = 64 Paare bei 100 ms) |
+| Steigung nach 60 s | **+62 545 ppb**, nach Ausfall und Erholung **+62 549 ppb** |
+| Gegenprobe gegen Phase A (offline, unabhängig) | −62,7 ppm — **0,2 ppm Abweichung**, Vorzeichen erklärt sich aus der Definition |
+| letztes Residuum | 9–15 µs — passt zu Phase As Median 14,9 µs |
+| Gewinnerspanne, Ring voll | **18,6 µs** (Blöcke von 32, Basis 48 s) |
+| verworfene Paare | **0** von 1413 |
+| Re-Anker | 0 (erst nach 60 s Tickspanne fällig) |
+| `Now()` monoton | ja, 37516,555 s → 37518,075 s bei 1,52 s Wandzeit |
+| **Rundreise `LocalFor` → `Convert`** | **−8 ns bei 1 s Vorlauf, −4 ns bei 60 s** |
+| Holdover erkannt | `HOLDOVER, usable: no` nach 6 s Masterausfall |
+| Erholung | `LOCKED` innerhalb 5 s, Steigung auf 4 ppb identisch |
+
+**Die Rundreise ist das Ergebnis, auf dem Phase C aufsetzt.** `LocalFor()` und `Convert()` stimmen
+auch 60 s in die Zukunft auf einstellige Nanosekunden überein — das Q24-Festkomma trägt, und der
+Trigger kann sein lokales Ziel ohne nennenswerten Umrechnungsfehler bestimmen.
+
+**Das Vorzeichen der Steigung ist kein Widerspruch.** Das Modul meldet ns pro Tick gegen nominal,
+`tb_capture.py` rechnete lokal gegen Master. Ist der Tick um 62,5 ppm *länger* als nominal, läuft der
+Zähler entsprechend *langsamer* — dieselbe Größe, andere Blickrichtung. Die Beträge stimmen auf
+0,2 ppm, was für zwei unabhängige Implementierungen (Firmware-Festkomma gegen Host-Fließkomma) die
+eigentliche Bestätigung ist.
+
+**Ein Nebenbefund zur Kennzahl selbst:** die Gewinnerspanne stand kurz nach dem Einrasten bei
+370–397 µs und fiel erst auf 18,6 µs, als der Ring einmal durchgelaufen war. Grund: die ersten
+Gewinner wurden noch gegen die **nominale** Steigung bewertet, ihr Residuum trägt also den
+aufgelaufenen Modellfehler. Kein Fehler, aber die Zahl ist erst nach einem vollen Ringumlauf ab
+`LOCKED` aussagekräftig — beim Ablesen mitdenken.
+
+**Und der Kontrast, der den Sinn des Holdover-Zustands belegt** — beide Zeilen im selben Augenblick,
+bei stehendem Grandmaster:
+
+```
+[TBASE] state: HOLDOVER   usable: no   age: 8286 ms
+[PTPF] servo: FINE for 1292 samples   rate error: 1 ppb   correction: 5104 ppb
+```
+
+Damit ist die in Nebenbefund 2 beschriebene Lücke des bestehenden Servos direkt gegenübergestellt: das
+neue Modul verweigert sich (`usable: no`, worauf sich der Trigger in C.6 verlässt), der Servo meldet
+weiter `FINE`.
+
+---
+
 ## Kontrollversuche
 
 Nachträglich gefahren, weil die Ergebnisse der ersten Runde durchweg positiv ausfielen und keiner

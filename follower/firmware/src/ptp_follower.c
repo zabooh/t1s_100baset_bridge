@@ -35,6 +35,7 @@
 #include "config/default/driver/lan865x/drv_lan865x.h"
 #include "system/command/sys_command.h"
 #include "ptp_follower.h"
+#include "ptp_timebase.h"
 
 #define PTP_FOL_IF              0u          /* eth0, the 10BASE-T1S MAC-PHY */
 
@@ -711,6 +712,11 @@ static void fol_consume(const sample_t *s)
                           (unsigned)s->seq, (unsigned long long)s->host_sync,
                           (unsigned long long)s->t1, (unsigned long long)s->t2);
     }
+
+    /* Feed the MCU timebase: (L at the Sync, t1 from the Follow_Up). Kept here
+     * rather than in the hook so the module sees pairs in task context, one per
+     * completed cycle. Independent of the servo below - see PTP_TIMEBASE_PLAN 0.1. */
+    PTP_TB_SubmitPair(s->host_sync, s->t1);
 
     servo_update(offset, s->t1, s->t2, t1_prev, t2_prev, s->host);
 }
