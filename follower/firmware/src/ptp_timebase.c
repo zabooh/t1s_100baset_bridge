@@ -8,6 +8,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include "ptp_timebase.h"
+#include "ptp_trigger.h"
 #include "definitions.h"
 
 /* --------------------------------------------------------------------------- */
@@ -445,6 +446,13 @@ static void cmd_tbase(SYS_CMD_DEVICE_NODE *pCmdIO, int argc, char **argv)
     uint64_t v;
     (void)pCmdIO;
 
+    /* The trigger lives in the same group because MAX_CMD_GROUP is exhausted;
+       it gets first refusal on the subcommand. */
+    if (PTP_TRIG_CliTry(argc, argv))
+    {
+        return;
+    }
+
     if (argc >= 2 && !strcmp(argv[1], "now"))
     {
         uint64_t l = SYS_TIME_Counter64Get();
@@ -505,7 +513,7 @@ static void cmd_tbase(SYS_CMD_DEVICE_NODE *pCmdIO, int argc, char **argv)
 }
 
 static const SYS_CMD_DESCRIPTOR tbase_cmd_tbl[] = {
-    {"tbase", (SYS_CMD_FNC)cmd_tbase, ": MCU timebase (tbase | tbase now | tbase at <ns> | tbase reset)"},
+    {"tbase", (SYS_CMD_FNC)cmd_tbase, ": timebase + trigger (now|at <ns>|reset|trig|fire <ms>|per <ms>|cancel|mode)"},
 };
 
 void PTP_TB_CliRegister(void)

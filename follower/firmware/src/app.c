@@ -45,6 +45,7 @@
 #include "noip_test.h"
 #include "ptp_follower.h"
 #include "ptp_timebase.h"
+#include "ptp_trigger.h"
 
 /* Banner printed once at start-up and by the 'timestamp' command. It names the
  * firmware and the role, because a demo runs two boards side by side and the
@@ -339,6 +340,8 @@ void APP_Initialize(void) {
      * pair; independent of the servo (PTP_TIMEBASE_PLAN.md phase B). */
     PTP_TB_Initialize();
     PTP_TB_CliRegister();
+    PTP_TRIG_Initialize();
+    PTP_TRIG_CliInit();
     /* TODO: Initialize your application's state machine and other
      * parameters.
      */
@@ -406,6 +409,9 @@ void APP_Tasks(void) {
 
             /* Holdover detection and anchor refresh - no I/O, never blocks. */
             PTP_TB_Tasks();
+
+            /* Runs deferred trigger handlers (the ones not marked isr_ctx). */
+            PTP_TRIG_Tasks();
 
             /* === Deferred packet log output (max 10 entries per APP_Tasks iteration) === */
             if (ticks_per_ms > 0u) {

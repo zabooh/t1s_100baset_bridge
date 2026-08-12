@@ -338,6 +338,80 @@ weiter `FINE`.
 
 ---
 
+## Phase C — Trigger, Stufe Software: gebaut und ausgemessen
+
+Modul [ptp_trigger.c](follower/firmware/src/ptp_trigger.c) /
+[.h](follower/firmware/src/ptp_trigger.h), 2026-08-12. Auslösung über einen
+`SYS_TIME_CallbackRegisterUS`-Einzelschuss, Ziel aus `PTP_TB_LocalFor()`.
+
+### C.1 Alle vier Verweigerungsgründe greifen
+
+```
+[TRIG] schedule id=9 in 200 ms: no such action id
+[TRIG] schedule id=1 in 10 ms: target in the past or too close
+[TRIG] schedule id=1 in 700000 ms: target too far ahead
+[TRIG] schedule id=1 in 5000 ms: a trigger is already armed
+```
+
+Dazu der Modusschalter aus C.6, im **Holdover** geprüft:
+
+```
+[TBASE] state: HOLDOVER   usable: no   age: 8247 ms
+STRICT: [TRIG] schedule id=1 in 300 ms: timebase not usable
+FREE:   [TRIG] mode: FREE  <- fires without a usable timebase, NOT synchronized
+        [TRIG] schedule id=1 in 300 ms: ok
+```
+
+Beide Kontexte laufen: Aktion 1 im ISR (zählt nur), Aktion 2 nachgelagert und **druckt** — was im
+ISR verboten ist.
+
+### C.2 Verspätung: die Zahl, die über Phase E entscheidet
+
+625 Auslösungen, periodisch mit 100 ms:
+
+| | Ticks | ns |
+|---|---|---|
+| Minimum (**früh**) | −702 | **−11 700** |
+| Maximum (spät) | +829 | **+13 816** |
+| **Spanne** | 1531 | **25 516** |
+| Mittel \|Verspätung\| | 647 | 10 790 |
+| übersprungene Perioden | **0** von 625 | — |
+
+**Damit ist Phase E begründet, nicht mehr optional.** Der Plan hatte den Software-Trigger mit
+„einige µs bis ms — würde alles andere erdrücken" veranschlagt; gemessen sind **25,5 µs
+Spitze-Spitze**, und das erdrückt tatsächlich die 9,1 µs Gewinnerspanne der Zeitbasis aus Phase A.
+Für Gleichzeitigkeit unter ~25 µs braucht es den Hardware-Compare.
+
+**Es ist kein fester Offset.** Die ersten zwei Einzelmessungen lagen bei +809 und +817 Ticks, was
+nach einer Konstante aussah — die wäre für Gleichzeitigkeit harmlos gewesen, weil sie allen Knoten
+gemeinsam ist. Über 625 Auslösungen zeigt sich aber eine Verteilung von −11,7 bis +13,8 µs. **Zwei
+Einzelmessungen hätten hier zur falschen Entscheidung geführt.**
+
+Die Vorzeichen sind erklärt: das Schärfen rechnet die Verzögerung auf **ganze Mikrosekunden** ab,
+feuert also gern etwas früh. Aufrunden wäre schlechter — früh kann ein Handler herausrechnen, spät
+nicht.
+
+**`skipped periods: 0` über 625 Zyklen** belegt, dass das Nachladen im ISR mithält; der Trigger
+kommt also nicht ins Schlittern, wenn die Hauptschleife beschäftigt ist.
+
+### C.3 Nebenbefund: `MAX_CMD_GROUP` ist erschöpft
+
+`trig` als eigene Kommandogruppe scheiterte still — `SYS_CMD_ADDGRP` gibt `false` zurück, das
+Kommando ist danach einfach „unknown command". Ursache: **`MAX_CMD_GROUP 8`** in der **generierten**
+[sys_command.h](follower/firmware/src/config/default/system/command/sys_command.h#L146), und das
+Projekt hat mit TCP/IP-Stack, `msd`, `env`, `lan`, `noip`, `ptpf`, `tbase` das Limit erreicht.
+
+Das MCC-Modell führt **kein** Symbol dafür (`sys_command.yml` enthält nichts dazu), ein Anheben wäre
+also ein weiterer Handpatch an generiertem Code. Stattdessen sind die Trigger-Kommandos in die
+`tbase`-Gruppe gefaltet (`tbase trig|fire|per|cancel|mode`), über ein `PTP_TRIG_CliTry()`, das dem
+Modul die erste Verweigerung gibt.
+
+**Für jedes künftige Modul heißt das: keine neue Kommandogruppe mehr, sondern in eine bestehende
+falten.** Und der Fehlschlag ist stumm — wer eine Gruppe registriert und sie nicht wiederfindet,
+sucht sonst am falschen Ende.
+
+---
+
 ## Kontrollversuche
 
 Nachträglich gefahren, weil die Ergebnisse der ersten Runde durchweg positiv ausfielen und keiner

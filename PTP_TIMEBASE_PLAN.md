@@ -546,6 +546,30 @@ Konsole ausgegebener `PTP_TB_Now()` gegen die Offline-Rechnung aus Phase A passt
 
 ## Phase C — Trigger, Stufe Software
 
+> **Gebaut und ausgemessen am 2026-08-12.** Modul
+> [ptp_trigger.c](follower/firmware/src/ptp_trigger.c) /
+> [.h](follower/firmware/src/ptp_trigger.h), Auslösung über einen
+> `SYS_TIME_CallbackRegisterUS`-Einzelschuss. Alle vier Verweigerungsgründe greifen, beide
+> Kontexte laufen, `strict`/`free` im Holdover geprüft, `skipped periods: 0` über 625 Zyklen.
+>
+> **Die Zahl, um die es ging (C.2): Verspätung über 625 Auslösungen von −11,7 µs bis +13,8 µs,
+> Spanne 25,5 µs.** Damit ist **Phase E begründet, nicht mehr optional** — 25,5 µs erdrücken die
+> 9,1 µs Gewinnerspanne der Zeitbasis. Wer Gleichzeitigkeit unter ~25 µs will, braucht den
+> Hardware-Compare.
+>
+> **Warnung an das eigene Vorgehen:** die ersten zwei Einzelmessungen lagen bei +809 und +817 Ticks
+> und sahen wie ein *fester Offset* aus — der wäre für Gleichzeitigkeit harmlos, weil allen Knoten
+> gemeinsam. Erst 625 Auslösungen zeigten die Verteilung. Zwei Messungen hätten hier zur falschen
+> Entscheidung geführt.
+>
+> **Und C.5 ging nicht wie geplant:** eine eigene Kommandogruppe `trig` scheitert **still** an
+> `MAX_CMD_GROUP 8` in der generierten `sys_command.h` — das Projekt ist am Limit, und das MCC-Modell
+> führt kein Symbol dafür. Die Kommandos sind deshalb in die `tbase`-Gruppe gefaltet
+> (`tbase trig|fire|per|cancel|mode`). **Künftige Module müssen ebenso falten.**
+>
+> Zahlen und Rohausgaben in
+> [test_results.md](test_results.md#phase-c--trigger-stufe-software-gebaut-und-ausgemessen).
+
 Ein Callback ist Software, also kommt der Interrupt-Weg ins Budget: Exception-Entry auf
 Cortex-M4 @120 MHz ~100 ns, ISR-Prolog und Cache-Miss einige 100 ns — und im Worst Case die Dauer
 der **längsten kritischen Sektion der gesamten Firmware**, die im TCP/IP-Stack und im

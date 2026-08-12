@@ -593,6 +593,7 @@
       <itemPath>../src/noip_test.h</itemPath>
       <itemPath>../src/ptp_follower.h</itemPath>
       <itemPath>../src/ptp_timebase.h</itemPath>
+      <itemPath>../src/ptp_trigger.h</itemPath>
     </logicalFolder>
     <logicalFolder name="ExternalFiles"
                    displayName="Important Files"
@@ -975,6 +976,7 @@
       <itemPath>../src/noip_test.c</itemPath>
       <itemPath>../src/ptp_follower.c</itemPath>
       <itemPath>../src/ptp_timebase.c</itemPath>
+      <itemPath>../src/ptp_trigger.c</itemPath>
       <itemPath>../src/main.c</itemPath>
       <itemPath>../src/config/default/pin_configurations.csv</itemPath>
     </logicalFolder>
