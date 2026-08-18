@@ -516,7 +516,7 @@ needed just to program the board).
 
 | Requirement | Notes |
 |---|---|
-| **MPLAB X IDE** | needed once to generate the project's build files (see 5.2) and for the SAME54_DFP device pack |
+| **MPLAB X IDE** | must be **installed** (its `make` and `prjMakefilesGenerator` are used, see 5.2) and supplies the SAME54_DFP device pack — but it never has to be opened |
 | **MPLAB XC32** | this firmware was built with XC32 v4.60, under `C:\Program Files\Microchip\xc32\` |
 | **Python 3.9+** | `pyserial` for `cli.py`/`smoketest.py`, `pyocd` for `flash.bat` (installed by setup) |
 | **Terminal** | the board's EDBG virtual COM port, 115200 8N1 |
@@ -529,20 +529,27 @@ cd t1s_100baset_bridge
 setup.bat
 ```
 
-`setup.bat` runs four independent steps (a failure in one is reported but does
-not abort the rest): Python deps (`pyserial`), XC32 version selection
-(`setup_compiler.py`), pyOCD + probe/pack check (`install.bat --install`), and
-the SAME54_DFP VS Code debug fix (`setup_debug.py`).
+`setup.bat` runs five independent steps (a failure in one is reported but does
+not abort the rest): Python deps (`pyserial`, `pyocd`), XC32 version selection
+(`setup_compiler.py`), pyOCD + probe/pack check (`install.bat --install`), the
+SAME54_DFP VS Code debug fix (`setup_debug.py`), and the project Makefiles
+(`genmk.bat`).
 
-**Additional one-time step, MPLAB X itself:** a fresh checkout has no
-`nbproject/Makefile-*.mk` fragments — MPLAB X generates those the first time
-the project is opened and built in the IDE, and `build.bat` drives that same
-generated Makefile headlessly afterwards. So once per machine:
+**No IDE session is needed.** A fresh checkout has no `nbproject/Makefile-*.mk`
+fragments — they are gitignored on purpose, because they hold absolute paths of
+the machine that generated them, and committed they would be wrong everywhere
+else in the expensive way (the link succeeds, then `xc32-bin2hex` fails with
+"file not found"). They are generated instead from the **tracked**
+`nbproject/configurations.xml` by `genmk.bat`, which wraps
+`prjMakefilesGenerator.bat` — the tool MPLAB X ships for exactly this.
 
-1. Open MPLAB X IDE → *File → Open Project* → `firmware/T1S_100BaseT_Bridge.X`.
-2. Right-click the project → *Clean and Build* (once).
+`build.bat` calls it by itself when the fragments are missing, so even without
+`setup.bat` a fresh clone builds in one command. MPLAB X therefore has to be
+**installed**, but it never has to be opened.
 
-After that, `build.bat` works without reopening the IDE.
+```bat
+genmk.bat firmware\T1S_100BaseT_Bridge.X    :: only if you want to do it by hand
+```
 
 ### 5.3 Build and flash
 

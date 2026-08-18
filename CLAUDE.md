@@ -41,9 +41,13 @@ flash.bat --list          :: angeschlossene Probes
 setup.bat                 :: einmalig pro Rechner
 ```
 
-- **Einmalige Voraussetzung:** die `nbproject\Makefile-*.mk`-Fragmente entstehen erst, wenn das
-  Projekt **einmal in der MPLAB-X-IDE geöffnet und gebaut** wurde. Ohne sie bricht `build.bat` mit
-  einer erklärenden Meldung ab. Das ist kein Fehler im Skript.
+- **Ein frischer Klon baut ohne Vorbereitung.** Die `nbproject\Makefile-*.mk`-Fragmente sind
+  gitignoriert (sie tragen absolute Pfade *dieses* Rechners, eingecheckt wären sie anderswo falsch,
+  und zwar auf die teure Art: der Link läuft durch, dann scheitert `xc32-bin2hex`). Erzeugt werden
+  sie aus der **getrackten** `nbproject\configurations.xml` mit `prjMakefilesGenerator.bat`, dem
+  Werkzeug, das MPLAB X selbst mitbringt — verpackt in **`genmk.bat`**, und **`build.bat` ruft es von
+  selbst auf**, wenn die Fragmente fehlen. Die IDE muss also nur **installiert** sein, nicht geöffnet.
+  Die frühere Anweisung „Projekt einmal in der IDE öffnen und bauen" ist damit **erledigt**.
 - **Nie `MP_CC_DIR` auf der make-Kommandozeile mitgeben.** `build.bat` lässt das absichtlich weg:
   `nbproject\Makefile-local-default.mk` setzt es korrekt, und ein Wert von der Kommandozeile — auch
   ein leerer — hat Vorrang und lässt `xc32-bin2hex` **stillschweigend** scheitern (Link läuft
@@ -272,8 +276,15 @@ Erst zurückstellen, dann Verkehr messen.
   **Lösung:** eigener `lan_rmw_callback()`, der `value` in `app_lan_rmw_final` ablegt.
   **Merksatz:** ein Wert, der „fast richtig" aussieht, ist gefährlicher als einer, der offensichtlich
   falsch ist — bei Callback-Ergebnissen prüfen, *welcher* Callback den Wert überhaupt speichert.
-- **`build.bat` ohne vorherigen IDE-Build** scheitert an fehlenden nbproject-Fragmenten (siehe
-  Abschnitt 2), nicht an einem Codefehler.
+- **2026-08-18 — Ein Branchwechsel macht die generierten Makefiles still falsch, und das ist teurer
+  als ein fehlendes Makefile.** `nbproject\configurations.xml` unterscheidet sich zwischen `main` und
+  den Arbeitszweigen (gemessen: Blob `050431e8` gegen `a70ac13e`), die Fragmente sind aber gitignoriert
+  und bleiben beim Wechsel unangetastet. `build.bat` erzeugt sie nur, wenn sie **fehlen** — nicht, wenn
+  sie veraltet sind. Ein Lauf danach kann fehlerfrei linken und dann an `xc32-bin2hex` scheitern, oder
+  eine Datei bauen, die nicht zum ausgecheckten Stand gehört. **Nach jedem Branchwechsel, der
+  `configurations.xml` anfasst, `genmk.bat firmware\T1S_100BaseT_Bridge.X` aufrufen.** Die Prüffrage
+  in einer Zeile: `git rev-parse <branch>:firmware/T1S_100BaseT_Bridge.X/nbproject/configurations.xml`
+  für beide Zweige vergleichen.
 - **2026-08-10 — Der TX-Zweig des Port-Mirrors hängt an einem Patch in *generiertem* Code.**
   `DRV_LAN865X_PacketTx()` in `drv_lan865x_api.c` deklariert `mirror_eth0_tx_hook` von Hand als
   `extern` und ruft ihn (Zeile ~683). Zwei Folgen: (1) **der Symbolname ist nicht frei** — wer
