@@ -250,9 +250,20 @@ describes only that run.
 
 ## 5. Persistent configuration (`env`)
 
-IP addresses, MAC addresses and the PLCA parameters live in the emulated EEPROM. The pattern is always
-the same: `setenv` edits a **RAM shadow**, `saveenv` persists and applies it. An edit you do not save is
-gone at the next reset.
+IP addresses, MAC addresses, the PLCA parameters and the mirror start state live in the emulated
+EEPROM. The pattern is always the same: `setenv` edits a **RAM shadow**, `saveenv` persists and applies
+it. An edit you do not save is gone at the next reset.
+
+The record is versioned and CRC-protected, and the loader demands an **exact** version match — an older
+record would be discarded and the compiled defaults seeded instead. That is not harmless here: the
+compiled default PLCA node id is **7**, while a bridge acting as coordinator runs **0**, a value that can
+only come from the EEPROM. A firmware update that reset it would silently stop the bridge being the
+coordinator, with nothing in the log pointing at the EEPROM. Records are therefore **migrated**, not
+discarded: v3 → v4 carries every field over and reports
+
+```
+env: migrated v3 record to v4 (settings kept, mirror=0)
+```
 
 ### `showenv`
 
@@ -267,8 +278,12 @@ env (RAM shadow):
   eth0  mac 00:04:25:1C:A0:02
   eth1  mac 00:04:25:1C:A0:01  (applied at boot)
   plca  id 0  count 8  (eth0/T1S)
+  mirror OFF at boot  (now: ON)
   (saveenv = persist+apply, readenv = reload, resetenv = defaults)
 ```
+
+The mirror line names **two** states on purpose, because they can differ: what the board will do after
+a reset, and what it is doing right now. `mirror 1` changes only the second.
 
 ### `setenv`
 
@@ -281,6 +296,7 @@ setenv <key> <value>
 | IP | `ip0` `mask0` `gw0` `dns0`, `ip1` `mask1` `gw1` `dns1` | dotted quad | on `saveenv` |
 | MAC | `mac0`, `mac1` | `XX:XX:XX:XX:XX:XX` | **after a reset** — the stack binds the MAC at init |
 | PLCA | `plca_id` (0–254), `plca_cnt` (1–255) | decimal | on `saveenv` |
+| Mirror | `mirror` | `0` or `1` | **at the next boot** — `MIRROR_Initialize()` reads it |
 
 `0` = `eth0` = the T1S side (LAN8651), `1` = `eth1` = the 100BASE-T side (GMAC/LAN8740A).
 
@@ -559,6 +575,18 @@ eth0(T1S)->eth1 mirror: ON
   Capture on the PC (eth1) in Wireshark to see the T1S bus traffic:
   RX (endpoint -> bridge: replies/ARP) AND the bridge's own TX.
 ```
+
+**Surviving a reset.** `mirror 1` is deliberately volatile. To have the board come up mirroring:
+
+```
+setenv mirror 1
+saveenv
+```
+
+`MIRROR_Initialize()` reads that value at boot and announces it with
+`MIRROR: eth0(T1S)->eth1 mirror enabled from env`. It is the same split as `plca_node` against
+`setenv plca_id`: the command changes the live state, the env decides how the board starts. Default is
+off, because every mirrored frame costs a packet-pool entry.
 
 **The TX half depends on a hand-written patch in generated code.** `DRV_LAN865X_PacketTx()` in
 `drv_lan865x_api.c` declares `mirror_eth0_tx_hook` as `extern` and calls it. An MCC *Generate Code* run

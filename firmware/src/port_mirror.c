@@ -34,6 +34,7 @@
 #include "system/command/sys_command.h"
 #include "tcpip_manager_control.h"                           /* TCPIP_NET_IF */
 #include "port_mirror.h"
+#include "env.h"                                             /* env_mirror(): persisted start state */
 
 /* Interface indices: source of the mirrored traffic, and where the copies go. */
 #define MIRROR_SRC_IF   0u    /* eth0, the 10BASE-T1S MAC-PHY */
@@ -147,5 +148,14 @@ void MIRROR_Initialize(void) {
     if (!SYS_CMD_ADDGRP(mirror_cmd_tbl, (int)(sizeof mirror_cmd_tbl / sizeof *mirror_cmd_tbl),
                         "span", ": eth0->eth1 port mirror for Wireshark")) {
         SYS_CONSOLE_PRINT("MIRROR: SYS_CMD_ADDGRP failed\n\r");
+    }
+
+    /* Persisted start state ('setenv mirror 1' + 'saveenv'). Safe to set this early:
+     * both hooks bail out while the stack is not up, because eth0_own_mac() returns
+     * NULL until the interface exists. ENV_Init() runs in SYS_Initialize, well before
+     * APP_Initialize gets here, so the value is loaded by now. */
+    s_mirror_on = env_mirror();
+    if (s_mirror_on) {
+        SYS_CONSOLE_PRINT("MIRROR: eth0(T1S)->eth1 mirror enabled from env\n\r");
     }
 }

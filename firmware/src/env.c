@@ -30,10 +30,12 @@
 #include "system/command/sys_command.h"
 #include "config/default/library/emulated_eeprom/emulated_eeprom.h"
 #include "lan865x_diag.h"                                    /* LAN865X_DIAG_ApplyPlca() */
+#include "port_mirror.h"                                     /* MIRROR_IsEnabled() for showenv */
 #include "env.h"
 
 #define ENV_MAGIC    0x4C414E45u   /* 'LANE' */
-#define ENV_VERSION  3u            /* v2 added PLCA, v3 added MACs; an older record reads invalid -> re-seed */
+#define ENV_VERSION  4u            /* v2 added PLCA, v3 the MACs, v4 the mirror flag */
+#define ENV_VERSION_V3 3u          /* migrated in place by env_migrate_v3() - see there why */
 #define ENV_IF_CNT   2             /* [0] = eth0 (LAN865x/T1S), [1] = eth1 (GMAC/100BASE-T) */
 #define ENV_EE_OFFSET 0u           /* byte offset of the record in the emulated EEPROM */
 
@@ -56,8 +58,36 @@ typedef struct {
     uint8_t  mac[ENV_IF_CNT][6];   /* eth0 = OUI+serial, eth1 = eth0 with low byte +1 */
     uint32_t plca_id;              /* eth0 PLCA node id    (0 = coordinator)         */
     uint32_t plca_cnt;             /* eth0 PLCA node count (PLCA_CTRL1 NODE_CNT)      */
+    uint32_t mirror;               /* 1 = enable the eth0->eth1 port mirror at boot   */
     uint32_t crc32;
 } env_t;
+
+/* The v3 record: byte-for-byte the layout above without `mirror`. Kept so a board
+ * that was configured before v4 can be migrated instead of re-seeded - see
+ * env_migrate_v3(). Do not "tidy" this away: dropping it turns a firmware update
+ * into a silent factory reset. */
+typedef struct {
+    uint32_t magic;
+    uint32_t version;
+    uint32_t ip[ENV_IF_CNT];
+    uint32_t mask[ENV_IF_CNT];
+    uint32_t gw[ENV_IF_CNT];
+    uint32_t dns[ENV_IF_CNT];
+    uint8_t  mac[ENV_IF_CNT][6];
+    uint32_t plca_id;
+    uint32_t plca_cnt;
+    uint32_t crc32;
+} env_v3_t;
+
+/* The two layouts must be padding-free, and v4 must be exactly v3 plus one word -
+ * that is what makes the migration a field-by-field copy and keeps the crc32 stable.
+ * Checked at COMPILE time (negative array size fails the build) rather than trusted,
+ * because padding would corrupt the stored record silently: the crc would still be
+ * self-consistent, so nothing would ever report an error. */
+typedef char env_layout_assert[
+    (sizeof(env_v3_t) == 64u && sizeof(env_t) == 68u &&
+     offsetof(env_v3_t, crc32) == 60u && offsetof(env_t, crc32) == 64u &&
+     offsetof(env_v3_t, plca_id) == offsetof(env_t, plca_id)) ? 1 : -1];
 
 /* Derive the per-board default MACs from the SAME54 serial: eth0 = OUI + serial[2..0],
  * eth1 = eth0 with the lowest byte +1. */
@@ -113,6 +143,7 @@ static void env_load_defaults(env_t *e)
     env_derive_mac(e->mac[0], e->mac[1]);
     e->plca_id  = (uint32_t)DRV_LAN865X_PLCA_NODE_ID_IDX0;
     e->plca_cnt = (uint32_t)DRV_LAN865X_PLCA_NODE_COUNT_IDX0;
+    e->mirror   = 0u;              /* off by default: mirroring costs packet-pool entries */
     e->crc32 = env_calc_crc(e);
 }
 
@@ -154,6 +185,46 @@ static bool env_read_valid(env_t *out)
     return out->magic == ENV_MAGIC && out->version == ENV_VERSION && out->crc32 == env_calc_crc(out);
 }
 
+/* Migrate a v3 record in place: carry every field over, default the new one, store
+ * as v4. True if a valid v3 record was found and converted.
+ *
+ * WHY THIS IS NOT OPTIONAL. env_read_valid() demands an exact version match, so
+ * bumping the version alone makes every stored record invalid and ENV_Init falls
+ * back to the compiled defaults. Those are not harmless here: the default PLCA node
+ * id is DRV_LAN865X_PLCA_NODE_ID_IDX0 = 7, while a bridge acting as coordinator runs
+ * id 0 - a value that can only come from the EEPROM. Without this function a
+ * firmware update would silently stop the bridge being the coordinator: no beacons,
+ * a bus without a coordinator, and nothing in the log pointing at the EEPROM. One
+ * would go looking in the PLCA configuration. */
+static bool env_migrate_v3(env_t *out)
+{
+    env_v3_t old;
+    int i;
+
+    if (EMU_EEPROM_BufferRead(ENV_EE_OFFSET, (uint8_t *)&old, (uint16_t)sizeof old) != EMU_EEPROM_STATUS_OK)
+        return false;
+    if (old.magic != ENV_MAGIC || old.version != ENV_VERSION_V3)
+        return false;
+    if (old.crc32 != env_crc32(&old, offsetof(env_v3_t, crc32)))
+        return false;
+
+    memset(out, 0, sizeof *out);
+    out->magic   = ENV_MAGIC;
+    out->version = ENV_VERSION;
+    for (i = 0; i < ENV_IF_CNT; i++) {
+        out->ip[i]   = old.ip[i];
+        out->mask[i] = old.mask[i];
+        out->gw[i]   = old.gw[i];
+        out->dns[i]  = old.dns[i];
+        memcpy(out->mac[i], old.mac[i], 6);
+    }
+    out->plca_id  = old.plca_id;
+    out->plca_cnt = old.plca_cnt;
+    out->mirror   = 0u;                /* the flag did not exist before: start off */
+    out->crc32    = env_calc_crc(out);
+    return true;
+}
+
 /* --- apply to the running stack ------------------------------------------------- */
 void env_apply(void)
 {
@@ -177,6 +248,7 @@ void env_apply(void)
 
 uint8_t env_plca_id(void)  { return (uint8_t)s_env.plca_id;  }
 uint8_t env_plca_cnt(void) { return (uint8_t)s_env.plca_cnt; }
+bool    env_mirror(void)   { return s_env.mirror != 0u;      }
 
 /* --- CLI ------------------------------------------------------------------------ */
 static void pr_addr(const char *label, uint32_t val)
@@ -205,6 +277,11 @@ static void cmd_showenv(SYS_CMD_DEVICE_NODE *pCmdIO, int argc, char **argv)
     }
     SYS_CONSOLE_PRINT("  plca  id %lu  count %lu  (eth0/T1S)\r\n",
                       (unsigned long)s_env.plca_id, (unsigned long)s_env.plca_cnt);
+    /* Two states, because they can differ: what boots, and what is running now
+     * ('mirror 1' is deliberately volatile). Showing only one would mislead. */
+    SYS_CONSOLE_PRINT("  mirror %s at boot  (now: %s)\r\n",
+                      (s_env.mirror != 0u) ? "ON " : "OFF",
+                      MIRROR_IsEnabled() ? "ON" : "OFF");
     SYS_CONSOLE_PRINT("  (saveenv = persist+apply, readenv = reload, resetenv = defaults)\r\n");
 }
 
@@ -228,7 +305,19 @@ static void cmd_setenv(SYS_CMD_DEVICE_NODE *pCmdIO, int argc, char **argv)
         SYS_CONSOLE_PRINT("usage: setenv <key> <val>\r\n"
                           "  IP keys:   ip0/mask0/gw0/dns0, ip1/mask1/gw1/dns1  (dotted-quad)\r\n"
                           "  MAC keys:  mac0, mac1  (XX:XX:XX:XX:XX:XX; applies after reset)\r\n"
-                          "  PLCA keys: plca_id (0..254), plca_cnt (1..255)\r\n");
+                          "  PLCA keys: plca_id (0..254), plca_cnt (1..255)\r\n"
+                          "  mirror:    0|1  (eth0->eth1 port mirror at boot)\r\n");
+        return;
+    }
+    /* mirror: stored here, applied at the next boot by MIRROR_Initialize(). The live
+     * state stays with the 'mirror' command - same split as plca_node vs plca_id. */
+    if (!strcmp(argv[1], "mirror")) {
+        unsigned long v = strtoul(argv[2], NULL, 0);
+        if (v > 1u) { SYS_CONSOLE_PRINT("setenv: mirror must be 0 or 1\r\n"); return; }
+        s_env.mirror = (uint32_t)v;
+        SYS_CONSOLE_PRINT("setenv: mirror = %lu (RAM only; 'saveenv' to persist; "
+                          "takes effect at the next boot - use 'mirror %lu' to switch it now)\r\n",
+                          v, v);
         return;
     }
     /* MAC keys (applied on next reset - the stack binds the MAC at init) */
@@ -303,7 +392,7 @@ static void cmd_resetenv(SYS_CMD_DEVICE_NODE *pCmdIO, int argc, char **argv)
 
 static const SYS_CMD_DESCRIPTOR env_cmd_tbl[] = {
     {"showenv",  (SYS_CMD_FNC)cmd_showenv,  ": show the current network config (RAM shadow)"},
-    {"setenv",   (SYS_CMD_FNC)cmd_setenv,   ": setenv <key> <val>  (ip0../dns1, mac0/mac1, plca_id, plca_cnt)"},
+    {"setenv",   (SYS_CMD_FNC)cmd_setenv,   ": setenv <key> <val>  (ip0../dns1, mac0/mac1, plca_id, plca_cnt, mirror)"},
     {"saveenv",  (SYS_CMD_FNC)cmd_saveenv,  ": persist config to EEPROM and apply it live"},
     {"readenv",  (SYS_CMD_FNC)cmd_readenv,  ": reload config from EEPROM and apply (discards unsaved edits)"},
     {"resetenv", (SYS_CMD_FNC)cmd_resetenv, ": reset to compiled defaults, persist and apply"},
@@ -318,6 +407,11 @@ void ENV_Init(void)
 
     if (env_read_valid(&tmp)) {
         s_env = tmp;                       /* valid persisted config */
+    } else if (env_migrate_v3(&tmp)) {
+        s_env = tmp;                       /* pre-v4 board: keep its settings, add the new field */
+        (void)env_save();
+        SYS_CONSOLE_PRINT("env: migrated v%u record to v%u (settings kept, mirror=0)\r\n",
+                          (unsigned)ENV_VERSION_V3, (unsigned)ENV_VERSION);
     } else {
         env_load_defaults(&s_env);         /* first boot / blank / corrupt */
         (void)env_save();                  /* seed the EEPROM from the compiled defaults */

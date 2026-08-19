@@ -491,8 +491,8 @@ self-contained [`lan865x_diag.c`](firmware/src/lan865x_diag.c) module rather tha
 
 | Command | Description |
 |---|---|
-| `showenv` | show the current config: per-interface IP/mask/gw/dns, MAC, PLCA id/count |
-| `setenv <key> <val>` | edit the RAM shadow — keys: `ip0/mask0/gw0/dns0`, `ip1/…`, `mac0`/`mac1`, `plca_id`/`plca_cnt` |
+| `showenv` | show the current config: per-interface IP/mask/gw/dns, MAC, PLCA id/count, mirror at boot |
+| `setenv <key> <val>` | edit the RAM shadow — keys: `ip0/mask0/gw0/dns0`, `ip1/…`, `mac0`/`mac1`, `plca_id`/`plca_cnt`, `mirror` |
 | `saveenv` | persist to EEPROM **and** apply (IP/PLCA live; MAC at next reset) |
 | `readenv` | reload from EEPROM and apply (discard unsaved edits) |
 | `resetenv` | restore the compiled defaults, persist and apply |
@@ -694,6 +694,7 @@ every board is unique from one firmware image.
 | `mac0`, `mac1` | `XX:XX:XX:XX:XX:XX` | eth0/eth1 MAC — applies **after the next reset** |
 | `plca_id` | `0`..`254` | PLCA node id (0 = coordinator) |
 | `plca_cnt` | `1`..`255` | PLCA node count |
+| `mirror` | `0` or `1` | eth0→eth1 port mirror at boot — applies **at the next boot**; `mirror 0`/`mirror 1` switches it now |
 
 #### Worked example
 

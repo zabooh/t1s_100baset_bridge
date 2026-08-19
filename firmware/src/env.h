@@ -22,8 +22,14 @@ void env_apply(void);
 
 /* Current PLCA node id / node count from the env (eth0 / LAN865x). */
 #include <stdint.h>
+#include <stdbool.h>
 uint8_t env_plca_id(void);
 uint8_t env_plca_cnt(void);
+
+/* Should the eth0->eth1 port mirror come up enabled? Read by MIRROR_Initialize(),
+ * which runs after ENV_Init(). Persisted with 'setenv mirror 1' + 'saveenv'; the
+ * 'mirror' command changes the live state only. */
+bool env_mirror(void);
 
 /* Format the env MAC for interface 0/1 as "XX:XX:XX:XX:XX:XX" into buf (>= 18 bytes).
  * Call after ENV_Init(), before TCPIP_STACK_Init(), to fill the stack's MAC strings. */

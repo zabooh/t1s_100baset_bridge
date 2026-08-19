@@ -276,6 +276,19 @@ Erst zurückstellen, dann Verkehr messen.
   **Lösung:** eigener `lan_rmw_callback()`, der `value` in `app_lan_rmw_final` ablegt.
   **Merksatz:** ein Wert, der „fast richtig" aussieht, ist gefährlicher als einer, der offensichtlich
   falsch ist — bei Callback-Ergebnissen prüfen, *welcher* Callback den Wert überhaupt speichert.
+- **2026-08-18 — Ein neues Feld im `env`-Datensatz ohne Migration ist ein stiller Werksreset, und der
+  kostet die Koordinatorrolle.** `env_read_valid()` verlangt **exakte** Versionsgleichheit
+  (`out->version == ENV_VERSION`), ein Versionssprung macht also jeden gespeicherten Datensatz ungültig
+  und `ENV_Init()` fällt auf die einkompilierten Vorgaben zurück. Die sind hier nicht harmlos:
+  `DRV_LAN865X_PLCA_NODE_ID_IDX0` ist **7**, während die Bridge als Koordinator **0** fährt — ein Wert,
+  der nur aus dem EEPROM kommen kann. Ohne Migration hört die Bridge nach einem Firmware-Update also
+  still auf, Beacons zu senden, der Bus hat keinen Koordinator mehr, `test_lan8651.py` bricht ab, und
+  nichts im Log zeigt aufs EEPROM — man sucht in der PLCA-Konfiguration. **Lösung:
+  `env_migrate_v3()`**: alte Struktur behalten, CRC über das alte Layout prüfen, Felder übernehmen,
+  neues Feld auf Vorgabe, als neue Version zurückschreiben. Zwei Dinge dabei nicht weglassen: die alte
+  Struktur (sie ist die Migrationsvorschrift, kein toter Code) und die **Compile-Zeit-Zusicherung** auf
+  `sizeof`/`offsetof` — Padding würde den Datensatz beschädigen, ohne dass je ein Fehler gemeldet wird,
+  weil die CRC in sich stimmig bliebe.
 - **2026-08-18 — Ein Branchwechsel macht die generierten Makefiles still falsch, und das ist teurer
   als ein fehlendes Makefile.** `nbproject\configurations.xml` unterscheidet sich zwischen `main` und
   den Arbeitszweigen (gemessen: Blob `050431e8` gegen `a70ac13e`), die Fragmente sind aber gitignoriert
