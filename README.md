@@ -437,6 +437,11 @@ end-to-end throughput across the bridge itself (PC → `eth1` → MAC bridge →
 
 ### CLI commands
 
+> **Complete reference: [`CLI_COMMANDS.md`](CLI_COMMANDS.md)** — all 22 commands with syntax,
+> description and example output, plus the Harmony stack groups. That file is derived from the
+> firmware's command tables and held against them by `python cli_doc_check.py`. What follows here is
+> the short overview.
+
 Two command groups; type the command name directly (no group prefix needed).
 
 **`Test` group:**
