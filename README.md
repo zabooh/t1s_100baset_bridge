@@ -26,7 +26,7 @@ host machine in between.
 - [2. Features](#2-features)
   - [Bridging (core function)](#bridging-core-function)
   - [Diagnostics and bus analysis](#diagnostics-and-bus-analysis)
-  - [LAN8651 register and PHY access](#lan8651-register-and-phy-access-lan865x_diagc-portable-module)
+  - [LAN8651 registers, IEEE test modes and PLCA](#lan8651-registers-ieee-test-modes-and-plca-lan865x_diagc-portable-module)
   - [Persistent configuration (`env` group)](#persistent-configuration-env-group-emulated-eeprom)
   - [Throughput testing](#throughput-testing)
   - [Host-side tooling and build system](#host-side-tooling-and-build-system)
@@ -137,7 +137,7 @@ raw-Ethernet loopback test (`noip_send`), LAN865x register peek/poke
   per-interface TX/RX counters that don't touch the SPI path, plus C-runtime and
   TCP/IP heap figures.
 
-### LAN8651 register and PHY access (`lan865x_diag.c`, portable module)
+### LAN8651 registers, IEEE test modes and PLCA (`lan865x_diag.c`, portable module)
 
 - Generic register peek/poke (`lan_read`, `lan_write`) across all MMS banks,
   address = `MMS<<16 | offset`.
@@ -147,7 +147,8 @@ raw-Ethernet loopback test (`noip_send`), LAN865x register peek/poke
   output voltage/jitter, droop, PSD mask, high impedance — each set with
   automatic readback verification (`[VERIFY] PASS/FAIL`), decoded mode display,
   and an optional auto-revert timeout so a forgotten test mode can't strand the
-  link.
+  link. Details in [§9](#9-transmitter-test-modes), measurement setup per mode in
+  [`LAN8651_TEST_MODES.md`](LAN8651_TEST_MODES.md).
 - PLCA node-ID control (`plca_node [id]`, 0 = coordinator), volatile runtime
   path.
 - Self-contained and portable: two files, depends only on the LAN865x driver
