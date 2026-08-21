@@ -124,7 +124,9 @@ raw-Ethernet loopback test (`noip_send`), LAN865x register peek/poke
 - **Port mirror / SPAN** (`mirror [0|1]`): copies T1S traffic to `eth1` for
   Wireshark, in both directions — RX (endpoint replies addressed to the bridge)
   and TX (the bridge's own outgoing frames, hooked at the LAN865x egress).
-  MAC-filtered so the capture is duplicate-free; verbatim L2 frames.
+  MAC-filtered so the capture is duplicate-free; verbatim L2 frames. Can be made
+  the boot default (`setenv mirror 1`, `saveenv`) so a permanently instrumented
+  board needs no command after a reset.
 - **Raw-frame test** (`noip_send <n> [gap_ms]`, `noip_stat`): deterministic
   EtherType `0x88B5` frames (fixed 60 bytes, fixed payload, monotonic sequence,
   chosen inter-frame gap) that bypass the TCP/IP stack — the best on-board
@@ -136,6 +138,13 @@ raw-Ethernet loopback test (`noip_send`), LAN865x register peek/poke
 - **Counters and memory** (`stats`, `meminfo`, `dump <addr> <count>`):
   per-interface TX/RX counters that don't touch the SPI path, plus C-runtime and
   TCP/IP heap figures.
+- **Build identification** (`timestamp`): the only way to tell from the outside
+  which image is running — worth asking before every measurement. `build.bat`
+  touches `app.c` first, because that is where `__DATE__`/`__TIME__` expand and an
+  incremental build would otherwise report the older date for a new image.
+- **On-device command discovery** (`help`, `lanhelp`): the firmware lists its own
+  commands; the complete reference with examples is
+  [`CLI_COMMANDS.md`](CLI_COMMANDS.md).
 
 ### LAN8651 registers, IEEE test modes and PLCA (`lan865x_diag.c`, portable module)
 
@@ -158,7 +167,14 @@ raw-Ethernet loopback test (`noip_send`), LAN865x register peek/poke
 ### Persistent configuration (`env` group, Emulated EEPROM)
 
 - Versioned, CRC-protected record in the last 16 KB of flash: per-interface
-  IP/mask/gateway/DNS, both MACs, PLCA node id/count.
+  IP/mask/gateway/DNS, both MACs, PLCA node id/count, and the port-mirror boot
+  state.
+- **Records are migrated, not discarded.** The loader demands an exact version
+  match, so adding a field would otherwise re-seed the compiled defaults — and the
+  compiled PLCA node id is `7` while a coordinator runs `0`, a value that can only
+  come from the EEPROM. A firmware update would silently cost the bridge its
+  coordinator role, with nothing in the log pointing at the EEPROM. v3 records are
+  therefore carried over field by field and reported on the console.
 - CLI-editable, no rebuild (`showenv`, `setenv`, `saveenv`, `readenv`,
   `resetenv`) — IP and PLCA apply live, MAC at next reset.
 - Loaded before the stack: `ENV_Init()` runs ahead of `TCPIP_STACK_Init()`, so a
@@ -184,6 +200,10 @@ raw-Ethernet loopback test (`noip_send`), LAN865x register peek/poke
 - Build summary after every build (flash/RAM usage, heap, interrupt handlers).
 - `cli.py` — send CLI commands and collect answers over the EDBG COM port
   (115200 8N1).
+- [`CLI_COMMANDS.md`](CLI_COMMANDS.md) — every command with syntax, description
+  and example output, derived from the firmware's command tables and held against
+  them by `cli_doc_check.py` (non-zero exit on drift: a command with no section, a
+  section with no command, or a dead cross-reference).
 - Automated test scripts with non-zero exit on failure:
   - `test_lan8651.py` — verifies all four test modes on three independent levels
     (register readback, endpoint traffic stops, traffic resumes), using the
