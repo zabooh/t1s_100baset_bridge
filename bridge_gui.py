@@ -175,7 +175,7 @@ class Link:
 
     def open(self):
         if serial is None:
-            raise ImportError("pyserial nicht installiert")
+            raise ImportError("pyserial not installed")
         self.ser = serial.Serial(self.port, self.baud, timeout=0.05)
         self.thread = threading.Thread(target=self._read, daemon=True)
         self.thread.start()
@@ -194,7 +194,7 @@ class Link:
 
     def write(self, data):
         if self.ser is None:
-            raise OSError("nicht verbunden")
+            raise OSError("not connected")
         self.ser.write(data)
 
     def close(self):
@@ -347,16 +347,16 @@ class BridgeGUI:
                 model = json.load(f)
         except FileNotFoundError:
             messagebox.showerror(
-                "Registermodell fehlt",
-                f"{MODEL_FILE.name} wurde nicht gefunden.\n\n"
-                "Der Registertab bleibt leer. Die Datei gehoert neben bridge_gui.py und "
-                "beschreibt den Registersatz des LAN8651 (Adressen, Bitfelder, Herkunft).")
+                "Register model missing",
+                f"{MODEL_FILE.name} was not found.\n\n"
+                "The register tab stays empty. The file belongs next to bridge_gui.py and "
+                "describes the LAN8651 register set: addresses, bit fields, provenance.")
             return {}
         except ValueError as exc:
             messagebox.showerror(
-                "Registermodell unlesbar",
-                f"{MODEL_FILE.name} ist kein gueltiges JSON:\n\n{exc}\n\n"
-                "Der Registertab bleibt leer. Pruefen mit: python check_register_model.py")
+                "Register model unreadable",
+                f"{MODEL_FILE.name} is not valid JSON:\n\n{exc}\n\n"
+                "The register tab stays empty. Check it with: python check_register_model.py")
             return {}
         return model
 
@@ -367,17 +367,39 @@ class BridgeGUI:
                 return json.load(f)
         except FileNotFoundError:
             messagebox.showerror(
-                "Environment-Modell fehlt",
-                f"{ENV_MODEL_FILE.name} wurde nicht gefunden.\n\n"
-                "Der Parametertab bleibt leer. Die Datei beschreibt den EEPROM-Datensatz "
-                "je Kennung und Version.")
+                "Environment model missing",
+                f"{ENV_MODEL_FILE.name} was not found.\n\n"
+                "The parameter tab stays empty. The file describes the EEPROM record "
+                "per environment id and version.")
             return {}
         except ValueError as exc:
             messagebox.showerror(
-                "Environment-Modell unlesbar",
-                f"{ENV_MODEL_FILE.name} ist kein gueltiges JSON:\n\n{exc}\n\n"
-                "Pruefen mit: python check_env_model.py")
+                "Environment model unreadable",
+                f"{ENV_MODEL_FILE.name} is not valid JSON:\n\n{exc}\n\n"
+                "Check it with: python check_env_model.py")
             return {}
+
+    def env_entry_for(self, identity: Optional[dict]) -> dict:
+        """Modelleintrag zu EINER Kennung -- ohne den Zustand der GUI zu befragen.
+
+        Der Worker braucht das: er hat die Kennung gerade erst aus derselben showenv-Ausgabe
+        gezogen, self.env_identity wird aber erst im Main-Thread gesetzt. Griffe er auf
+        env_entry() zurueck, deutete er die Werte nach dem ALTEN Stand -- und die GUI zeigte
+        gefuellte Felder unter einer Zeile, die sagt, sie seien nicht gedeutet.
+        """
+        envs = self.env_model.get("environments", {})
+        if not envs:
+            return {}
+        if not identity:
+            return next(iter(envs.values()))
+        found_id = identity.get("eeprom_id")
+        found_ver = str(identity.get("eeprom_version"))
+        for env in envs.values():
+            if str(env.get("version")) != found_ver:
+                continue
+            if found_id == env.get("id") or found_id in env.get("accepts_ids", []):
+                return env
+        return {}
 
     def env_entry(self) -> dict:
         """Der Modelleintrag, nach dem die GUI gerade arbeitet.
@@ -391,9 +413,16 @@ class BridgeGUI:
         if not envs:
             return {}
         if self.env_identity:
-            want = (self.env_identity.get("eeprom_id"), str(self.env_identity.get("eeprom_version")))
+            found_id = self.env_identity.get("eeprom_id")
+            found_ver = str(self.env_identity.get("eeprom_version"))
             for env in envs.values():
-                if (env.get("id"), str(env.get("version"))) == want:
+                if str(env.get("version")) != found_ver:
+                    continue
+                # 'accepts_ids' sind Alt-Kennungen, die die FIRMWARE noch liest. Fehlten sie
+                # hier, waere die GUI strenger als das Geraet: sie meldete ein unbekanntes
+                # Environment, waehrend die Firmware denselben Datensatz laengst akzeptiert
+                # und gueltige Werte liefert.
+                if found_id == env.get("id") or found_id in env.get("accepts_ids", []):
                     return env
             return {}
         return next(iter(envs.values()))
@@ -407,28 +436,36 @@ class BridgeGUI:
     def env_identity_line(self) -> str:
         """Die Zeile ueber dem Parametertab: was im EEPROM steht und ob wir es deuten koennen."""
         if not self.env_model:
-            return "kein Environment-Modell geladen"
+            return "no environment model loaded"
         if not self.env_identity:
             envs = ", ".join(self.env_model.get("environments", {}))
-            return f"Environment: noch nicht gelesen - Modell kennt {envs}. 'Read All' fragt das Geraet."
+            return f"Environment: not read yet - the model knows {envs}. 'Read All' asks the device."
         ident = self.env_identity
         ee = f"{ident.get('eeprom_id')} v{ident.get('eeprom_version')}"
         fw = f"{ident.get('firmware_id')} v{ident.get('firmware_version')}"
         crc = ident.get("eeprom_crc", "?")
-        if self.env_entry():
-            note = "Modell passt"
-            if ee != fw:
-                note = f"ACHTUNG: EEPROM {ee}, Firmware schreibt {fw} - der Datensatz wurde verworfen"
+        entry = self.env_entry()
+        if entry:
+            if ident.get("eeprom_id") == ident.get("firmware_id"):
+                note = "model fits"
+            else:
+                # Kein Fehler: die Firmware liest diese Alt-Kennung noch und hat den
+                # Datensatz angenommen -- sonst gaebe es hier keinen Modelleintrag. Beim
+                # naechsten saveenv schreibt sie ihn mit der neuen Kennung zurueck.
+                note = (f"legacy id, accepted by the firmware - the next "
+                        f"'{entry.get('commands', {}).get('persist', 'saveenv')}' "
+                        f"rewrites it as {ident.get('firmware_id')}")
             return (f"Environment: EEPROM {ee} (crc {crc}) | Firmware {fw} "
                     f"{ident.get('firmware_variant', '')} - {note}")
-        return (f"ACHTUNG: EEPROM meldet {ee}, dafuer gibt es kein Modell. Die Werte unten "
-                f"sind NICHT gedeutet. Firmware {fw} {ident.get('firmware_variant', '')}")
+        return (f"WARNING: the EEPROM reports {ee}, which this tool has no model for. "
+                f"The values below are NOT interpreted. Firmware {fw} "
+                f"{ident.get('firmware_variant', '')}")
 
     def model_source_line(self) -> str:
         """Einzeiler zur Herkunft, den die GUI anzeigt -- damit sie nicht mehr behauptet,
         als sie belegen kann."""
         if not self.model:
-            return "kein Registermodell geladen"
+            return "no register model loaded"
         ds = self.model.get("sources", {}).get("datasheet", {})
         er = self.model.get("sources", {}).get("errata", {})
         ver = self.model.get("verification", {})
@@ -860,9 +897,9 @@ class BridgeGUI:
 
         ttk.Label(
             script_frame,
-            text="Vollständige Testsuite (Readback, Verkehr stoppt, Verkehr kommt wieder):\n"
+            text="Full test suite (readback, traffic stops, traffic returns):\n"
                  "    python test_lan8651.py --port <COM>\n"
-                 "Vorher hier auf Disconnect drücken - das Skript braucht den Port exklusiv.",
+                 "Press Disconnect here first - the script needs the port to itself.",
             justify=tk.LEFT, font=("Courier", 9)
         ).pack(anchor=tk.W)
 
@@ -910,7 +947,7 @@ For detailed measurement setup and verification procedures, see LAN8651_TEST_MOD
         ctrl_frame = ttk.Frame(frame)
         ctrl_frame.pack(side=tk.TOP, fill=tk.X, padx=4, pady=4)
 
-        ttk.Button(ctrl_frame, text="Alles löschen", width=14, command=self.terminal_clear_all).pack(side=tk.LEFT, padx=2)
+        ttk.Button(ctrl_frame, text="Clear all", width=14, command=self.terminal_clear_all).pack(side=tk.LEFT, padx=2)
 
         # Terminal display
         self.terminal_text = scrolledtext.ScrolledText(
@@ -972,10 +1009,10 @@ For detailed measurement setup and verification procedures, see LAN8651_TEST_MOD
                 try:
                     self.port_link.write(data)
                 except OSError as e:
-                    self.terminal_note(f"nicht verbunden: {e}")
+                    self.terminal_note(f"not connected: {e}")
             else:
                 print("DEBUG: No port_link")
-                self.terminal_note("nicht verbunden")
+                self.terminal_note("not connected")
 
         return "break"
 
@@ -994,13 +1031,13 @@ For detailed measurement setup and verification procedures, see LAN8651_TEST_MOD
             try:
                 self.port_link.write(b"\x03")
             except OSError:
-                self.terminal_note("nicht verbunden")
+                self.terminal_note("not connected")
         return "break"
 
     def terminal_on_paste(self, _event=None):
         """Paste from clipboard"""
         if not self.port_link:
-            self.terminal_note("nicht verbunden")
+            self.terminal_note("not connected")
             return "break"
         try:
             text = self.root.clipboard_get()
@@ -1088,7 +1125,7 @@ For detailed measurement setup and verification procedures, see LAN8651_TEST_MOD
                 if kind == "data":
                     self.terminal_feed(payload)
                 elif kind == "lost":
-                    self.terminal_note(f"Verbindung verloren: {payload}")
+                    self.terminal_note(f"Connection lost: {payload}")
                     self.port_link = None
                     self.disconnect_device()
         except queue.Empty:
@@ -1248,14 +1285,14 @@ Example commands:
         """Kommando über den offenen Link absetzen, Antwort ins Command Output."""
         if not self.port_link:
             self.set_error_status("Not connected")
-            messagebox.showwarning("Nicht verbunden",
-                                   "Erst auf Connect drücken, dann das Kommando.")
+            messagebox.showwarning("Not connected",
+                                   "Press Connect first, then send the command.")
             return
 
         def worker():
             output = self.send_command_via_link(command, timeout_ms=timeout_ms)
             text = self.clean_response(command, output)
-            self.result_queue.put(("cmd_result", bool(text), text or "keine Antwort"))
+            self.result_queue.put(("cmd_result", bool(text), text or "no response"))
 
         threading.Thread(target=worker, daemon=True).start()
         self.set_status(f"Running: {command}")
@@ -1299,7 +1336,7 @@ Example commands:
                     self.update_connection_indicator()
                     self.set_status(f"Connected to {link.port}", duration=2000)
                     if hasattr(self, 'terminal_note'):
-                        self.terminal_note(f"verbunden: {link.port}")
+                        self.terminal_note(f"connected: {link.port}")
                     if hasattr(self, 'bridge_output'):
                         self.bridge_output.config(state=tk.NORMAL)
                         timestamp = time.strftime("%H:%M:%S")
@@ -1346,7 +1383,7 @@ Example commands:
                 elif result[0] == "bulk_progress":
                     _, done, total, failed = result
                     self.set_status(f"Reading registers {done}/{total}"
-                                    + (f"  ({failed} ohne Antwort)" if failed else ""))
+                                    + (f"  ({failed} without a response)" if failed else ""))
 
                 elif result[0] == "bridge_read":
                     _, key, success, value = result
@@ -1366,16 +1403,19 @@ Example commands:
                         # anderes als "noch nicht gefragt" und muss auch so dastehen,
                         # sonst haelt man eine alte Firmware fuer eine ungelesene.
                         self.env_identity_var.set(
-                            "Environment: das Geraet hat keine Kennung gemeldet - Firmware "
-                            "aelter als die Kennungszeile in showenv. Die Werte unten sind "
-                            "nach dem Modell gedeutet, ohne Nachweis, dass es passt.")
+                            "Environment: the device reported no id - this firmware "
+                            "predates the identity line in showenv. The values below are read "
+                            "with the model, without proof that it fits.")
                         self.env_identity_label_color(False)
                     else:
                         self.env_identity_var.set(self.env_identity_line())
-                        known = bool(self.env_entry())
-                        matches = self.env_identity.get("eeprom_id") == \
-                                  self.env_identity.get("firmware_id")
-                        self.env_identity_label_color(known and matches)
+                        # Rot heisst "den Werten unten ist nicht zu trauen", nicht "die
+                        # Kennung ist neu". Eine Alt-Kennung, die die Firmware annimmt,
+                        # ist eine Information -- faerbte man sie rot, gewoehnte man sich
+                        # an eine rote Zeile, und die echte Warnung ginge darin unter.
+                        usable = bool(self.env_entry()) and \
+                            self.env_identity.get("eeprom_crc", "").lower() == "ok"
+                        self.env_identity_label_color(usable)
 
         except queue.Empty:
             pass
@@ -1472,25 +1512,28 @@ Example commands:
         """Alle Bridge-Parameter mit einem showenv holen."""
         if not self.port_link:
             self.set_error_status("Not connected")
-            messagebox.showwarning("Nicht verbunden", "Erst auf Connect drücken.")
+            messagebox.showwarning("Not connected", "Press Connect first.")
             return
 
         self.set_status("Reading bridge parameters...")
 
         def worker():
             output = self.send_command_via_link("showenv", timeout_ms=1500)
-            # Erst die Kennung: sie entscheidet, welcher Modelleintrag gilt und ob die
-            # Werte darunter ueberhaupt gedeutet werden duerfen.
-            self.result_queue.put(("env_identity", self.parse_env_identity(output)))
+            # Erst die Kennung, und die Werte werden mit GENAU diesem Eintrag gedeutet.
+            # Sonst zeigt die GUI gefuellte Felder unter einer Zeile, die sagt, das
+            # Environment sei unbekannt -- beides aus derselben Antwort, und widerspruechlich.
+            ident = self.parse_env_identity(output)
+            entry = self.env_entry_for(ident)
+            self.result_queue.put(("env_identity", ident))
             found = 0
             for key in self.bridge_fields:
-                value = self.parse_showenv(output, key)
+                value = self.parse_showenv(output, key, entry)
                 if value is not None:
                     found += 1
                 self.result_queue.put(("bridge_read", key, value is not None, value or ""))
             self.result_queue.put(("cmd_result", found > 0,
                                    self.clean_response("showenv", output)
-                                   or "showenv: keine Antwort"))
+                                   or "showenv: no response"))
 
         threading.Thread(target=worker, daemon=True).start()
 
@@ -1510,7 +1553,7 @@ Example commands:
         """
         if not self.port_link:
             self.set_error_status("Not connected")
-            messagebox.showwarning("Nicht verbunden", "Erst auf Connect drücken.")
+            messagebox.showwarning("Not connected", "Press Connect first.")
             return
 
         if not self.env_identity:
@@ -1522,12 +1565,12 @@ Example commands:
         if not env:
             ident = self.env_identity or {}
             messagebox.showerror(
-                "Unbekanntes Environment",
-                f"Das Geraet meldet die Kennung {ident.get('eeprom_id', '?')} "
-                f"v{ident.get('eeprom_version', '?')}, dafuer gibt es kein Modell in "
+                "Unknown environment",
+                f"The device reports environment id {ident.get('eeprom_id', '?')} "
+                f"v{ident.get('eeprom_version', '?')}, which has no model in "
                 f"{ENV_MODEL_FILE.name}.\n\n"
-                "Es wird nichts geschrieben: welche Felder dieses Environment hat und mit "
-                "welchen Schluesseln sie heissen, waere geraten.")
+                "Nothing was written: which fields this environment has, and what they are "
+                "called, would be guesswork.")
             return
 
         cmds = []
@@ -1540,14 +1583,14 @@ Example commands:
                 cmds.append(cmd)
 
         if not cmds:
-            messagebox.showinfo("Info", "Keine schreibbaren Parameter gefüllt.")
+            messagebox.showinfo("Info", "No writable parameter has a value.")
             return
 
         persist_cmd = env.get("commands", {}).get("persist", "saveenv")
         if not messagebox.askyesno(
-                "Environment schreiben?",
-                f"{len(cmds)} Werte an das Geraet schicken und mit '{persist_cmd}' "
-                f"ins EEPROM legen?\n\n" + "\n".join(cmds) + f"\n{persist_cmd}"):
+                "Write environment?",
+                f"Send {len(cmds)} values to the device and store them in the EEPROM "
+                f"with '{persist_cmd}'?\n\n" + "\n".join(cmds) + f"\n{persist_cmd}"):
             return
 
         def worker():
@@ -1584,14 +1627,18 @@ Example commands:
         template = env.get("commands", {}).get("write_field", "setenv {cli_key} {value}")
         return template.format(cli_key=fld["cli_key"], value=value)
 
-    def parse_showenv(self, output: str, key: str) -> Optional[str]:
+    def parse_showenv(self, output: str, key: str, entry: Optional[dict] = None) -> Optional[str]:
         """Einen Wert aus der showenv-Ausgabe ziehen -- mit dem Muster aus dem Modell.
+
+        'entry' erlaubt es, den Modelleintrag mitzugeben, statt den aktuellen der GUI zu
+        nehmen: der Worker hat die Kennung aus derselben Ausgabe schon aufgeloest.
 
         'reads_as' bildet die Anzeige des Geraets auf den Wert ab, den setenv erwartet
         (mirror meldet ON/OFF, geschrieben wird 1/0). Ohne das steht in der GUI ein Wort,
         das man nicht zurueckschreiben kann.
         """
-        fld = self.env_entry().get("fields", {}).get(key)
+        env = self.env_entry() if entry is None else entry
+        fld = env.get("fields", {}).get(key)
         if not fld or not fld.get("pattern"):
             return None
         m = re.search(fld["pattern"], output)
@@ -1638,7 +1685,7 @@ Example commands:
 
         cmd = self.bridge_write_command(key, value)
         if not cmd:
-            messagebox.showinfo("Info", f"Das Modell kennt kein Schreibkommando fuer {key}.")
+            messagebox.showinfo("Info", f"The model has no write command for {key}.")
             return
 
         fld = self.env_entry().get("fields", {}).get(key, {})
@@ -1758,7 +1805,7 @@ Example commands:
             if failed:
                 self.result_queue.put(("cmd_result", True,
                                        f"Bulk read: {len(addrs)-len(failed)}/{len(addrs)} ok, "
-                                       f"keine Antwort von: {', '.join(failed[:12])}"
+                                       f"no response from: {', '.join(failed[:12])}"
                                        + (" ..." if len(failed) > 12 else "")))
 
         threading.Thread(target=worker, daemon=True).start()
@@ -1812,7 +1859,7 @@ Example commands:
         eine Funktion, die eine Datei nicht schreibt, kann sie nicht kaputtmachen.
         """
         if not self.register_fields:
-            messagebox.showwarning("Warnung", "Kein Registermodell geladen - nichts gespeichert.")
+            messagebox.showwarning("Warning", "No register model loaded - nothing saved.")
             return
 
         values = {addr: var.get() for addr, var in self.register_fields.items() if var.get()}
@@ -1820,8 +1867,8 @@ Example commands:
         self.config.pop("registers", None)  # Altlast aus der Zeit, als die Karte hier stand
         self.save_config()
 
-        self.set_status(f"{len(values)} Registerwerte gespeichert "
-                        f"(Modell unveraendert)", duration=3000)
+        self.set_status(f"{len(values)} register values saved "
+                        f"(model untouched)", duration=3000)
 
     def load_registers_json(self):
         """Gespeicherte Registerwerte zurueck in die Felder holen."""
@@ -1850,7 +1897,7 @@ Example commands:
                 self.register_fields[key].set(str(value))
                 n += 1
 
-        self.set_status(f"{n} Registerwerte aus JSON geladen", duration=3000)
+        self.set_status(f"{n} register values loaded from JSON", duration=3000)
 
     # Test mode methods
     def read_testmode(self):

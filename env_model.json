@@ -19,6 +19,9 @@
       "id": "EBRG",
       "version": 4,
       "variant": "t1s_100baset_bridge",
+      "accepts_ids": [
+        "LANE"
+      ],
       "description": "10BASE-T1S <-> 100BASE-T layer 2 bridge on the SAM E54.",
       "source": {
         "file": "firmware/src/env.c",
