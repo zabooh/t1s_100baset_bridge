@@ -14,6 +14,8 @@ so this tool finds it automatically and feeds it to pyOCD via --pack.
 """
 
 import argparse
+import json
+import os
 import subprocess
 import sys
 import tempfile
@@ -23,6 +25,7 @@ from pathlib import Path
 DEFAULT_TARGET = "atsame54p20a"
 PACK_CACHE = Path.home() / ".mchp_packs" / "Microchip" / "SAME54_DFP"
 MPLABX_ROOT = Path("C:/Program Files/Microchip/MPLABX")
+BENCH_PATH = Path(__file__).parent / "bench.json"
 
 
 def _version_key(name):
@@ -72,6 +75,41 @@ def resolve_pack(explicit):
     if pack_dir is None:
         return None
     return ensure_pack_file(pack_dir)
+
+
+def load_bench():
+    """Return bench.json as a dict, or an empty dict if it does not exist / is unreadable.
+
+    A broken bench.json must never stop a flash: the probe selection is a convenience,
+    and pyOCD can still pick the probe itself when exactly one board is connected.
+    """
+    try:
+        with open(BENCH_PATH, "r", encoding="utf-8") as fh:
+            data = json.load(fh)
+        return data if isinstance(data, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+
+def save_bench(data):
+    """Write bench.json atomically.
+
+    Serialise first, then replace: an encoding error must not leave a truncated file
+    behind, and a reader must never see a half-written one.
+    """
+    ordered = {k: data[k] for k in ("version", "note", "selected") if k in data}
+    ordered.update({k: v for k, v in data.items() if k not in ordered})
+    blob = (json.dumps(ordered, indent=2, ensure_ascii=False) + "\n").encode("utf-8")
+    tmp = BENCH_PATH.with_suffix(".json.tmp")
+    with open(tmp, "wb") as fh:
+        fh.write(blob)
+    os.replace(tmp, BENCH_PATH)
+
+
+def selected_probe():
+    """Serial of the probe picked with 'install.bat --select', or None if none is recorded."""
+    value = load_bench().get("selected")
+    return value if isinstance(value, str) and value else None
 
 
 def list_probes():
@@ -130,12 +168,21 @@ def main():
     parser.add_argument("--frequency", "-f", type=int, default=2_000_000, help="SWD clock in Hz (default: 2000000)")
     parser.add_argument("--no-reset", action="store_true", help="Skip the reset-and-run after flashing")
     parser.add_argument("--list", action="store_true", help="List connected probes and exit")
+    parser.add_argument("--show-probe", action="store_true",
+                        help="Print the probe serial recorded in bench.json and exit (nothing if none). "
+                             "flash.bat uses this to pick the board chosen with 'install.bat --select'.")
     parser.add_argument("--read", nargs=2, metavar=("ADDRESS", "LENGTH"),
                          help="Read LENGTH bytes starting at ADDRESS (e.g. 0x0) instead of flashing. "
                               "Prints a hex dump unless --out is given.")
     parser.add_argument("--out", help="With --read: save the read memory to this binary file instead of printing a hex dump")
     parser.add_argument("--dry-run", action="store_true", help="Print the pyOCD commands without executing them")
     args = parser.parse_args()
+
+    if args.show_probe:
+        chosen = selected_probe()
+        if chosen:
+            print(chosen)
+        sys.exit(0 if chosen else 1)
 
     if args.list:
         probes = list_probes()
@@ -151,9 +198,18 @@ def main():
             parser.error(f"image not found: {image}")
 
     if not args.probe:
+        # Fall back to the board recorded with 'install.bat --select'. flash.bat resolves
+        # the same value itself (so it can show it), so this path serves direct callers of
+        # this script - both end up at the one implementation in selected_probe().
+        args.probe = selected_probe()
+        if args.probe:
+            print(f"Using probe from bench.json: {args.probe}")
+
+    if not args.probe:
         probes = list_probes()
         if len(probes) > 1:
-            parser.error("multiple probes connected; pass --probe/-u with one of the unique IDs listed above")
+            parser.error("multiple probes connected; pass --probe/-u with one of the unique IDs listed "
+                         "above, or record one once with 'install.bat --select'")
 
     pack = resolve_pack(args.pack)
     if pack is None:

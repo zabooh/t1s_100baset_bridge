@@ -26,3 +26,7 @@ __pycache__/
 # MCC backup artifacts (written when migrating .mc3 -> the v5.6 YAML model)
 *.mc3.bak0
 *.bak0
+
+# probe selection is per-machine: install.bat writes it, the serial means
+# nothing on another bench (and a wrong -u makes flash.bat fail outright).
+bench.json
