@@ -1,0 +1,17 @@
+{
+  "projects": {
+    "bridge": {
+      "description": "10BASE-T1S <-> 100BASE-T bridge (firmware/T1S_100BaseT_Bridge.X)",
+      "probe": "ATML3264031800001049"
+    },
+    "follower": {
+      "description": "PTP follower on T1S, board B - node 1, 192.168.0.201 (COM23, Saleae Ch0) - gemessen 2026-08-17 per showenv",
+      "probe": "ATML3264031800001103"
+    },
+    "follower_a": {
+      "description": "PTP follower on T1S, board A - node 2, 192.168.0.202 (COM10, Saleae Ch1) - gemessen 2026-08-17 per showenv",
+      "probe": "ATML3264031800001290"
+    }
+  },
+  "version": 1
+}

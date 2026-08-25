@@ -18,6 +18,8 @@
 | `README.md` | Ausführliche Projektdoku (**englisch**): Hardware-BOM, Architektur, CLI, Mirror, iperf, `env` |
 | `LAN8651_TEST_MODES.md` | **Vertiefung zu Abschnitt 3+4 dieser Datei** (**englisch**) — die vier Modi, Messaufbau am Bus, generischer Registerweg vs. `testmode`/`lan_rmw`, Messprotokoll |
 | `cli.py` | Kommandos über COM-Port schicken und Antworten einsammeln |
+| `bridge_gui.py` | **Bedien-GUI** (tkinter): Bridge-Parameter, alle 182 LAN8651-Register mit Bitfeldern, Testmodi, Terminal. **Standalone** — braucht nur `pyserial` und `bridge_config.json`, ruft weder `cli.py` noch `test_lan8651.py` auf (Abschnitt 6) |
+| `bridge_config.json` | Registerkarte für die GUI: Adresse, Mnemonic, Beschreibung, Bitfelder — erzeugt aus dem Datenblatt, Abschnitt 6 |
 
 **Hardware:** SAM E54 Curiosity Ultra (DM320210) + LAN8740A PHY Daughter Board (AC320004-3) an
 `eth1` + MikroElektronika Two-Wire ETH Click mit **LAN8651** (MIKROE-5543) an `eth0`, SPI CS = PC15,
@@ -360,6 +362,78 @@ Erst zurückstellen, dann Verkehr messen.
   stellt den Stand wieder her (für Fall 2 genügt auch `git update-index --refresh`).
   **Merksatz:** vor dem Committen nach einem IDE-Lauf `git diff -- <pfad>` fragen, nicht `git status`
   — sonst committet man einen ~22 000-Zeilen-Hex-Diff oder eine Datei, die sich gar nicht geändert hat.
+- **2026-08-25 — Registernamen und -adressen NICHT aus der Firmware ableiten und schon gar nicht
+  raten: die vollständige Karte steht im Datenblatt, Kapitel 11.** Die Firmware kennt nur die fünf
+  `#define`s in `lan865x_diag.h:57-61`, die der Code selbst braucht (`T1STSTCTL`, `T1SPMACTL`,
+  `T1SPMASTS`, `PLCA_CTRL1`); das Schwesterprojekt `t1s_ptp_bridge` hat zusätzlich SQI (`0x000400A0/A1/AA/AC`)
+  und Wallclock/1PPS (`MAC_TSL 0x00010074`, `MAC_TN 0x00010075`, `PADCTRL 0x000A0088`,
+  `PPSCTL 0x000A0239`). Eine *Sammlung* ist das nicht. Ich habe für die GUI Namen und Adressen aus
+  dem Gedächtnis ergänzt und dabei **vier nicht existierende Register erfunden** (`0x00010078`
+  „MAC_TO", `0x0002000C` „PHY_PCS_STATUS", `0x00030001` „PMA_STATUS1", `0x00030002` „DEVICE_ID") und
+  **zwei falsch benannt** (`0x0004CA03` ist **PLCA_STS**, nicht PLCA_CTRL0; `0x0004CA04` ist
+  **PLCA_TOTMR**, nicht PLCA_STATUS — PLCA_CTRL0 liegt auf `0x0004CA01`). Symptom: `lan_read` liefert
+  für die Fantasieadressen nichts, und die falschen Namen fallen gar nicht auf, weil der Wert
+  plausibel aussieht. **Quelle ist `…\OneDrive\Documents\W\WNET\LAN865x\LAN8650-1-Data-Sheet-60001734.pdf`.**
+  Zwei Stellen darin: **Tabelle 4-6** (S. 49–51) listet die schützbaren Nicht-PHY-Register kompakt als
+  MMS/Adresse/Mnemonic/Name; **Kapitel 11** enthält alle 182 Register einzeln. Extraktionsrezept mit
+  `fitz`: Kopf- und Fußzeilen wegwerfen, alle Seiten zu *einem* Textstrom zusammenfügen (Registerblöcke
+  laufen über Seitengrenzen), dann Blöcke über
+  `(11\.\d+\.\d+)\.\s*(.+?)\nName:\s*\n\s*(\w+)\s*\nAddress:\s*\n\s*(0x[0-9A-Fa-f]+)` greifen und die
+  Bitfelder je Block über `^Bits?\s+(\d+)(?::(\d+))?\s*[-–—]\s*(\S+?)(?:\[[\d:]+\])?\s+(.*)$`.
+  Die Abschnittsnummer gibt die MMS: 11.1→0, 11.2→1, 11.3→2, 11.4→3, 11.5→4, 11.6→10; volle Adresse
+  ist `MMS<<16 | offset`. Ergebnis: MMS 0 = 22, MMS 1 = 38, MMS 2 = 4, MMS 3 = 5, MMS 4 = 62,
+  MMS 10 = 51 Register. **Zwei Fallstricke beim Parsen:** die Adressen im PDF haben uneinheitliche
+  Breite (`0x000`, `0x03`, `0x0002`) — über `int(x, 16)` normalisieren, nicht über die Zeichenzahl;
+  und der Trennstrich vor dem Feldnamen ist mal `-`, mal `–`, mal `—` — alle drei in die Zeichenklasse
+  aufnehmen, sonst fehlen Bitfelder lautlos.
+- **2026-08-25 — Der COM-Port ist exklusiv, deshalb darf in `bridge_gui.py` NICHTS über einen
+  Unterprozess laufen.** `cli.py:47` macht `serial.Serial(args.port, ...)` und öffnet den Port selbst;
+  dasselbe gilt für `test_lan8651.py`. Solange die GUI verbunden ist, bekommt jeder solche Aufruf
+  „Zugriff verweigert" — und zwar **im Unterprozess**, während das Fenster im Vordergrund normal
+  aussieht. Die GUI führt alle Kommandos deshalb über ihre eine offene Verbindung aus
+  (`BridgeGUI.send_command_via_link`); `cli.py` und `test_lan8651.py` werden nicht mehr aufgerufen.
+  Wer die Testsuite fahren will, drückt vorher **Disconnect**. **Merksatz für jedes Werkzeug an dieser
+  Hardware: wer den Port hält, hält ihn allein — zwei Zugriffswege im selben Programm sind ein
+  Entwurfsfehler, kein Komfortmerkmal.**
+- **2026-08-25 — Zwei Konsumenten an derselben Queue zerreißen die Antwort, und das Symptom sieht aus
+  wie ein Geräteproblem.** In `bridge_gui.py` lasen `terminal_process_queue()` (Main-Thread, alle
+  30 ms) und der Kommando-Worker aus **derselben** Queue. Beim Bulk-Read hat mal der eine, mal der
+  andere einen Chunk erwischt; einzelne Register blieben leer, andere nicht, und zwar bei jedem Lauf
+  andere. Ich habe erst die Registeradressen verdächtigt — falsch. **Lösung:** die serielle Weiche in
+  `process_queue()` legt jeden Datenblock in **beide** Queues (`terminal_q` zur Anzeige,
+  `cmd_response_q` nur solange `cmd_pending` gesetzt ist), dazu ein `cmd_lock`, damit nicht zwei
+  Kommandos gleichzeitig laufen. **Merksatz: ein sporadisch leeres Ergebnis bei mehreren Lesern einer
+  Queue ist fast immer der Wettlauf, nicht das Gerät.**
+- **2026-08-25 — `lambda e: canvas.configure(...)` in einer Tab-Schleife bindet die Schleifenvariable,
+  nicht das jeweilige Widget.** In `create_registers_tab()` bekam dadurch **nur der zuletzt erzeugte
+  Tab** eine gültige `scrollregion`; alle anderen ließen sich nicht über die sichtbare Höhe hinaus
+  scrollen, und weil oben trotzdem Register standen, sah es nach „Tab ist eben kurz" aus statt nach
+  einem Fehler. Betrifft jede Bindung im Schleifenrumpf, auch die Mausrad-Funktion selbst
+  (`lambda e, fn=_on_wheel: ...`). **Richtig ist ein Default-Argument je Bindung** (`def _on(event, cv=canvas)`).
+  Prüfen lässt es sich ohne Klicken: Tab für Tab anwählen, `root.update()`, dann
+  `canvas.cget("scrollregion")` gegen `canvas.bbox("all")` vergleichen — die Region muss die
+  Inhaltshöhe abdecken, in **jedem** Tab.
+- **2026-08-25 — „Save to JSON" in der GUI hat die Registerkarte vernichtet, und zwar lautlos.**
+  `save_registers_json()` setzte `self.config["registers"] = {}` und schrieb dann `{Adresse: Wert}`
+  zurück. Ein Klick genügte: Mnemonic, Beschreibung und Bitfelder aller 182 Register waren weg,
+  Register ohne gelesenen Wert fielen ganz aus der Datei. Beim nächsten Start griff dann der
+  Alt-Format-Zweig (`isinstance(info, dict)` ist bei einem String falsch), und die GUI zeigte nur noch
+  nackte Adressen — **ohne Fehlermeldung, ohne dass die Datei kaputt aussah**, sie war ja gültiges
+  JSON. Drei Lehren: (1) **eine Speicherfunktion, die ihre Struktur aus den Widgets neu aufbaut,
+  verliert alles, was nicht in einem Widget steht** — die Karte lebt jetzt in `self.register_meta`,
+  und gespeichert wird nur noch das Feld `value`; (2) `open(pfad, 'w')` leert die Datei beim Öffnen,
+  deshalb `json.dumps(...).encode()` zuerst und dann `os.replace()` über eine Nachbardatei — ein
+  Serialisierungsfehler fliegt so, bevor irgendetwas angefasst wird; (3) `load_registers_json()` hatte
+  denselben Denkfehler in der Gegenrichtung und schrieb bei der neuen Struktur das **ganze
+  Registerobjekt** ins Wertfeld. **Prüfung dagegen:** Roundtrip auf einer Kopie der Config —
+  Registeranzahl, Bitfeldanzahl und ein Stichproben-Mnemonic vor und nach `save_registers_json()`
+  vergleichen (`scratchpad/roundtrip.py`, 11 Prüfungen).
+- **2026-08-25 — `addr.upper()` normalisiert eine Hex-Adresse NICHT, es zerstört sie:** aus
+  `0x0004CA02` wird `0X0004CA02`, und jeder Vergleich gegen `0x…` schlägt fehl. Genau daran ist die
+  Wertübernahme beim Neuerzeugen von `bridge_config.json` gescheitert — stillschweigend, das Ergebnis
+  war eine Datei mit vollständiger Karte und lauter leeren Werten. Für Adressen als Schlüssel
+  `int(a, 16)` vergleichen oder `"0x%08X" % int(a, 16)` formatieren, nie `.upper()` auf den ganzen
+  String.
 
 ---
 

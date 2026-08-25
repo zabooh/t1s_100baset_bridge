@@ -1,0 +1,1824 @@
+{
+  "comport": "COM8",
+  "baudrate": 115200,
+  "bridge": {
+    "ip_eth0": "192.168.0.200",
+    "ip_eth1": "192.168.0.210",
+    "mac_eth0": "00:04:25:1A:00:00",
+    "mac_eth1": "00:04:25:1A:00:01",
+    "plca_id": 0,
+    "plca_cnt": 8
+  },
+  "registers": {
+    "MMS0 OA Standard": {
+      "0x00000000": {
+        "name": "OA_ID",
+        "description": "Identification Register",
+        "value": "0x00000011",
+        "bitfields": {
+          "7:4": "MAJVER - Major Version",
+          "3:0": "MINVER - Minor Version"
+        }
+      },
+      "0x00000001": {
+        "name": "OA_PHYID",
+        "description": "PHY Identification Register",
+        "value": "0x0007C1B3",
+        "bitfields": {
+          "31:10": "OUI - Organizationally Unique Identifier",
+          "9:4": "MODEL - Manufacturerâ€™s Model Number",
+          "3:0": "REVISION - Manufacturerâ€™s Revision Number"
+        }
+      },
+      "0x00000002": {
+        "name": "OA_STDCAP",
+        "description": "Standard Capabilities",
+        "value": "0x000005E5",
+        "bitfields": {
+          "10": "TXFCSVC - Transmit Frame Check Sequence Validation Capability",
+          "9": "IPRAC - Indirect PHY Register access Capability",
+          "8": "DPRAC - Direct PHY Register Access Capability",
+          "7": "CTC - Cut-through Capability",
+          "6": "FTSC - Frame Timestamp Capability",
+          "5": "AIDC - Address Increment Disable Capability",
+          "4": "SEQC - Transmit Data Block Sequence and Retry Capability",
+          "2:0": "MINBPS - Minimum Block Payload Size Capability"
+        }
+      },
+      "0x00000003": {
+        "name": "OA_RESET",
+        "description": "Reset Control and Status Register",
+        "value": "0x00000000",
+        "bitfields": {
+          "0": "SWRESET - Software Reset"
+        }
+      },
+      "0x00000004": {
+        "name": "OA_CONFIG0",
+        "description": "Configuration 0 Register",
+        "value": "0x000092E6",
+        "bitfields": {
+          "15": "SYNC - Configuration Synchronization",
+          "14": "TXFCSVE - Transmit Frame Check Sequence Validation Enable",
+          "13:12": "RFA - Receive Frame Alignment",
+          "11:10": "TXCTHRESH - Transmit Credit Threshold",
+          "9": "TXCTE - Transmit Cut-Through Enable",
+          "8": "RXCTE - Receive Cut-Through Enable",
+          "7": "FTSE - Frame Timestamp Enable",
+          "6": "FTSS - Frame Timestamp Select",
+          "5": "PROTE - Control Data Read/Write Protection Enable",
+          "4": "SEQE - Transmit data block header Sequence bit support Enable",
+          "2:0": "BPS - Block Payload Size"
+        }
+      },
+      "0x00000008": {
+        "name": "OA_STATUS0",
+        "description": "Status 0 Register",
+        "value": "0x00000100",
+        "bitfields": {
+          "12": "CPDE - Control Data Protection Error",
+          "11": "TXFCSE - Transmit Frame Check Sequence Error",
+          "10": "TTSCAC - Transmit Timestamp Capture Available C",
+          "9": "TTSCAB - Transmit Timestamp Capture Available B",
+          "8": "TTSCAA - Transmit Timestamp Capture Available A",
+          "7": "PHYINT - PHY Interrupt",
+          "6": "RESETC - Reset Complete",
+          "5": "HDRE - Header Error Status",
+          "4": "LOFE - Loss of Framing Error Status",
+          "3": "RXBOE - Receive Buffer Overflow Error Status",
+          "2": "TXBUE - Transmit Buffer Underflow Error Status",
+          "1": "TXBOE - Transmit Buffer Overflow Error Status",
+          "0": "TXPE - Transmit Protocol Error Status"
+        }
+      },
+      "0x00000009": {
+        "name": "OA_STATUS1",
+        "description": "Status 1 Register",
+        "value": "0x00000000",
+        "bitfields": {
+          "28": "SEV - Synchronization Event",
+          "26": "TTSCMC - Transmit Timestamp Capture Missed C",
+          "25": "TTSCMB - Transmit Timestamp Capture Missed B",
+          "24": "TTSCMA - Transmit Timestamp Capture Missed A",
+          "23": "TTSCOFC - Transmit Timestamp Capture Overflow C",
+          "22": "TTSCOFB - Transmit Timestamp Capture Overflow B",
+          "21": "TTSCOFA - Transmit Timestamp Capture Overflow A",
+          "20": "BUSER - Internal Bus Error",
+          "19": "UV18 - 1.8V supply Under-Voltage Status",
+          "18": "ECC - SRAM ECC Error Status",
+          "17": "FSMSTER - FSM State Error Status",
+          "1": "TXNER - Transmit Non-Recoverable Error Status",
+          "0": "RXNER - Receive Non-Recoverable Error Status"
+        }
+      },
+      "0x0000000B": {
+        "name": "OA_BUFSTS",
+        "description": "Buffer Status Register",
+        "value": "0x00003000",
+        "bitfields": {
+          "15:8": "TXC - Transmit Credits Available",
+          "7:0": "RBA - Receive Blocks Available"
+        }
+      },
+      "0x0000000C": {
+        "name": "OA_IMASK0",
+        "description": "Interrupt Mask 0 Register",
+        "value": "0x00000100",
+        "bitfields": {
+          "12": "CPDEM - Control Data Protection Error Interrupt Mask",
+          "11": "TXFCSEM - Transmit Frame Check Sequence Error Interrupt Mask",
+          "10": "TTSCACM - Transmit Timestamp Capture Available C Interrupt Mask",
+          "9": "TTSCABM - Transmit Timestamp Capture Available B Interrupt Mask",
+          "8": "TTSCAAM - Transmit Timestamp Capture Available A Interrupt Mask",
+          "7": "PHYINTM - PHY Interrupt Mask",
+          "6": "RESETCM - Reset Complete Interrupt Mask",
+          "5": "HDREM - Header Error Interrupt Mask",
+          "4": "LOFEM - Loss of Framing Error Interrupt Mask",
+          "3": "RXBOEM - Receive Buffer Overflow Error Interrupt Mask",
+          "2": "TXBUEM - Transmit Buffer Underflow Error Interrupt Mask",
+          "1": "TXBOEM - Transmit Buffer Overflow Error Interrupt Mask",
+          "0": "TXPEM - Transmit Protocol Error Interrupt Mask"
+        }
+      },
+      "0x0000000D": {
+        "name": "OA_IMASK1",
+        "description": "Interrupt Mask 1 Register",
+        "value": "0x3FFE0003",
+        "bitfields": {
+          "28": "SEVM - Synchronization Event Interrupt Mask",
+          "26": "TTSCMCM - Transmit Timestamp Capture Missed C Interrupt Mask",
+          "25": "TTSCMBM - Transmit Timestamp Capture Missed B Interrupt Mask",
+          "24": "TTSCMAM - Transmit Timestamp Capture Missed A Interrupt Mask",
+          "23": "TTSCOFCM - Transmit Timestamp Capture Overflow C Interrupt Mask",
+          "22": "TTSCOFBM - Transmit Timestamp Capture Overflow B Interrupt Mask",
+          "21": "TTSCOFAM - Transmit Timestamp Capture Overflow A Interrupt Mask",
+          "20": "BUSERM - Internal Bus Error Interrupt Mask",
+          "19": "UV18M - 1.8V supply Under-Voltage Interrupt Mask",
+          "18": "ECCM - SRAM ECC Error Interrupt Mask",
+          "17": "FSMSTERM - FSM State Error Interrupt Mask",
+          "1": "TXNERM - Transmit Non-Recoverable Error Interrupt Mask",
+          "0": "RXNERM - Receive Non-Recoverable Error Interrupt Mask"
+        }
+      },
+      "0x00000010": {
+        "name": "TTSCAH",
+        "description": "Transmit Timestamp Capture A (High)",
+        "value": "0x000016D1",
+        "bitfields": {
+          "31:0": "TIMESTAMPA - Captured Egress Timestamp"
+        }
+      },
+      "0x00000011": {
+        "name": "TTSCAL",
+        "description": "Transmit Timestamp Capture A (Low)",
+        "value": "0x1B72C570",
+        "bitfields": {
+          "31:0": "TIMESTAMPA - Captured Egress Timestamp A"
+        }
+      },
+      "0x00000012": {
+        "name": "TTSCBH",
+        "description": "Transmit Timestamp Capture B (High)",
+        "value": "0x00000000",
+        "bitfields": {
+          "31:0": "TIMESTAMPB - Captured Egress Timestamp B"
+        }
+      },
+      "0x00000013": {
+        "name": "TTSCBL",
+        "description": "Transmit Timestamp Capture B (Low)",
+        "value": "0x00000000",
+        "bitfields": {
+          "31:0": "TIMESTAMPB - Captured Egress Timestamp B"
+        }
+      },
+      "0x00000014": {
+        "name": "TTSCCH",
+        "description": "Transmit Timestamp Capture C (High)",
+        "value": "0x00000000",
+        "bitfields": {
+          "31:0": "TIMESTAMPC - Captured Egress Timestamp C"
+        }
+      },
+      "0x00000015": {
+        "name": "TTSCCL",
+        "description": "Transmit Timestamp Capture C (Low)",
+        "value": "0x00000000",
+        "bitfields": {
+          "31:0": "TIMESTAMPC - Captured Egress Timestamp C"
+        }
+      },
+      "0x0000FF00": {
+        "name": "BASIC_CONTROL",
+        "description": "Basic Control",
+        "value": "0x00000000",
+        "bitfields": {
+          "15": "SW_RESET - PHY Soft Reset",
+          "14": "LOOPBACK - Near-End Loopback",
+          "13": "SPD_SEL - PHY Speed Select",
+          "12": "AUTONEGEN - Auto-Negotiation Enable",
+          "11": "PD - Power Down",
+          "9": "REAUTONEG - Restart Auto-Negotiation",
+          "8": "DUPLEXMD - Duplex Mode",
+          "6": "SPD_SEL - PHY Speed Select"
+        }
+      },
+      "0x0000FF01": {
+        "name": "BASIC_STATUS",
+        "description": "Basic Status",
+        "value": "0x00000805",
+        "bitfields": {
+          "15": "100BT4A - 100BASE-T4 Ability",
+          "14": "100BTXFDA - 100BASE-TX Full Duplex Ability",
+          "13": "100BTXHDA - 100BASE-TX Half Duplex Ability",
+          "12": "10BTFDA - 10BASE-T Full Duplex Ability",
+          "11": "10BTHDA - 10BASE-T Half Duplex Ability",
+          "10": "100BT2FDA - 100BASE-T2 Full Duplex Ability",
+          "9": "100BT2HDA - 100BASE-T2 Half Duplex Ability",
+          "8": "EXTSTS - Extended status information ability",
+          "5": "AUTONEGC - Auto-Negotiation Complete",
+          "4": "RMTFLTD - Remote Fault Detection",
+          "3": "AUTONEGA - Auto-Negotiation Ability",
+          "2": "LNKSTS - Link Status",
+          "1": "JABDET - Jabber Detection Status",
+          "0": "EXTCAPA - Extended Capabilities Ability"
+        }
+      },
+      "0x0000FF02": {
+        "name": "PHY_ID1",
+        "description": "PHY Identifier 1 Register",
+        "value": "0x00000007",
+        "bitfields": {
+          "15:8": "OUI - Organizationally Unique Identifier",
+          "7:0": "OUI - Organizationally Unique Identifier"
+        }
+      },
+      "0x0000FF03": {
+        "name": "PHY_ID2",
+        "description": "PHY Identifier 2 Register",
+        "value": "0x0000C1B3",
+        "bitfields": {
+          "15:10": "OUI - Organizationally Unique Identifier",
+          "9:4": "MODEL - Manufacturerâ€™s Model Number",
+          "3:0": "REV - Manufacturerâ€™s Revision Number"
+        }
+      },
+      "0x0000FF0D": {
+        "name": "MMDCTRL",
+        "description": "MMD Access Control Register",
+        "value": "0x00000000",
+        "bitfields": {
+          "15:14": "FNCTN - MMD Function",
+          "4:0": "DEVAD - Device Address"
+        }
+      },
+      "0x0000FF0E": {
+        "name": "MMDAD",
+        "description": "MMD Access Address/Data Register",
+        "value": "0x00000000",
+        "bitfields": {
+          "15:0": "ADR_DATA - MMD Address / Data"
+        }
+      }
+    },
+    "MMS1 MAC": {
+      "0x00010000": {
+        "name": "MAC_NCR",
+        "description": "MAC Network Control Register",
+        "value": "0x0000000C",
+        "bitfields": {
+          "3": "TXEN - Transmit Enable",
+          "2": "RXEN - Receive Enable",
+          "1": "LBL - Loop Back Local"
+        }
+      },
+      "0x00010001": {
+        "name": "MAC_NCFGR",
+        "description": "MAC Network Configuration Register",
+        "value": "0x00000010",
+        "bitfields": {
+          "29": "RXBP - Receive Bad Preamble",
+          "26": "IRXFCS - Ignore RX FCS",
+          "25": "EFRHD - Enable Frames Received in half-duplex",
+          "17": "RFCS - Remove FCS",
+          "16": "LFERD - Length Field Error Frame Discard",
+          "8": "MAXFS - 1536 Maximum Frame Size",
+          "7": "UNIHEN - Unicast Hash Enable",
+          "6": "MTIHEN - Multicast Hash Enable",
+          "5": "NBC - No Broadcast",
+          "4": "CAF - Copy All Frames",
+          "2": "DNVLAN - Discard Non-VLAN Frames"
+        }
+      },
+      "0x00010020": {
+        "name": "MAC_HRB",
+        "description": "MAC Hash Register Bottom",
+        "value": "0x00000000",
+        "bitfields": {
+          "31:0": "ADDR - Hash Address"
+        }
+      },
+      "0x00010021": {
+        "name": "MAC_HRT",
+        "description": "MAC Hash Register Top",
+        "value": "0x00000000",
+        "bitfields": {
+          "31:0": "ADDR - Hash Address"
+        }
+      },
+      "0x00010022": {
+        "name": "MAC_SAB1",
+        "description": "MAC Specific Address 1 Bottom Register",
+        "value": "0xD9CECA25",
+        "bitfields": {
+          "31:0": "ADDR - Specific Address 1"
+        }
+      },
+      "0x00010023": {
+        "name": "MAC_SAT1",
+        "description": "MAC Specific Address 1 Top Register",
+        "value": "0x00000000",
+        "bitfields": {
+          "16": "FLTTYP - Filter Type 1",
+          "15:0": "ADDR - Specific Address 1"
+        }
+      },
+      "0x00010024": {
+        "name": "MAC_SAB2",
+        "description": "MAC Specific Address 2 Bottom Register",
+        "value": "0xCA250400",
+        "bitfields": {
+          "31:0": "ADDR - Specific Address 2"
+        }
+      },
+      "0x00010025": {
+        "name": "MAC_SAT2",
+        "description": "MAC Specific Address 2 Top Register",
+        "value": "0x0000D9CE",
+        "bitfields": {
+          "29:24": "FLTBM - Filter Byte Mask 2",
+          "16": "FLTTYP - Filter Type 2",
+          "15:0": "ADDR - Specific Address 2"
+        }
+      },
+      "0x00010026": {
+        "name": "MAC_SAB3",
+        "description": "MAC Specific Address 3 Bottom Register",
+        "value": "0x00000000",
+        "bitfields": {
+          "31:0": "ADDR - Specific Address 3"
+        }
+      },
+      "0x00010027": {
+        "name": "MAC_SAT3",
+        "description": "MAC Specific Address 3 Top Register",
+        "value": "0x00000000",
+        "bitfields": {
+          "29:24": "FLTBM - Filter Byte Mask 3",
+          "16": "FLTTYP - Filter Type 3",
+          "15:0": "ADDR - Specific Address 3"
+        }
+      },
+      "0x00010028": {
+        "name": "MAC_SAB4",
+        "description": "MAC Specific Address 4 Bottom Register",
+        "value": "0x00000000",
+        "bitfields": {
+          "31:0": "ADDR - Specific Address 4"
+        }
+      },
+      "0x00010029": {
+        "name": "MAC_SAT4",
+        "description": "MAC Specific Address 4 Top Register",
+        "value": "0x00000000",
+        "bitfields": {
+          "29:24": "FLTBM - Filter Byte Mask 4",
+          "16": "FLTTYP - Filter Type 4",
+          "15:0": "ADDR - Specific Address 4"
+        }
+      },
+      "0x0001002A": {
+        "name": "MAC_TIDM1",
+        "description": "MAC Type ID Match 1 Register",
+        "value": "0x00000000",
+        "bitfields": {
+          "31": "ENID - Enable Copying of TID 1 Matched Frames",
+          "15:0": "TID - Type ID Match 1"
+        }
+      },
+      "0x0001002B": {
+        "name": "MAC_TIDM2",
+        "description": "MAC Type ID Match 2 Register",
+        "value": "0x00000000",
+        "bitfields": {
+          "31": "ENID - Enable Copying of TID 2 Matched Frames",
+          "15:0": "TID - Type ID Match 2"
+        }
+      },
+      "0x0001002C": {
+        "name": "MAC_TIDM3",
+        "description": "MAC Type ID Match 3 Register",
+        "value": "0x00000000",
+        "bitfields": {
+          "31": "ENID - Enable Copying of TID 3 Matched Frames",
+          "15:0": "TID - Type ID Match 3"
+        }
+      },
+      "0x0001002D": {
+        "name": "MAC_TIDM4",
+        "description": "MAC Type ID Match 4 Register",
+        "value": "0x00000000",
+        "bitfields": {
+          "31": "ENID - Enable Copying of TID 4 Matched Frames",
+          "15:0": "TID - Type ID Match 4"
+        }
+      },
+      "0x00010032": {
+        "name": "MAC_SAMB1",
+        "description": "MAC Specific Address 1 Mask Bottom",
+        "value": "0x00000000",
+        "bitfields": {
+          "31:0": "ADDR - Specific Address 1 Mask"
+        }
+      },
+      "0x00010033": {
+        "name": "MAC_SAMT1",
+        "description": "MAC Specific Address Mask 1 Top",
+        "value": "0x00000000",
+        "bitfields": {
+          "15:0": "ADDR - Specific Address 1 Mask"
+        }
+      },
+      "0x0001006F": {
+        "name": "MAC_TISUBN",
+        "description": "TSU Timer Increment Sub-nanoseconds Register",
+        "value": "0x00000000",
+        "bitfields": {
+          "31:24": "LSBTIR - Lower Significant Bits of Timer Increment Register",
+          "15:0": "MSBTIR - Most Significant Bits of Timer Increment Register"
+        }
+      },
+      "0x00010070": {
+        "name": "MAC_TSH",
+        "description": "TSU Timer Seconds High Register",
+        "value": "0x00000000",
+        "bitfields": {
+          "15:0": "TCS - Timer Count in Seconds"
+        }
+      },
+      "0x00010074": {
+        "name": "MAC_TSL",
+        "description": "TSU Timer Seconds Low Register",
+        "value": "0x000016D2",
+        "bitfields": {
+          "31:0": "TCS - Timer Count in Seconds"
+        }
+      },
+      "0x00010075": {
+        "name": "MAC_TN",
+        "description": "TSU Timer Nanoseconds Register",
+        "value": "0x3A5C39A8",
+        "bitfields": {
+          "29:0": "TNS - Timer Count in Nanoseconds"
+        }
+      },
+      "0x00010076": {
+        "name": "MAC_TA",
+        "description": "TSU Timer Adjust Register",
+        "value": "0x00000000",
+        "bitfields": {
+          "31": "ADJ - TSU Timer Adjust",
+          "29:0": "ITDT - Increment/Decrement"
+        }
+      },
+      "0x00010077": {
+        "name": "MAC_TI",
+        "description": "TSU Timer Increment Register",
+        "value": "0x00000028",
+        "bitfields": {
+          "7:0": "CNS - Count Nanoseconds"
+        }
+      },
+      "0x00010200": {
+        "name": "BMGR_CTL",
+        "description": "MAC Buffer Manager Control",
+        "value": "0x00000008",
+        "bitfields": {
+          "5": "SNAPSTATS - Snapshot Statistics Counters",
+          "4": "CLRSTATS - Clear Statistics Counters"
+        }
+      },
+      "0x00010208": {
+        "name": "STATS0",
+        "description": "Statistics 0",
+        "value": "0x00000000",
+        "bitfields": {
+          "31:24": "RXSE - Receive Symbol Errors",
+          "23:16": "LFER - Length Field Errors",
+          "15:8": "OFRX - Oversize Frames Received",
+          "7:0": "UFRX - Undersize Frames Received"
+        }
+      },
+      "0x00010209": {
+        "name": "STATS1",
+        "description": "Statistics 1",
+        "value": "0x00000000",
+        "bitfields": {
+          "31:24": "RXRER - Receive Resource Errors",
+          "23:16": "RXBOVR - Receive Buffer Overruns",
+          "15:8": "RXFOVR - Receive FIFO Overruns"
+        }
+      },
+      "0x0001020A": {
+        "name": "STATS2",
+        "description": "Statistics 2",
+        "value": "0x00000000",
+        "bitfields": {
+          "7:0": "FCSE - Frame Check Sequence Errors"
+        }
+      },
+      "0x0001020B": {
+        "name": "STATS3",
+        "description": "Statistics 3",
+        "value": "0x00000000",
+        "bitfields": {
+          "31:24": "TID4MCNT - Type ID 4 Match Count",
+          "23:16": "TID3MCNT - Type ID 3 Match Count",
+          "15:8": "TID2MCNT - Type ID 2 Match Count",
+          "7:0": "TID1MCNT - Type ID 1 Match Count"
+        }
+      },
+      "0x0001020C": {
+        "name": "STATS4",
+        "description": "Statistics 4",
+        "value": "0x00000000",
+        "bitfields": {
+          "31:24": "SA4MCNT - Specific Address 4 Match Count",
+          "23:16": "SA3MCNT - Specific Address 3 Match Count",
+          "15:8": "SA2MCNT - Specific Address 2 Match Count",
+          "7:0": "SA1MCNT - Specific Address 1 Match Count"
+        }
+      },
+      "0x0001020D": {
+        "name": "STATS5",
+        "description": "Statistics 5",
+        "value": "0x00000000",
+        "bitfields": {
+          "31:24": "UHMFRX - Unicast Hash Match Frames Received without Error",
+          "23:16": "MHMFRX - Multicast Hash Match Frames Received without Error",
+          "15:8": "BFRX - Broadcast Frames Received without Error",
+          "7:0": "VTRX - VLAN Tagged Frames Received without Error"
+        }
+      },
+      "0x0001020E": {
+        "name": "STATS6",
+        "description": "Statistics 6",
+        "value": "0x00001EE0",
+        "bitfields": {
+          "31:0": "TFRX - Total Frames Received (including errors)"
+        }
+      },
+      "0x0001020F": {
+        "name": "STATS7",
+        "description": "Statistics 7",
+        "value": "0x00001EE0",
+        "bitfields": {
+          "31:0": "FRX - Frames Received without Error"
+        }
+      },
+      "0x00010210": {
+        "name": "STATS8",
+        "description": "Statistics 8",
+        "value": "0x00000000",
+        "bitfields": {
+          "7:0": "TXAIE - Transmit Abort Internal Error"
+        }
+      },
+      "0x00010211": {
+        "name": "STATS9",
+        "description": "Statistics 9",
+        "value": "0x00000000",
+        "bitfields": {
+          "31:24": "TXAEE - Transmit Abort External Error",
+          "23:16": "TXFUR - Transmit FIFO Underruns",
+          "15:8": "TXBUR - Transmit Buffer Underruns"
+        }
+      },
+      "0x00010212": {
+        "name": "STATS10",
+        "description": "Statistics 10",
+        "value": "0x00000000",
+        "bitfields": {
+          "7:0": "XCOL - Excessive Collisions"
+        }
+      },
+      "0x00010213": {
+        "name": "STATS11",
+        "description": "Statistics 11",
+        "value": "0x0000F797",
+        "bitfields": {
+          "31:0": "TFTX - Total Frames Transmitted (including errors)"
+        }
+      },
+      "0x00010214": {
+        "name": "STATS12",
+        "description": "Statistics 12",
+        "value": "0x0000F799",
+        "bitfields": {
+          "31:0": "FTX - Frames Transmitted without Error"
+        }
+      }
+    },
+    "MMS2 PHY PCS": {
+      "0x000208F3": {
+        "name": "T1SPCSCTL",
+        "description": "10BASE-T1S PCS Control",
+        "value": "0x00000100",
+        "bitfields": {
+          "15": "RST - PCS Reset",
+          "14": "LBE - PCS Loopback Enable",
+          "8": "DUPLEX - Duplex Mode"
+        }
+      },
+      "0x000208F4": {
+        "name": "T1SPCSSTS",
+        "description": "10BASE-T1S PCS Status",
+        "value": "0x00000000",
+        "bitfields": {
+          "7": "FAULT - PCS Fault Indication"
+        }
+      },
+      "0x000208F5": {
+        "name": "T1SPCSDIAG1",
+        "description": "10BASE-T1S PCS Diagnostic 1",
+        "value": "0x00000000",
+        "bitfields": {
+          "15:0": "RMTJABCNT - Remote Jabber Count"
+        }
+      },
+      "0x000208F6": {
+        "name": "T1SPCSDIAG2",
+        "description": "10BASE-T1S PCS Diagnostic 2",
+        "value": "0x00000000",
+        "bitfields": {
+          "15:0": "CORTXCNT - Corrupted Transmit Count"
+        }
+      }
+    },
+    "MMS3 PHY PMA/PMD": {
+      "0x00030012": {
+        "name": "T1PMAPMDEXTA",
+        "description": "BASE-T1 PMA/PMD Extended Ability",
+        "value": "0x00000008",
+        "bitfields": {
+          "3": "T1SABL - 10BASE-T1S Ability",
+          "2": "T1LABL - 10BASE-T1L Ability"
+        }
+      },
+      "0x00030834": {
+        "name": "T1PMAPMDCTL",
+        "description": "BASE-T1 PMA/PMD Control",
+        "value": "0x00000003",
+        "bitfields": {
+          "3:0": "TYPSEL - Type Selection"
+        }
+      },
+      "0x000308F9": {
+        "name": "T1SPMACTL",
+        "description": "10BASE-T1S PMA Control",
+        "value": "0x00000000",
+        "bitfields": {
+          "15": "RST - PMA Reset",
+          "14": "TXD - Transmit Disable",
+          "11": "LPE - Low Power Enable",
+          "10": "MDE - Multidrop Enable",
+          "0": "LBE - PMA Loopback Enable"
+        }
+      },
+      "0x000308FA": {
+        "name": "T1SPMASTS",
+        "description": "10BASE-T1S PMA Status",
+        "value": "0x00002C00",
+        "bitfields": {
+          "13": "LBA - PMA Loopback Ability",
+          "11": "LPA - Low Power Ability",
+          "10": "MDA - Multidrop Ability",
+          "9": "RXFA - Receive Fault Ability",
+          "1": "RXFD - Receive Fault Detection"
+        }
+      },
+      "0x000308FB": {
+        "name": "T1STSTCTL",
+        "description": "10BASE-T1S Test Mode Control",
+        "value": "0x00000000",
+        "bitfields": {
+          "15:13": "TSTCTL - Test Mode Control"
+        }
+      }
+    },
+    "MMS4 PHY Vendor": {
+      "0x00040010": {
+        "name": "CTRL1",
+        "description": "Control 1 Register",
+        "value": "0x00000000",
+        "bitfields": {
+          "3": "IWDE - Inactivity Watchdog Enable",
+          "1": "DIGLBE - Digital Loopback Enable"
+        }
+      },
+      "0x00040018": {
+        "name": "STS1",
+        "description": "Status 1 Register",
+        "value": "0x00000180",
+        "bitfields": {
+          "12": "SQI - Signal Quality Indication Status",
+          "11": "PSTC - PLCA Status Changed",
+          "10": "TXCOL - Transmit Collision Status",
+          "9": "TXJAB - Transmit Jabber Status",
+          "8": "TSSI - Time Synchronization Service Interface Status",
+          "7": "EMPCYC - PLCA Empty Cycle Status",
+          "6": "RXINTO - Receive in Transmit Opportunity",
+          "5": "UNEXPB - Unexpected BEACON Received",
+          "4": "BCNBFTO - BEACON Received Before Transmit Opportunity",
+          "3": "UNCRS - Unexpected Carrier Sense",
+          "2": "PLCASYM - PLCA Symbols Detected",
+          "1": "ESDERR - End-of-Stream Delimiter Error",
+          "0": "DEC5B - 5B Decode Error"
+        }
+      },
+      "0x00040019": {
+        "name": "STS2",
+        "description": "Status 2 Register",
+        "value": "0x00000000",
+        "bitfields": {
+          "10": "WKEMDI - MDI Wake-up Status",
+          "9": "WKEWI - WAKE_IN Wake-up Status",
+          "8": "UV33 - 3.3V supply Under-Voltage Status",
+          "6": "OT - Over-Temperature Error Status",
+          "5": "IWDTO - Inactivity Watchdog Timeout Status"
+        }
+      },
+      "0x0004001A": {
+        "name": "STS3",
+        "description": "Status 3 Register",
+        "value": "0x00000004",
+        "bitfields": {
+          "7:0": "ERRTOID - PLCA Error Transmit Opportunity ID"
+        }
+      },
+      "0x0004001C": {
+        "name": "IMSK1",
+        "description": "Interrupt Mask 1 Register",
+        "value": "0x0000FFFF",
+        "bitfields": {
+          "12": "SQIM - Signal Quality Indication Interrupt Mask",
+          "11": "PSTCM - PLCA Status Changed Interrupt Mask",
+          "10": "TXCOLM - Transmit Collision Interrupt Mask",
+          "9": "TXJABM - Transmit Jabber Interrupt Mask",
+          "8": "TSSIM - Time Synchronization Service Interface Interrupt Mask",
+          "7": "EMPCYCM - PLCA Empty Cycle Interrupt Mask",
+          "6": "RXINTOM - Receive in Transmit Opportunity Interrupt Mask",
+          "5": "UNEXPBM - Unexpected BEACON Received Interrupt Mask",
+          "4": "BCNBFTOM - BEACON Received Before Transmit Opportunity Interrupt Mask",
+          "3": "UNCRSM - Unexpected Carrier Sense Interrupt Mask",
+          "2": "PLCASYMM - PLCA Symbols Detected Interrupt Mask",
+          "1": "ESDERRM - End-of-Stream Delimiter Error Interrupt Mask",
+          "0": "DEC5BM - 5B Decode Error Interrupt Mask"
+        }
+      },
+      "0x0004001D": {
+        "name": "IMSK2",
+        "description": "Interrupt Mask 2 Register",
+        "value": "0x0000F1FF",
+        "bitfields": {
+          "10": "WKEMDIM - MDI Wakeup Interrupt Mask",
+          "9": "WKEWIM - WAKE_IN Wake-up Interrupt Mask",
+          "8": "UV33M - 3.3V supply Under-Voltage Interrupt Mask",
+          "6": "OTM - Over-Temperature Error Interrupt Mask",
+          "5": "IWDTOM - Inactivity Watchdog Timeout Interrupt Mask"
+        }
+      },
+      "0x00040020": {
+        "name": "CTRCTRL",
+        "description": "Counter Control Register",
+        "value": "0x00000000",
+        "bitfields": {
+          "1": "TOCTRE - Transmit Opportunity Counter Enable",
+          "0": "BCNCTRE - PLCA BEACON Counter Enable"
+        }
+      },
+      "0x00040024": {
+        "name": "TOCNTH",
+        "description": "Transmit Opportunity Count (High)",
+        "value": "0x00000000",
+        "bitfields": {
+          "15:0": "TOCNT - Transmit Opportunity Count"
+        }
+      },
+      "0x00040025": {
+        "name": "TOCNTL",
+        "description": "Transmit Opportunity Count (Low)",
+        "value": "0x00000000",
+        "bitfields": {
+          "15:0": "TOCNT - Transmit Opportunity Count"
+        }
+      },
+      "0x00040026": {
+        "name": "BCNCNTH",
+        "description": "BEACON Count (High)",
+        "value": "0x00000000",
+        "bitfields": {
+          "15:0": "BCNCNT - Beacon Count"
+        }
+      },
+      "0x00040027": {
+        "name": "BCNCNTL",
+        "description": "BEACON Count (Low)",
+        "value": "0x00000000",
+        "bitfields": {
+          "15:0": "BCNCNT - Beacon Count"
+        }
+      },
+      "0x00040030": {
+        "name": "MULTID0",
+        "description": "PLCA Multiple ID 0 Register",
+        "value": "0x00000000",
+        "bitfields": {
+          "15:8": "ID1 - When this field is neither 0x00 or 0xFF and PLCA is enabled, the node ",
+          "7:0": "ID2 - When this field is neither 0x00 or 0xFF and PLCA is enabled, the node "
+        }
+      },
+      "0x00040031": {
+        "name": "MULTID1",
+        "description": "PLCA Multiple ID 1 Register",
+        "value": "0x00000000",
+        "bitfields": {
+          "15:8": "ID3 - When this field is neither 0x00 or 0xFF and PLCA is enabled, the node ",
+          "7:0": "ID4 - When this field is neither 0x00 or 0xFF and PLCA is enabled, the node "
+        }
+      },
+      "0x00040032": {
+        "name": "MULTID2",
+        "description": "PLCA Multiple ID 2 Register",
+        "value": "0x00000000",
+        "bitfields": {
+          "15:8": "ID5 - When this field is neither 0x00 or 0xFF and PLCA is enabled, the node ",
+          "7:0": "ID6 - When this field is neither 0x00 or 0xFF and PLCA is enabled, the node "
+        }
+      },
+      "0x00040033": {
+        "name": "MULTID3",
+        "description": "PLCA Multiple ID 3 Register",
+        "value": "0x00000000",
+        "bitfields": {
+          "15:8": "ID7 - When this field is neither 0x00 or 0xFF and PLCA is enabled, the node ",
+          "7:0": "ID8 - When this field is neither 0x00 or 0xFF and PLCA is enabled, the node "
+        }
+      },
+      "0x00040036": {
+        "name": "PRSSTS",
+        "description": "PLCA Reconciliation Sublayer Status",
+        "value": "0x00000000",
+        "bitfields": {
+          "15:8": "MAXID - Maximum ID"
+        }
+      },
+      "0x0004003D": {
+        "name": "PRTMGMT2",
+        "description": "Port Management 2",
+        "value": "0x0000A800",
+        "bitfields": {
+          "13": "MIRXWDEN - Media Interface Receive Watchdog Enable",
+          "12": "PRIWDEN - PHY Register Inactivity Watchdog Enable",
+          "11": "MITXWDEN - Media Interface Transmit Watchdog Enable"
+        }
+      },
+      "0x0004003E": {
+        "name": "IWDTOH",
+        "description": "Inactivity Watchdog Timeout (High)",
+        "value": "0x00000098",
+        "bitfields": {
+          "15:0": "TIMEOUT - Inactivity Watchdog Timeout"
+        }
+      },
+      "0x0004003F": {
+        "name": "IWDTOL",
+        "description": "Inactivity Watchdog Timeout (Low)",
+        "value": "0x00009680",
+        "bitfields": {
+          "15:0": "TIMEOUT - Inactivity Watchdog Timeout"
+        }
+      },
+      "0x00040040": {
+        "name": "TXMCTL",
+        "description": "Transmit Match Control Register",
+        "value": "0x00000082",
+        "bitfields": {
+          "7": "TXPMDET - Transmit Packet Match Detected",
+          "2": "MACTXTSE - MAC Transmit Time Stamp Enable",
+          "1": "TXME - Transmit Match Enable"
+        }
+      },
+      "0x00040041": {
+        "name": "TXMPATH",
+        "description": "Transmit Match Pattern (High) Register",
+        "value": "0x00000088",
+        "bitfields": {
+          "7:0": "TXMPAT - Transmit Match Pattern (High)"
+        }
+      },
+      "0x00040042": {
+        "name": "TXMPATL",
+        "description": "Transmit Match Pattern (Low) Register",
+        "value": "0x0000F710",
+        "bitfields": {
+          "15:0": "TXMPAT - Transmit Match Pattern (Low)"
+        }
+      },
+      "0x00040043": {
+        "name": "TXMMSKH",
+        "description": "Transmit Match Mask (High) Register",
+        "value": "0x000000FF",
+        "bitfields": {
+          "7:0": "TXMMSK - Transmit Match Mask (High)"
+        }
+      },
+      "0x00040044": {
+        "name": "TXMMSKL",
+        "description": "Transmit Match Mask (Low) Register",
+        "value": "0x0000FFFF",
+        "bitfields": {
+          "15:0": "TXMMSK - Transmit Match Mask (Low)"
+        }
+      },
+      "0x00040045": {
+        "name": "TXMLOC",
+        "description": "Transmit Match Location Register",
+        "value": "0x00000000",
+        "bitfields": {
+          "5:0": "TXLOCATION - Transmit Match Location"
+        }
+      },
+      "0x00040049": {
+        "name": "TXMDLY",
+        "description": "Transmit Matched Packet Delay Register",
+        "value": "0x00000000",
+        "bitfields": {
+          "15": "TXMDLYEN - Transmit Matched Packet Delay Measurement Enable",
+          "10:0": "TXMPKTDLY - Transmit Matched Packet Delay"
+        }
+      },
+      "0x00040050": {
+        "name": "RXMCTL",
+        "description": "Receive Match Control Register",
+        "value": "0x00000042",
+        "bitfields": {
+          "6": "RXPMDET - Receive Packet Match Detected",
+          "1": "RXME - Receive Packet Match Enable"
+        }
+      },
+      "0x00040051": {
+        "name": "RXMPATH",
+        "description": "Receive Match Pattern (High) Register",
+        "value": "0x00000088",
+        "bitfields": {
+          "7:0": "RXMPAT - Receive Match Pattern (High)"
+        }
+      },
+      "0x00040052": {
+        "name": "RXMPATL",
+        "description": "Receive Match Pattern (Low) Register",
+        "value": "0x0000F710",
+        "bitfields": {
+          "15:0": "RXMPAT - Receive Match Pattern (Low)"
+        }
+      },
+      "0x00040053": {
+        "name": "RXMMSKH",
+        "description": "Receive Match Mask (High) Register",
+        "value": "0x000000FF",
+        "bitfields": {
+          "7:0": "RXMMSK - Receive Match Mask (High)"
+        }
+      },
+      "0x00040054": {
+        "name": "RXMMSKL",
+        "description": "Receive Match Mask (Low) Register",
+        "value": "0x0000FFFF",
+        "bitfields": {
+          "15:0": "RXMMSK - Receive Match Mask (Low)"
+        }
+      },
+      "0x00040055": {
+        "name": "RXMLOC",
+        "description": "Receive Match Location Register",
+        "value": "0x00000000",
+        "bitfields": {
+          "5:0": "RXLOCATION - Receive Match Location"
+        }
+      },
+      "0x00040059": {
+        "name": "RXMDLY",
+        "description": "Receive Matched Packet Delay Register",
+        "value": "0x00000000",
+        "bitfields": {
+          "15": "RXMDLYEN - Receive Matched Packet Delay Measurement Enable",
+          "10:0": "RXMPKTDLY - Receive Matched Packet Delay"
+        }
+      },
+      "0x00040060": {
+        "name": "CBSSPTHH",
+        "description": "Credit Based Shaper Stop Threshold (High) Register",
+        "value": "0x00000000",
+        "bitfields": {
+          "3:0": "STOPTHR - Stop Threshold (High)"
+        }
+      },
+      "0x00040061": {
+        "name": "CBSSPTHL",
+        "description": "Credit Based Shaper Stop Threshold (Low) Register",
+        "value": "0x0000B388",
+        "bitfields": {
+          "15:0": "STOPTHR - Stop Threshold (Low)"
+        }
+      },
+      "0x00040062": {
+        "name": "CBSSTTHH",
+        "description": "Credit Based Shaper Start Threshold (High) Register",
+        "value": "0x00000000",
+        "bitfields": {
+          "3:0": "STARTTHR - Start Threshold (High)"
+        }
+      },
+      "0x00040063": {
+        "name": "CBSSTTHL",
+        "description": "Credit Based Shaper Start Threshold (Low) Register",
+        "value": "0x0000B388",
+        "bitfields": {
+          "15:0": "STARTTHR - Start Threshold (Low)"
+        }
+      },
+      "0x00040064": {
+        "name": "CBSSLPCTL",
+        "description": "Credit Based Shaper Slope Control Register",
+        "value": "0x0000021E",
+        "bitfields": {
+          "15:8": "FALLSLP - Falling Slope",
+          "7:0": "RISESLP - Rising Slope"
+        }
+      },
+      "0x00040065": {
+        "name": "CBSTPLMTH",
+        "description": "Credit Based Shaper Top Limit (High) Register",
+        "value": "0x00000001",
+        "bitfields": {
+          "3:0": "TOPLIMIT - Credit Top Limit (High)"
+        }
+      },
+      "0x00040066": {
+        "name": "CBSTPLMTL",
+        "description": "Credit Based Shaper Top Limit (Low) Register",
+        "value": "0x00006710",
+        "bitfields": {
+          "15:0": "TOPLIMIT - Credit Top Limit (Low)"
+        }
+      },
+      "0x00040067": {
+        "name": "CBSBTLMTH",
+        "description": "Credit Based Shaper Bottom Limit (High) Register",
+        "value": "0x00000000",
+        "bitfields": {
+          "3:0": "BOTLIMIT - Credit Bottom Limit (High)"
+        }
+      },
+      "0x00040068": {
+        "name": "CBSBTLMTL",
+        "description": "Credit Based Shaper Bottom Limit (Low) Register",
+        "value": "0x00000000",
+        "bitfields": {
+          "15:0": "BOTLIMIT - Credit Bottom Limit (Low)"
+        }
+      },
+      "0x00040069": {
+        "name": "CBSCRCTRH",
+        "description": "Credit Based Shaper Credit Counter (High) Register",
+        "value": "0x00000000",
+        "bitfields": {
+          "3:0": "CREDITCTR - Credit Counter (High)"
+        }
+      },
+      "0x0004006A": {
+        "name": "CBSCRCTRL",
+        "description": "Credit Based Shaper Credit Counter (Low) Register",
+        "value": "0x00000000",
+        "bitfields": {
+          "15:0": "CREDITCTR - Credit Counter (Low)"
+        }
+      },
+      "0x0004006B": {
+        "name": "CBSCTRL",
+        "description": "Credit Based Shaper Control Register",
+        "value": "0x0000023C",
+        "bitfields": {
+          "8:1": "ECCRDS - Empty Cycle Credits",
+          "0": "CBSEN - Credit Based Shaper Enable"
+        }
+      },
+      "0x00040070": {
+        "name": "PLCASKPCTL",
+        "description": "PLCA Skip Control Register",
+        "value": "0x00000000",
+        "bitfields": {
+          "1": "TOSKPEN - PLCA Transmit Opportunity Skip Enable"
+        }
+      },
+      "0x00040071": {
+        "name": "PLCATOSKP",
+        "description": "PLCA Transmit Opportunity Skip Register",
+        "value": "0x00000000",
+        "bitfields": {
+          "7:0": "TOSKPNUM - Transmit Opportunity Skip Number"
+        }
+      },
+      "0x00040074": {
+        "name": "ACMACTL",
+        "description": "Application Controlled Media Access Control Register",
+        "value": "0x00000000",
+        "bitfields": {
+          "0": "ACMAEN - ACMA Enable"
+        }
+      },
+      "0x00040080": {
+        "name": "SLPCTL0",
+        "description": "Sleep Control 0 Register",
+        "value": "0x00000740",
+        "bitfields": {
+          "15": "SLPEN - Sleep Enable",
+          "14": "WKINEN - WAKE_IN Wake-up Enable",
+          "13": "MDIWKEN - MDI Wake-up Enable",
+          "12:11": "SLPINHDLY - Sleep Inhibit Delay",
+          "6:3": "SLPCAL - Sleep Calibration"
+        }
+      },
+      "0x00040081": {
+        "name": "SLPCTL1",
+        "description": "Sleep Control 1 Register",
+        "value": "0x000000A0",
+        "bitfields": {
+          "7": "WOPOL - WAKE_OUT Polarity",
+          "5": "WIPOL - WAKE_IN Polarity",
+          "2": "MWKFWD - Manual Wake Forward",
+          "1": "WKOFWDEN - WAKE_OUT Forward Enable",
+          "0": "MDIFWDEN - MDI Forward Enable"
+        }
+      },
+      "0x00040087": {
+        "name": "CDCTL0",
+        "description": "Collision Detector Control 0 Register",
+        "value": "0x00000083",
+        "bitfields": {
+          "15": "CDEN - Collision Detect Enable"
+        }
+      },
+      "0x000400A0": {
+        "name": "SQICTL",
+        "description": "SQI Control Register",
+        "value": "0x00001400",
+        "bitfields": {
+          "15": "SQIRST - SQI Reset",
+          "14": "SQIEN - SQI Enable"
+        }
+      },
+      "0x000400A1": {
+        "name": "SQISTS0",
+        "description": "SQI Status 0 Register",
+        "value": "0x00000000",
+        "bitfields": {
+          "7": "SQIERR - SQI ERR",
+          "6": "SQIVLD - SQI Valid",
+          "5:3": "SQIVAL - SQI Value",
+          "2:0": "SQIERRC - SQI Error Code"
+        }
+      },
+      "0x000400AA": {
+        "name": "SQICFG0",
+        "description": "SQI Configuration 0 Register",
+        "value": "0x0000100F",
+        "bitfields": {
+          "11:4": "TOID - Transmit Opportunity ID"
+        }
+      },
+      "0x000400AC": {
+        "name": "SQICFG2",
+        "description": "SQI Configuration 2 Register",
+        "value": "0x00001F00",
+        "bitfields": {
+          "12:8": "SQIINTTHR - SQI Interrupt Threshold"
+        }
+      },
+      "0x000400D5": {
+        "name": "ANALOG5",
+        "description": "Analog Control 5",
+        "value": "0x000014A3",
+        "bitfields": {
+          "15:8": "UV33FTM - Voltage Ready Time"
+        }
+      },
+      "0x0004CA00": {
+        "name": "MIDVER",
+        "description": "OPEN Alliance Map ID and Version Register",
+        "value": "0x00000A10",
+        "bitfields": {
+          "15:8": "IDM - Register Map ID",
+          "7:0": "VER - Register Map Version"
+        }
+      },
+      "0x0004CA01": {
+        "name": "PLCA_CTRL0",
+        "description": "PLCA Control 0 Register",
+        "value": "0x00008000",
+        "bitfields": {
+          "15": "EN - PLCA Enable",
+          "14": "RST - PLCA Reset"
+        }
+      },
+      "0x0004CA02": {
+        "name": "PLCA_CTRL1",
+        "description": "PLCA Control 1 Register",
+        "value": "0x00000800",
+        "bitfields": {
+          "15:8": "NCNT - Node Count",
+          "7:0": "ID - PLCA Local ID"
+        }
+      },
+      "0x0004CA03": {
+        "name": "PLCA_STS",
+        "description": "PLCA Status Register",
+        "value": "0x00008000",
+        "bitfields": {
+          "15": "PST - PLCA Status"
+        }
+      },
+      "0x0004CA04": {
+        "name": "PLCA_TOTMR",
+        "description": "PLCA Transmit Opportunity Timer Register",
+        "value": "0x00000020",
+        "bitfields": {
+          "7:0": "TOTMR - PLCA Transmit Opportunity Timer"
+        }
+      },
+      "0x0004CA05": {
+        "name": "PLCA_BURST",
+        "description": "PLCA Burst Mode Register",
+        "value": "0x00000080",
+        "bitfields": {
+          "15:8": "MAXBC - Maximum Burst Count",
+          "7:0": "BTMR - Burst Timer"
+        }
+      }
+    },
+    "MMS10 Misc": {
+      "0x000A0081": {
+        "name": "QTXCFG",
+        "description": "Queue Transmit Configuration",
+        "value": "0x58100000",
+        "bitfields": {
+          "31:30": "CTTHR - Cut-through threshold",
+          "22:20": "BUFSZ - Buffer Size",
+          "19": "MACFCSDIS - MAC Frame Check Sequence Disable"
+        }
+      },
+      "0x000A0082": {
+        "name": "QRXCFG",
+        "description": "Queue Receive Configuration",
+        "value": "0x18100C00",
+        "bitfields": {
+          "22:20": "BUFSZ - Buffer Size"
+        }
+      },
+      "0x000A0089": {
+        "name": "CLKOCTL",
+        "description": "Pad Control Register Name: PADCTRL Address: x0088 Bit 31 30 29 28 27 26 25 24 PDRV3[1:0] PDRV2[1:0] PDRV1[1:0] Access R/W R/W R/W R/W R/W R/W R/W R/W Reset 1 1 1 1 1 1 - - Bit 23 22 21 20 19 18 17 16 REFCLKSEL ACMASEL[1:0] Access R/W R/W R/W R/W R/W R/W R/W R/W Reset 0 - - - - 0 0 0 Bit 15 14 13 12 11 10 9 8 B0SEL[1:0] A4SEL[1:0] Access R/W R/W R/W R/W R/W R/W R/W R/W Reset - - 0 0 0 1 0 0 Bit 7 6 5 4 3 2 1 0 A3SEL[1:0] A2SEL[1:0] A1SEL[1:0] A0SEL[1:0] Access R/W R/W R/W R/W R/W R/W R/W R/W Reset 0 0 0 0 0 0 0 0 Bits 31:30 â€“ PDRV3[1:0] Digital Output Pad Drive Strength This field configures the output pad drive strength for pin group 3. Value Description 00 Low current drive 01 Medium-low current drive 10 Medium-high current drive 11 High current drive (default) Bits 29:28 â€“ PDRV2[1:0] Digital Output Pad Drive Strength This field configures the output pad drive strength for pin group 2. Value Description 00 Low current drive 01 Medium-low current drive 10 Medium-high current drive 11 High current drive (default) Bits 27:26 â€“ PDRV1[1:0] Digital Output Pad Drive Strength This field configures the output pad drive strength for pin group 1. Value Description 00 Low current drive 01 Medium-low current drive 10 Medium-high current drive 11 High current drive (default) Bit 23 â€“ REFCLKSEL Reference Clock Select This bit selects the clock reference clock used for event capture, event generation and time stamping. Value Description 0 Reference clock is the internal 25 MHz clock derived from attached crystal. 1 Reference clock is an external clock on pin DIOB0. The DIOB0 Select (B0SEL) bit field below must also be configured to 00b (external reference clock input). Bits 17:16 â€“ ACMASEL[1:0] ACMA Input Select Selects the ACMA input pin. Value Description 00 ACMA disabled 01 ACMA enabled with the control signal provided by event generator 0 Note: If this value is selected, event generator 0 cannot be used as a DIO pin source. 10 ACMA enabled with the control signal on DIOA2 11 Reserved Bits 11:10 â€“ B0SEL[1:0] DIOB0 Signal Select This field configures the DIOB0 pin signal select. Note: The DIOB0 pin is configured by default to be an output. Value Description 00 External 1588 reference clock (requires configuration in REFCLKSEL bit field above) (Input) 01 Clock output as configured in Clock Output Control Register, CLKOEN (Output) If this pin is not used, it may be connected to ground as long as the clock output is disabled in CLKOEN. 10 Reserved (Input) 11 Reserved (Input) Bits 9:8 â€“ A4SEL[1:0] DIOA4 Signal Select This field configures the DIOA4 pin signal select Value Description 00 Reserved (Input) 01 1PPS (Output) 10 Event Generator 2 (Output) Note: No signal will be provided to DIOA4 if ACMASEL = 2. 11 Event Generator 3 (Output) Bits 7:6 â€“ A3SEL[1:0] DIOA3 Signal Select This field configures the DIOA3 pin signal select Value Description 00 Event Capture (Input) 01 Event Generator 3 (Output) 10 Reserved (Output) 11 Reserved (Output) Bits 5:4 â€“ A2SEL[1:0] DIOA2 Signal Select This field configures the DIOA2 pin signal select Value Description 00 ACMA and/or Event Capture (Input) ACMA is configured in the ACMASEL bits, above 01 Event Generator 2 (Output) Note: No signal will be provided to DIOA2 if ACMASEL = 2. 10 Reserved (Output) 11 Reserved (Input) Bits 3:2 â€“ A1SEL[1:0] DIOA1 Signal Select This field configures the DIOA1 pin signal select Value Description 00 Event Capture (Input) 01 Event Generator 1 (Output) 10 Reserved (Output) 11 Reserved (Output) Bits 1:0 â€“ A0SEL[1:0] DIOA0 Signal Select This field configures the DIOA0 pin signal select Value Description 00 Event Capture (Input) 01 Event Generator 0 (Output) 10 Reserved (Output) 11 Reserved (Output) 11.6.4. Clock Output Control",
+        "value": "0x00000001",
+        "bitfields": {
+          "4": "CLKOEN - Clock Output Enable",
+          "1:0": "CLKOSEL - Clock Output Select"
+        }
+      },
+      "0x000A008C": {
+        "name": "MISC",
+        "description": "Miscellaneous",
+        "value": "0x80001040",
+        "bitfields": {
+          "12": "UV18FEN - 1.8V Supply Under-Voltage Filter Enable",
+          "11:0": "UV18FTM - 1.8V supply Under-Voltage Filter Time"
+        }
+      },
+      "0x000A0094": {
+        "name": "DEVID",
+        "description": "Device Identification",
+        "value": "0x00086511",
+        "bitfields": {
+          "19:4": "MODEL - Model Number",
+          "3:0": "REV - Revision Number"
+        }
+      },
+      "0x000A0096": {
+        "name": "BUSPCS",
+        "description": "Bus Parity Control and Status",
+        "value": "0x00000000",
+        "bitfields": {
+          "19": "MBMPER - MAC Buffer Manager Parity Error Status",
+          "18": "SPIPER - SPI Parity Error Status",
+          "17": "CSRBPER - Control/Status Register Bridge Parity Error Status",
+          "16": "SRAMPER - SRAM Controller Parity Error Status",
+          "4": "CSRBDPERG - Bridge Parity Error Injection",
+          "3": "SRAMDPERI - SRAM Controller Parity Error Injection",
+          "2": "MBMDPERI - Buffer Manager Data Parity Error Injection",
+          "1": "BMGRAPERI - Buffer Manager Address Parity Error Injection",
+          "0": "PARGCEN - Parity Generation and Check Enable"
+        }
+      },
+      "0x000A0099": {
+        "name": "CFGPRTCTL",
+        "description": "Configuration Protection Control",
+        "value": "0x00000001",
+        "bitfields": {
+          "31": "KEY2 - Key #2 Accepted",
+          "30": "KEY1 - Key #1 Accepted",
+          "0": "WREN - Configuration Write Enable"
+        }
+      },
+      "0x000A0100": {
+        "name": "ECCCTRL",
+        "description": "SRAM Error Correction Code Control",
+        "value": "0x00000801",
+        "bitfields": {
+          "17": "DECDIS - ECC Decoder Disable",
+          "16": "ENCDIS - ECC Encoder Disable",
+          "15:8": "SBERLMT - Single Bit Error Limit",
+          "2": "ERONESHT - Error One Shot",
+          "1": "ERCLR - Error Clear",
+          "0": "BERCNTEN - Bit Error Count Enable"
+        }
+      },
+      "0x000A0101": {
+        "name": "ECCSTS",
+        "description": "SRAM Error Correction Code Status",
+        "value": "0x00000000",
+        "bitfields": {
+          "23:22": "ERSTS - Error Status",
+          "21:16": "ERRSYN - Error Syndrome",
+          "15:8": "DBERCNT - Double Bit Error Count",
+          "7:0": "SBERCNT - Single Bit Error Count"
+        }
+      },
+      "0x000A0102": {
+        "name": "ECCFLTCTRL",
+        "description": "SRAM Error Correction Code Fault Injection Control",
+        "value": "0x00000000",
+        "bitfields": {
+          "28:16": "FLTINJADR - Fault Injection Address",
+          "14": "FLTINJONCE - Fault Injection Once",
+          "13:8": "FLTINJBIT2 - Fault Injection Bit 2",
+          "7": "FLTINJAEQ - Fault Injection Address Equal",
+          "6": "FLTINJEN - Fault Injection Enable",
+          "5:0": "FLTINJBIT1 - Fault Injection Bit 1"
+        }
+      },
+      "0x000A0200": {
+        "name": "EC0CTRL",
+        "description": "Event Capture 0 Control Register",
+        "value": "0x00000000",
+        "bitfields": {
+          "14:11": "MAX - Maximum number of captured timestamps",
+          "8:7": "EDGE - Capture Edge Selection",
+          "6:4": "SRC - Capture Signal Source",
+          "3": "CLR - Clear event capture unit",
+          "1": "DA - Data Available",
+          "0": "EN - Event Capture Unit Enable"
+        }
+      },
+      "0x000A0201": {
+        "name": "EC1CTRL",
+        "description": "Event Capture 1 Control Register",
+        "value": "0x00000000",
+        "bitfields": {
+          "14:11": "MAX - Maximum number of captured timestamps",
+          "8:7": "EDGE - Capture Edge Selection",
+          "6:4": "SRC - Capture Signal Source",
+          "3": "CLR - Clear event capture unit",
+          "1": "DA - Data Available",
+          "0": "EN - Event Capture Unit Enable"
+        }
+      },
+      "0x000A0202": {
+        "name": "EC2CTRL",
+        "description": "Event Capture 2 Control Register",
+        "value": "0x00000000",
+        "bitfields": {
+          "14:11": "MAX - Maximum number of captured timestamps",
+          "8:7": "EDGE - Capture Edge Selection",
+          "6:4": "SRC - Capture Signal Source",
+          "3": "CLR - Clear capture unit",
+          "1": "DA - Data Available",
+          "0": "EN - Event Capture Unit Enable"
+        }
+      },
+      "0x000A0203": {
+        "name": "EC3CTRL",
+        "description": "Event Capture 3 Control Register",
+        "value": "0x00000000",
+        "bitfields": {
+          "14:11": "MAX - Maximum number of captured timestamps",
+          "8:7": "EDGE - Capture Edge Selection",
+          "6:4": "SRC - Capture Signal Source",
+          "3": "CLR - Clear event capture unit",
+          "1": "DA - Data Available",
+          "0": "EN - Event Capture Unit Enable"
+        }
+      },
+      "0x000A0204": {
+        "name": "ECRDSTS",
+        "description": "Event Capture Read Status Register",
+        "value": "0x00000000",
+        "bitfields": {
+          "29": "EC3OV - Event capture unit 3 overflow",
+          "28": "EC2OV - Event capture unit 2 overflow",
+          "27": "EC1OV - Event capture unit 1 overflow",
+          "26": "EC0OV - Event capture unit 0 overflow",
+          "15:12": "EC3CT - Event capture unit 3 timestamp count",
+          "11:8": "EC2CT - Event capture unit 2 timestamp count",
+          "7:4": "EC1CT - Event capture unit 1 timestamp count",
+          "3:0": "EC0CT - Event capture unit 0 timestamp count"
+        }
+      },
+      "0x000A0205": {
+        "name": "ECTOT",
+        "description": "Event Capture Total Counts Register",
+        "value": "0x00000000",
+        "bitfields": {
+          "31:24": "EC3TOT - Event Capture 3 Total",
+          "23:16": "EC2TOT - Event Capture 2 Total",
+          "15:8": "EC1TOT - Event Capture 1 Total",
+          "7:0": "EC0TOT - Event Capture 0 Total"
+        }
+      },
+      "0x000A0206": {
+        "name": "ECCLKSH",
+        "description": "Event Capture Clock Seconds High Register",
+        "value": "0x00000000",
+        "bitfields": {
+          "15:0": "CLKSEC - Clock time in seconds"
+        }
+      },
+      "0x000A0207": {
+        "name": "ECCLKSL",
+        "description": "Event Capture Clock Seconds Low Register",
+        "value": "0x000016D9",
+        "bitfields": {
+          "31:0": "CLKSEC - Clock time in seconds"
+        }
+      },
+      "0x000A0208": {
+        "name": "ECCLKNS",
+        "description": "Event Capture Clock Nanoseconds Register",
+        "value": "0x1195C458",
+        "bitfields": {
+          "29:0": "CLOCK_NS - Clock time in nanoseconds"
+        }
+      },
+      "0x000A0209": {
+        "name": "ECRDTSn",
+        "description": "Event Capture Read Timestamp Register n",
+        "value": "0xFFFFFFFF",
+        "bitfields": {
+          "31:30": "TSSEC - Timestamp Seconds",
+          "29:0": "TSNS - Timestamp Nanoseconds"
+        }
+      },
+      "0x000A021F": {
+        "name": "PACYC",
+        "description": "Phase Adjuster Cycles Register",
+        "value": "0x00000000",
+        "bitfields": {
+          "29:0": "CYC - Value"
+        }
+      },
+      "0x000A0220": {
+        "name": "PACTRL",
+        "description": "Phase Adjuster Control Register",
+        "value": "0x00000000",
+        "bitfields": {
+          "31": "ACT - Phase adjust active",
+          "30": "SEC - Units are seconds",
+          "29": "DEC - Decrement",
+          "9:0": "DIF - Time difference"
+        }
+      },
+      "0x000A0221": {
+        "name": "EG0STNS",
+        "description": "Event 0 Start Time Nanoseconds Register",
+        "value": "0x00000000",
+        "bitfields": {
+          "29:0": "STNS - Pulse Start Time in Nanoseconds"
+        }
+      },
+      "0x000A0222": {
+        "name": "EG0STSECL",
+        "description": "Event 0 Start Time Seconds Low Register",
+        "value": "0x00000000",
+        "bitfields": {
+          "31:0": "STSEC - Start Time in Seconds"
+        }
+      },
+      "0x000A0223": {
+        "name": "EG0STSECH",
+        "description": "Event 0 Start Time Seconds High Register",
+        "value": "0x00000000",
+        "bitfields": {
+          "15:0": "STSEC - Start Time in Seconds"
+        }
+      },
+      "0x000A0224": {
+        "name": "EG0PW",
+        "description": "Event 0 Pulse Width Register",
+        "value": "0x00000000",
+        "bitfields": {
+          "29:0": "PW - Pulse Width in Nanoseconds"
+        }
+      },
+      "0x000A0225": {
+        "name": "EG0IT",
+        "description": "Event 0 Idle Time Register",
+        "value": "0x00000000",
+        "bitfields": {
+          "29:0": "IT - Idle Time in Nanoseconds"
+        }
+      },
+      "0x000A0226": {
+        "name": "EG0CTL",
+        "description": "Event Generator 0 Control Register",
+        "value": "0x00000000",
+        "bitfields": {
+          "4": "ISREL - Event Uses Relative Timing",
+          "3": "REP - Event Repeats Periodically",
+          "2": "AH - Event Output is Active High",
+          "1": "STOP - Stop Event",
+          "0": "START - Start Event"
+        }
+      },
+      "0x000A0227": {
+        "name": "EG1STNS",
+        "description": "Event 1 Start Time Nanoseconds Register",
+        "value": "0x00000000",
+        "bitfields": {
+          "29:0": "STNS - Pulse Start Time in Nanoseconds"
+        }
+      },
+      "0x000A0228": {
+        "name": "EG1STSECL",
+        "description": "Event 1 Start Time Seconds Low Register",
+        "value": "0x00000000",
+        "bitfields": {
+          "31:0": "STSEC - Start Time in Seconds"
+        }
+      },
+      "0x000A0229": {
+        "name": "EG1STSECH",
+        "description": "Event 1 Start Time Seconds High Register",
+        "value": "0x00000000",
+        "bitfields": {
+          "15:0": "STSEC - Start Time in Seconds"
+        }
+      },
+      "0x000A022A": {
+        "name": "EG1PW",
+        "description": "Event 1 Pulse Width Register",
+        "value": "0x00000000",
+        "bitfields": {
+          "29:0": "PW - Pulse Width in Nanoseconds"
+        }
+      },
+      "0x000A022B": {
+        "name": "EG1IT",
+        "description": "Event 1 Idle Time Register",
+        "value": "0x00000000",
+        "bitfields": {
+          "29:0": "IT - Idle Time in Nanoseconds"
+        }
+      },
+      "0x000A022C": {
+        "name": "EG1CTL",
+        "description": "Event Generator 1 Control Register",
+        "value": "0x00000000",
+        "bitfields": {
+          "4": "ISREL - Event Uses Relative Timing",
+          "3": "REP - Event Repeats Periodically",
+          "2": "AH - Event Output is Active High",
+          "1": "STOP - Stop Event",
+          "0": "START - Start Event"
+        }
+      },
+      "0x000A022D": {
+        "name": "EG2STNS",
+        "description": "Event 2 Start Time Nanoseconds Register",
+        "value": "0x00000000",
+        "bitfields": {
+          "29:0": "STNS - Pulse Start Time in Nanoseconds"
+        }
+      },
+      "0x000A022E": {
+        "name": "EG2STSECL",
+        "description": "Event 2 Start Time Seconds Low Register",
+        "value": "0x00000000",
+        "bitfields": {
+          "31:0": "STSEC - Start Time in Seconds"
+        }
+      },
+      "0x000A022F": {
+        "name": "EG2STSECH",
+        "description": "Event 2 Start Time Seconds High Register",
+        "value": "0x00000000",
+        "bitfields": {
+          "15:0": "STSEC - Start Time in Seconds"
+        }
+      },
+      "0x000A0230": {
+        "name": "EG2PW",
+        "description": "Event 2 Pulse Width Register",
+        "value": "0x00000000",
+        "bitfields": {
+          "29:0": "PW - Pulse Width in Nanoseconds"
+        }
+      },
+      "0x000A0231": {
+        "name": "EG2IT",
+        "description": "Event 2 Idle Time Register",
+        "value": "0x00000000",
+        "bitfields": {
+          "29:0": "IT - Idle Time in Nanoseconds"
+        }
+      },
+      "0x000A0232": {
+        "name": "EG2CTL",
+        "description": "Event Generator 2 Control Register",
+        "value": "0x00000000",
+        "bitfields": {
+          "4": "ISREL - Event Uses Relative Timing",
+          "3": "REP - Event Repeats Periodically",
+          "2": "AH - Event Output is Active High",
+          "1": "STOP - Stop Event",
+          "0": "START - Start Event"
+        }
+      },
+      "0x000A0233": {
+        "name": "EG3STNS",
+        "description": "Event 3 Start Time Nanoseconds Register",
+        "value": "0x00000000",
+        "bitfields": {
+          "29:0": "STNS - Pulse Start Time in Nanoseconds"
+        }
+      },
+      "0x000A0234": {
+        "name": "EG3STSECL",
+        "description": "Event 3 Start Time Seconds Low Register",
+        "value": "0x00000000",
+        "bitfields": {
+          "31:0": "STSEC - Start Time in Seconds"
+        }
+      },
+      "0x000A0235": {
+        "name": "EG3STSECH",
+        "description": "Event 3 Start Time Seconds High Register",
+        "value": "0x00000000",
+        "bitfields": {
+          "15:0": "STSEC - Start Time in Seconds"
+        }
+      },
+      "0x000A0236": {
+        "name": "EG3PW",
+        "description": "Event 3 Pulse Width Register",
+        "value": "0x00000000",
+        "bitfields": {
+          "29:0": "PW - Pulse Width in Nanoseconds"
+        }
+      },
+      "0x000A0237": {
+        "name": "EG3IT",
+        "description": "Event 3 Idle Time Register",
+        "value": "0x00000000",
+        "bitfields": {
+          "29:0": "IT - Idle Time in Nanoseconds"
+        }
+      },
+      "0x000A0238": {
+        "name": "EG3CTL",
+        "description": "Event Generator 3 Control Register",
+        "value": "0x00000000",
+        "bitfields": {
+          "4": "ISREL - Event Uses Relative Timing",
+          "3": "REP - Event Repeats Periodically",
+          "2": "AH - Event Output is Active High",
+          "1": "STOP - Stop Event",
+          "0": "START - Start Event"
+        }
+      },
+      "0x000A0239": {
+        "name": "PPSCTL",
+        "description": "One Pulse-per-Second Control Register",
+        "value": "0x00000004",
+        "bitfields": {
+          "6:2": "PPSPW - Pulse-per-second pulse width",
+          "1": "PPSDIS - 1 pulse-per-second signal disable",
+          "0": "PPSEN - 1 pulse-per-second signal enable"
+        }
+      },
+      "0x000A023A": {
+        "name": "SEVINTEN",
+        "description": "Synchronization Event Interrupt Enable Register",
+        "value": "0x00000000",
+        "bitfields": {
+          "31": "PADONE - Phase Adjust Done",
+          "30": "PAER - Phase adjust error",
+          "19": "EG3DONE - Event generator 3 done",
+          "18": "EG2DONE - Event generator 2 done completed.",
+          "17": "EG1DONE - Event generator 1 done",
+          "16": "EG0DONE - Event generator 0 done",
+          "7": "EC3DA - Event capture unit 3 data available",
+          "6": "EC3OF - Event capture unit 3 overflow",
+          "5": "EC2DA - Event capture unit 2 data available.",
+          "4": "EC2OF - Event capture unit 2 overflow",
+          "3": "EC1DA - Event capture unit 1 data available",
+          "2": "EC1OF - Event capture unit 1 overflow",
+          "1": "EC0DA - Event capture unit 0 data available",
+          "0": "EC0OF - Event capture unit 0 overflow"
+        }
+      },
+      "0x000A023B": {
+        "name": "SEVINTDIS",
+        "description": "Synchronization Event Interrupt Disable Register",
+        "value": "0x00000000",
+        "bitfields": {
+          "31": "PADONE - Phase Adjust Done",
+          "30": "PAER - Phase adjust error",
+          "19": "EG3DONE - Event generator 3 done",
+          "18": "EG2DONE - Event generator 2 done",
+          "17": "EG1DONE - Event generator 1 done",
+          "16": "EG0DONE - Event generator 0 done",
+          "7": "EC3DA - Event capture unit 3 data available",
+          "6": "EC3OF - Event capture unit 3 overflow",
+          "5": "EC2DA - Event capture unit 2 data available.",
+          "4": "EC2OF - Event capture unit 2 overflow",
+          "3": "EC1DA - Event capture unit 1 data available",
+          "2": "EC1OF - Event capture unit 1 overflow",
+          "1": "EC0DA - Event capture unit 0 data available",
+          "0": "EC0OF - Event capture unit 0 overflow"
+        }
+      },
+      "0x000A023C": {
+        "name": "SEVIM",
+        "description": "Synchronization Event Interrupt Mask Status Register",
+        "value": "0xE00F00FF",
+        "bitfields": {
+          "31": "PADONE - Phase Adjust Done",
+          "30": "PAER - Phase adjust error",
+          "19": "EG3DONE - Event generator 3 done",
+          "18": "EG2DONE - Event generator 2 done",
+          "17": "EG1DONE - Event generator 1 done",
+          "16": "EG0DONE - Event generator 0 done",
+          "7": "EC3DA - Event capture unit 3 data available",
+          "6": "EC3OF - Event capture unit 3 overflow",
+          "5": "EC2DA - Event capture unit 2 data available",
+          "4": "EC2OF - Event capture unit 2 overflow",
+          "3": "EC1DA - Event capture unit 1 data available",
+          "2": "EC1OF - Event capture unit 1 overflow",
+          "1": "EC0DA - Event capture unit 0 data available",
+          "0": "EC0OF - Event capture unit 0 overflow"
+        }
+      },
+      "0x000A023D": {
+        "name": "SEVSTS",
+        "description": "Synchronization Event Status Register",
+        "value": "0x00000000",
+        "bitfields": {
+          "31": "PADONE - Phase Adjust done",
+          "30": "PPSDONE - One pulse-per-second signal generation done",
+          "29": "PAER - Phase adjust error",
+          "19": "EG3DONE - Event generator 3 done",
+          "18": "EG2DONE - Event generator 2 done",
+          "17": "EG1DONE - Event generator 1 done",
+          "16": "EG0DONE - Event generator 0 done",
+          "7": "EC3DA - Event capture unit 3 data available",
+          "6": "EC3OF - Event capture unit 3 overflow",
+          "5": "EC2DA - Event capture unit 2 data available",
+          "4": "EC2OF - Event capture unit 2 overflow",
+          "3": "EC1DA - Event capture unit 1 data available",
+          "2": "EC1OF - Event capture unit 1 overflow",
+          "1": "EC0DA - Event capture unit 0 data available",
+          "0": "EC0OF - Event capture unit 0 overflow"
+        }
+      }
+    }
+  }
+}
