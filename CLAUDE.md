@@ -20,6 +20,7 @@
 | `cli.py` | Kommandos über COM-Port schicken und Antworten einsammeln |
 | `bridge_gui.py` | **Bedien-GUI** (tkinter): Bridge-Parameter, alle 183 LAN8651-Register mit Bitfeldern, Testmodi, Terminal. **Standalone** — braucht nur `pyserial`, `lan8651_model.json` und `bridge_config.json`, ruft weder `cli.py` noch `test_lan8651.py` auf (Abschnitt 6) |
 | `env_model.json` | **Das Environment-Modell** — je Kennung+Version: welche Felder der EEPROM-Datensatz hat, mit welchem Muster sie aus `showenv` gelesen und mit welchem `setenv`-Schlüssel sie geschrieben werden. Die GUI liest die Kennung vom Gerät und deutet die Werte **nur**, wenn sie dazu einen Eintrag findet |
+| `check_gui_language.py` | Prüft, dass **alle sichtbaren Texte** in `bridge_gui.py` englisch sind — über den Syntaxbaum, damit Kommentare unberührt bleiben |
 | `check_env_model.py` | Prüft das Environment-Modell — und gleicht jeden `cli_key` gegen die `setenv`-Schlüssel in `env.c` ab (beide Richtungen: unbekannter Schlüssel = Fehler, unerreichbare Einstellung = Warnung) |
 | `lan8651_model.json` | **Das Registermodell** — 183 Register, 535 Bitfelder, je mit Abschnitt und Seite im Datenblatt, dazu Errata-Anmerkungen. Die GUI **liest** es und schreibt es nie. Fehler werden **hier** korrigiert, nicht im Python-Quelltext, danach `python check_register_model.py` |
 | `check_register_model.py` | Prüft das Modell gegen sich selbst: MMS gegen Gruppe, doppelte Adressen und Mnemonics, Bitbereiche verdreht/über 31/überlappend, fehlende Namen. Exitcode ≠ 0 bei Fehlern |
@@ -392,6 +393,34 @@ Erst zurückstellen, dann Verkehr messen.
   Wer ihn sieht: `BUILD_JOBS=1 build.bat rebuild` baut seriell und beweist, dass es der Wettlauf war.
   Ein Vergleich seriell/parallel ergab damals eine HEX, die sich in **genau einer Zeile** unterschied
   — dem einkompilierten `Build Timestamp` —, sonst Byte für Byte gleich.
+- **2026-08-26 — Ein Werkzeug darf nichts ablehnen, was die Firmware annimmt — und nur das Flashen
+  hat es gezeigt.** Die neue Firmware akzeptierte den vorhandenen Datensatz mit der Alt-Kennung
+  `'LANE'` (Version und CRC passen zu diesem Layout) und lieferte gültige Werte; die GUI kannte nur
+  `'EBRG'` und schrieb *„dafür gibt es kein Modell, die Werte sind NICHT gedeutet"* über ein Feld
+  voller korrekter Werte. Gegen **erfundene** Testausgaben hatte alles gepasst — weil ich die
+  erfundene Ausgabe mit der neuen Kennung geschrieben hatte. **Lösung:** `accepts_ids` im
+  Environment-Modell führt die Kennungen, die die Firmware selbst noch liest. **Merksatz: Testdaten
+  nicht aus derselben Annahme bauen wie den Code**, sonst prüfen sie die Annahme statt des Codes.
+  Zweiter Fund derselben Runde: die Kopfzeile meldete „nicht gedeutet", während die Felder gefüllt
+  waren — der Worker deutete mit dem Modelleintrag, der galt, *bevor* die gerade gelesene Kennung
+  ankam. Wer Kennung und Nutzdaten aus **einer** Antwort zieht, muss beides mit **demselben** Stand
+  auswerten (`env_entry_for(ident)` statt `env_entry()`).
+- **2026-08-25 — `bridge_config.json` verlor bei jedem Speichern eine weitere Kodierungsrunde.**
+  `save_config()` schreibt UTF-8, die drei Lesestellen nahmen den Windows-Standard **cp1252**. Jede
+  Runde kodierte neu, was die vorige schon verbogen hatte: `Manufacturer’s` → `â€™` → `Ã¢â‚¬â„¢`, und
+  nie eine Fehlermeldung, weil jede Zwischenstufe **gültiges JSON** blieb. Die Datei war dreifach
+  verdorben, als es auffiel. **Lösung:** `encoding="utf-8"` an *jede* JSON-`open()`; Reparatur durch
+  Zurückdrehen der Runden (`s.encode('cp1252').decode('utf-8')`, je Runde einmal, bricht von selbst
+  ab). **Merksatz: eine Datei, die gültig bleibt, während ihr Inhalt zerfällt, meldet sich nie
+  selbst** — ein Roundtrip-Test (laden→speichern→laden muss byteweise gleich sein) ist die einzige
+  Prüfung, die das fängt.
+- **2026-08-26 — Sprachregel: alles Sichtbare ist englisch.** Modelle, GUI-Texte, README, CLI-Doku;
+  deutsch bleiben nur **diese Datei** und die Quelltextkommentare. Durchgesetzt wird das von
+  `check_gui_language.py` (liest die Zeichenketten über den **Syntaxbaum**, damit Kommentare außen vor
+  bleiben) und den Sprachprüfungen in `check_register_model.py`/`check_env_model.py`. Erfahrungswert
+  aus dem ersten Durchgang: eine Liste aus **Funktionswörtern** fand 34 von 39 Texten — die fehlenden
+  fünf waren kurze Statuszeilen aus Substantiven („Verbindung verloren", „ohne Antwort"), also
+  gerade die, die ein Benutzer am häufigsten sieht. Deshalb stehen Substantive mit in der Liste.
 - **2026-08-25 — Zwei Firmware-Varianten schrieben denselben EEPROM-Datensatz mit derselben
   Kennung und derselben Version, aber anderem Layout.** `t1s_100baset_bridge` und
   `t1s_ptp_bridge` hatten beide `ENV_MAGIC 0x4C414E45` (`'LANE'`), beide `ENV_VERSION 4`, beide
