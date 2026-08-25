@@ -67,6 +67,21 @@ if not defined MPLABX_MAKE (
 )
 echo Make      : %MPLABX_MAKE%
 
+rem Parallel compile. Makefile-impl.mk invokes the per-configuration makefile
+rem through ${MAKE}, so the sub-make inherits the jobserver and the 326 compile
+rem rules run concurrently - measured 2m02s -> 35s for a full rebuild on 14
+rem cores. NUMBER_OF_PROCESSORS is set by Windows in every cmd environment, so
+rem nothing has to be detected at setup time and nothing goes stale when the
+rem repo moves to another machine.
+rem   -Otarget keeps each compiler's output together; without it the messages of
+rem   14 concurrent compilers interleave and a failure cannot be traced back to
+rem   a file. MPLAB X v6.25 ships GNU Make 4.4.1, which supports both on Windows.
+rem Set BUILD_JOBS=1 to reproduce a failure serially.
+if not defined BUILD_JOBS set "BUILD_JOBS=%NUMBER_OF_PROCESSORS%"
+if not defined BUILD_JOBS set "BUILD_JOBS=1"
+set "MAKE_PARALLEL=-j%BUILD_JOBS% -Otarget"
+echo Jobs      : %BUILD_JOBS% parallel ^(override with BUILD_JOBS=n^)
+
 rem NOTE: deliberately NOT passing MP_CC_DIR on the make command line here.
 rem nbproject\Makefile-local-default.mk (written by MPLAB X itself) already
 rem defines it with the correct absolute path from the last IDE build. Any
@@ -96,6 +111,10 @@ echo Usage: build.bat [incremental^|clean^|rebuild^|help]
 echo   (no argument)  Incremental build (default)
 echo   clean          Delete all build artifacts for this configuration
 echo   rebuild        Clean then perform a full build
+echo.
+echo Environment:
+echo   BUILD_JOBS=n   Parallel compile jobs (default: NUMBER_OF_PROCESSORS = %NUMBER_OF_PROCESSORS%).
+echo                  Use BUILD_JOBS=1 to reproduce a build failure serially.
 exit /b 0
 
 :clean
@@ -111,9 +130,9 @@ goto :build
 
 :incremental
 :build
-echo [1/1] Building (make, CONF=%CONF%, TYPE_IMAGE=%TYPE_IMAGE%)...
+echo [1/1] Building (make, CONF=%CONF%, TYPE_IMAGE=%TYPE_IMAGE%, %BUILD_JOBS% jobs)...
 pushd "%MPLAB_DIR%"
-"%MPLABX_MAKE%" -f Makefile CONF=%CONF% TYPE_IMAGE=%TYPE_IMAGE% build
+"%MPLABX_MAKE%" -f Makefile CONF=%CONF% TYPE_IMAGE=%TYPE_IMAGE% %MAKE_PARALLEL% build
 set "BUILD_RC=%errorlevel%"
 popd
 if not "%BUILD_RC%"=="0" ( echo ERROR: Build failed. & exit /b 1 )
