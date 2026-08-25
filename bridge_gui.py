@@ -258,7 +258,13 @@ class BridgeGUI:
     def __init__(self, root: tk.Tk):
         self.root = root
         self.root.title("Bridge Status & Configuration")
-        self.root.geometry("1000x700")
+        # 1000 px was enough until the bulk buttons moved into the top bar; that row
+        # needs 1162 px (measured) and pack() does not wrap - it silently cuts off
+        # whatever is furthest right. The position is set too: on the 1280 px screen
+        # here Windows placed the wider window at x=78, which pushed "Open from JSON"
+        # off the edge - the buttons were there, just not reachable.
+        self.root.geometry(self._fitting_geometry(1220, 700))
+        self.root.minsize(1180, 500)
 
         self.config = self.load_config()
         self.cli = ResponseParser()
@@ -294,6 +300,21 @@ class BridgeGUI:
         self.root.after(BLINK_MS, self._blink_loop)
 
         self.process_queue()
+
+    def _fitting_geometry(self, width: int, height: int) -> str:
+        """Geometry string for a window of this size, clamped onto the visible screen.
+
+        Shrinks the request if the screen is smaller and places the window so the right
+        edge stays on screen - a window that is merely wide is a nuisance, one that hangs
+        over the edge hides controls without any hint that they exist.
+        """
+        screen_w = self.root.winfo_screenwidth()
+        screen_h = self.root.winfo_screenheight()
+        width = min(width, screen_w - 20)
+        height = min(height, screen_h - 80)
+        x = max(0, (screen_w - width) // 2)
+        y = max(0, min(40, (screen_h - height) // 2))
+        return f"{width}x{height}+{x}+{y}"
 
     def load_config(self) -> dict:
         """Load configuration from JSON or create default.
@@ -353,6 +374,16 @@ class BridgeGUI:
         # Connect/Disconnect buttons
         ttk.Button(top_frame, text="🟢 Connect", command=self.connect_device).pack(side=tk.LEFT, padx=2)
         ttk.Button(top_frame, text="🔴 Disconnect", command=self.disconnect_device).pack(side=tk.LEFT, padx=2)
+
+        # Register bulk actions. They live up here rather than at the bottom of the
+        # register tab because they are what one reaches for while watching the
+        # registers, and the tab scrolls - a button below the scroll area is off screen
+        # exactly when it is wanted.
+        ttk.Separator(top_frame, orient=tk.VERTICAL).pack(side=tk.LEFT, fill=tk.Y, padx=6)
+        ttk.Button(top_frame, text="🔄 Bulk Read All", command=self.bulk_read_registers).pack(side=tk.LEFT, padx=2)
+        ttk.Button(top_frame, text="💾 Bulk Write All", command=self.bulk_write_registers).pack(side=tk.LEFT, padx=2)
+        ttk.Button(top_frame, text="Save to JSON", command=self.save_registers_json).pack(side=tk.LEFT, padx=2)
+        ttk.Button(top_frame, text="Open from JSON", command=self.load_registers_json).pack(side=tk.LEFT, padx=2)
 
         # Connection indicator
         self.connection_frame = ttk.Frame(top_frame)
@@ -596,14 +627,8 @@ class BridgeGUI:
             canvas.pack(side="left", fill="both", expand=True)
             scrollbar.pack(side="right", fill="y")
 
-        # Button frame at bottom
-        btn_frame = ttk.Frame(frame)
-        btn_frame.pack(fill=tk.X, padx=5, pady=5)
-
-        ttk.Button(btn_frame, text="🔄 Bulk Read All", command=self.bulk_read_registers).pack(side=tk.LEFT, padx=2)
-        ttk.Button(btn_frame, text="💾 Bulk Write All", command=self.bulk_write_registers).pack(side=tk.LEFT, padx=2)
-        ttk.Button(btn_frame, text="Save to JSON", command=self.save_registers_json).pack(side=tk.LEFT, padx=2)
-        ttk.Button(btn_frame, text="Open from JSON", command=self.load_registers_json).pack(side=tk.LEFT, padx=2)
+        # The bulk buttons that used to sit here are in the top bar now (create_widgets),
+        # where they stay visible no matter which tab is open or how far it is scrolled.
 
     def create_testmodes_tab(self):
         """Create Test Modes tab"""
