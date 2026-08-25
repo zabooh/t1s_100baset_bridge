@@ -19,6 +19,8 @@
 | `LAN8651_TEST_MODES.md` | **Vertiefung zu Abschnitt 3+4 dieser Datei** (**englisch**) — die vier Modi, Messaufbau am Bus, generischer Registerweg vs. `testmode`/`lan_rmw`, Messprotokoll |
 | `cli.py` | Kommandos über COM-Port schicken und Antworten einsammeln |
 | `bridge_gui.py` | **Bedien-GUI** (tkinter): Bridge-Parameter, alle 183 LAN8651-Register mit Bitfeldern, Testmodi, Terminal. **Standalone** — braucht nur `pyserial`, `lan8651_model.json` und `bridge_config.json`, ruft weder `cli.py` noch `test_lan8651.py` auf (Abschnitt 6) |
+| `env_model.json` | **Das Environment-Modell** — je Kennung+Version: welche Felder der EEPROM-Datensatz hat, mit welchem Muster sie aus `showenv` gelesen und mit welchem `setenv`-Schlüssel sie geschrieben werden. Die GUI liest die Kennung vom Gerät und deutet die Werte **nur**, wenn sie dazu einen Eintrag findet |
+| `check_env_model.py` | Prüft das Environment-Modell — und gleicht jeden `cli_key` gegen die `setenv`-Schlüssel in `env.c` ab (beide Richtungen: unbekannter Schlüssel = Fehler, unerreichbare Einstellung = Warnung) |
 | `lan8651_model.json` | **Das Registermodell** — 183 Register, 535 Bitfelder, je mit Abschnitt und Seite im Datenblatt, dazu Errata-Anmerkungen. Die GUI **liest** es und schreibt es nie. Fehler werden **hier** korrigiert, nicht im Python-Quelltext, danach `python check_register_model.py` |
 | `check_register_model.py` | Prüft das Modell gegen sich selbst: MMS gegen Gruppe, doppelte Adressen und Mnemonics, Bitbereiche verdreht/über 31/überlappend, fehlende Namen. Exitcode ≠ 0 bei Fehlern |
 | `bridge_config.json` | **Nur Sitzungszustand**: COM-Port, Bridge-Parameter, zuletzt gelesene Registerwerte (`values`). Trägt seit 2026-08-25 **keine** Registerkarte mehr |
@@ -390,6 +392,25 @@ Erst zurückstellen, dann Verkehr messen.
   Wer ihn sieht: `BUILD_JOBS=1 build.bat rebuild` baut seriell und beweist, dass es der Wettlauf war.
   Ein Vergleich seriell/parallel ergab damals eine HEX, die sich in **genau einer Zeile** unterschied
   — dem einkompilierten `Build Timestamp` —, sonst Byte für Byte gleich.
+- **2026-08-25 — Zwei Firmware-Varianten schrieben denselben EEPROM-Datensatz mit derselben
+  Kennung und derselben Version, aber anderem Layout.** `t1s_100baset_bridge` und
+  `t1s_ptp_bridge` hatten beide `ENV_MAGIC 0x4C414E45` (`'LANE'`), beide `ENV_VERSION 4`, beide
+  Offset 0 — die Bridge hat `mirror` an Byte 60, der PTP-Zweig dort `ptp_auto`. Dass daraus keine
+  falsch gedeuteten Werte wurden, war **Zufall**: 68 gegen 72 Byte, die CRC liegt woanders und
+  schlägt fehl → Datensatz verworfen → stiller Werksreset mit `plca_id = 7`. Bei gleicher Größe
+  wären es falsche Werte gewesen. **Lösung: die Magic IST die Kennung der Variante** — hier jetzt
+  `'EBRG'`, `'LANE'` wird beim Lesen noch akzeptiert (Version und CRC über *dieses* Layout beweisen
+  die Herkunft) und beim nächsten `saveenv` umgeschrieben. Neue Varianten nehmen vier eigene
+  Zeichen und benutzen nie eine fremde.
+- **2026-08-25 — Die im EEPROM gefundene Version lässt sich nicht aus der RAM-Kopie ablesen.**
+  `env_read_valid()` verlangt exakte Gleichheit; nach einer Abweichung steht in `s_env` die
+  Vorgabe, und `s_env.version` ist **immer** die der Firmware. Ein `showenv`, das dieses Feld
+  ausgibt, könnte einen Versionskonflikt also nie zeigen. Deshalb merkt sich `env_read_valid()`
+  Kennung, Version und CRC-Status des **gefundenen** Datensatzes, bevor er verworfen wird, und
+  `showenv` gibt beides nebeneinander aus:
+  `env id EBRG version 4 crc ok | firmware id EBRG version 4 t1s_100baset_bridge`.
+  Ein verworfener Datensatz meldet sich beim Booten außerdem laut, samt der `plca_id`, die dann
+  gilt — sonst hört die Bridge wieder unbemerkt auf, Beacons zu senden.
 - **2026-08-25 — Die Registerkarte gehört in eine Modelldatei, nicht in die Konfiguration — und ein
   Abgleich gegen das Datenblatt fand drei Fehler, die keine Strukturprüfung je gefunden hätte.**
   `lan8651_model.json` ist seither die Referenz (nur lesen), `bridge_config.json` nur noch Zustand.

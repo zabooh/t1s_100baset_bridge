@@ -33,9 +33,23 @@
 #include "port_mirror.h"                                     /* MIRROR_IsEnabled() for showenv */
 #include "env.h"
 
-#define ENV_MAGIC    0x4C414E45u   /* 'LANE' */
+/* The magic doubles as the ENVIRONMENT ID: it says which firmware variant wrote this
+ * record, not just "this is an env record". It has to, because variants disagree about
+ * the layout while agreeing on everything else - t1s_ptp_bridge also stores at offset 0,
+ * also calls it version 4, and puts ptp_auto where this one puts mirror. Only the size
+ * (68 vs 72 bytes) and therefore the crc32 tell them apart today, which is luck rather
+ * than design: two variants of equal size would silently misread each other's settings.
+ *
+ * New variants pick their own four characters and never reuse one. */
+#define ENV_MAGIC    0x45425247u   /* 'EBRG' - eth bridge, this firmware */
+#define ENV_MAGIC_LEGACY 0x4C414E45u /* 'LANE' - written before ids were per-variant.
+                                      * Still accepted on read: a record that also matches
+                                      * this layout's version AND crc can only have come
+                                      * from this variant. Rewritten with the new id on the
+                                      * next saveenv, so it disappears by itself. */
 #define ENV_VERSION  4u            /* v2 added PLCA, v3 the MACs, v4 the mirror flag */
 #define ENV_VERSION_V3 3u          /* migrated in place by env_migrate_v3() - see there why */
+#define ENV_VARIANT  "t1s_100baset_bridge"   /* printed by showenv next to the id */
 #define ENV_IF_CNT   2             /* [0] = eth0 (LAN865x/T1S), [1] = eth1 (GMAC/100BASE-T) */
 #define ENV_EE_OFFSET 0u           /* byte offset of the record in the emulated EEPROM */
 
@@ -178,11 +192,40 @@ static bool env_save(void)
 }
 
 /* Read a record from the EEPROM into *out; true only if magic+version+crc check out. */
+/* What was actually found in the EEPROM at boot, before anything was accepted or
+ * discarded. Kept separately because s_env cannot answer the question: env_read_valid()
+ * demands an exact version match, so after a mismatch s_env holds the compiled defaults
+ * and its .version is ALWAYS the firmware's own - a showenv reading it could never
+ * reveal a mismatch, which is the one thing worth reporting. */
+static uint32_t s_ee_id        = 0u;      /* magic/environment id found in the EEPROM, 0 = none */
+static uint32_t s_ee_version   = 0u;      /* version field of that record                       */
+static bool     s_ee_crc_ok    = false;   /* ... and whether it was intact                      */
+
 static bool env_read_valid(env_t *out)
 {
     if (EMU_EEPROM_BufferRead(ENV_EE_OFFSET, (uint8_t *)out, (uint16_t)sizeof *out) != EMU_EEPROM_STATUS_OK)
         return false;
-    return out->magic == ENV_MAGIC && out->version == ENV_VERSION && out->crc32 == env_calc_crc(out);
+    /* Record what is there regardless of whether it is usable. magic and version sit at
+     * the same offsets in every layout written so far, so they can be read even when the
+     * rest of the record belongs to a variant or version we cannot interpret. */
+    s_ee_id      = out->magic;
+    s_ee_version = out->version;
+    s_ee_crc_ok  = (out->crc32 == env_calc_crc(out));
+
+    return (out->magic == ENV_MAGIC || out->magic == ENV_MAGIC_LEGACY)
+           && out->version == ENV_VERSION && s_ee_crc_ok;
+}
+
+/* Four characters of an environment id, for printing. Non-printable bytes become '?'
+ * so a garbage record cannot scramble the console output. */
+static void env_id_str(uint32_t id, char out[5])
+{
+    int i;
+    for (i = 0; i < 4; i++) {
+        uint8_t c = (uint8_t)(id >> (24 - 8 * i));
+        out[i] = (c >= 0x20u && c < 0x7Fu) ? (char)c : '?';
+    }
+    out[4] = '\0';
 }
 
 /* Migrate a v3 record in place: carry every field over, default the new one, store
@@ -262,6 +305,20 @@ static void cmd_showenv(SYS_CMD_DEVICE_NODE *pCmdIO, int argc, char **argv)
 {
     int i; (void)pCmdIO; (void)argc; (void)argv;
     SYS_CONSOLE_PRINT("env (RAM shadow):\r\n");
+    /* Identity first, and always the same shape, because a tool reads this line to decide
+     * whether it may interpret the rest at all. "eeprom" is what was found at boot, not
+     * what is in RAM now - after a rejected record those two differ, and that difference
+     * is the whole point. */
+    {
+        char found[5], mine[5];
+        env_id_str(s_ee_id, found);
+        env_id_str((uint32_t)ENV_MAGIC, mine);
+        SYS_CONSOLE_PRINT("  env   id %s  version %lu  crc %s  |  firmware id %s  version %lu  %s\r\n",
+                          (s_ee_id != 0u) ? found : "none",
+                          (unsigned long)s_ee_version,
+                          s_ee_crc_ok ? "ok" : "BAD",
+                          mine, (unsigned long)ENV_VERSION, ENV_VARIANT);
+    }
     for (i = 0; i < ENV_IF_CNT; i++) {
         SYS_CONSOLE_PRINT("  eth%d  ", i);
         pr_addr("ip ",     s_env.ip[i]);
@@ -413,7 +470,23 @@ void ENV_Init(void)
         SYS_CONSOLE_PRINT("env: migrated v%u record to v%u (settings kept, mirror=0)\r\n",
                           (unsigned)ENV_VERSION_V3, (unsigned)ENV_VERSION);
     } else {
-        env_load_defaults(&s_env);         /* first boot / blank / corrupt */
+        /* Say why. Falling back to the compiled defaults is not harmless here: the default
+         * PLCA node id is 7, while this bridge has to run as coordinator (id 0). Without
+         * this line the board simply stops sending beacons and nothing points at the
+         * EEPROM - see CLAUDE.md section 6. */
+        if (s_ee_id != 0u) {
+            char found[5], mine[5];
+            env_id_str(s_ee_id, found);
+            env_id_str((uint32_t)ENV_MAGIC, mine);
+            SYS_CONSOLE_PRINT("env: DISCARDED the stored record (id %s version %lu crc %s) - "
+                              "this firmware writes id %s version %lu (%s).\r\n"
+                              "env: compiled defaults are in use, PLCA node id is now %u. "
+                              "Check 'showenv' before relying on the link.\r\n",
+                              found, (unsigned long)s_ee_version, s_ee_crc_ok ? "ok" : "BAD",
+                              mine, (unsigned long)ENV_VERSION, ENV_VARIANT,
+                              (unsigned)DRV_LAN865X_PLCA_NODE_ID_IDX0);
+        }
+        env_load_defaults(&s_env);         /* first boot / blank / corrupt / foreign variant */
         (void)env_save();                  /* seed the EEPROM from the compiled defaults */
     }
     SYS_CMD_ADDGRP(env_cmd_tbl, (int)(sizeof env_cmd_tbl / sizeof *env_cmd_tbl),

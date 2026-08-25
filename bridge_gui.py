@@ -39,6 +39,12 @@ CONFIG_FILE = Path(__file__).parent / "bridge_config.json"
 # "python check_register_model.py".
 MODEL_FILE = Path(__file__).parent / "lan8651_model.json"
 
+# Das Environment-Modell: welche Felder der EEPROM-Datensatz hat, wie sie aus showenv
+# gelesen und mit welchem CLI-Kommando sie geschrieben werden -- je Kennung und Version.
+# Firmware-Varianten teilen sich den EEPROM-Offset, aber nicht das Layout; deshalb wird
+# die Kennung vom Geraet gelesen und gegen dieses Modell gehalten, statt sie zu raten.
+ENV_MODEL_FILE = Path(__file__).parent / "env_model.json"
+
 # Default configuration
 # Vorgaben, falls bridge_config.json fehlt. Die Registerkarte kommt dann NICHT
 # mit -- sie stammt aus dem Datenblatt (LAN8650-1-Data-Sheet-60001734.pdf,
@@ -276,6 +282,10 @@ class BridgeGUI:
 
         self.config = self.load_config()
         self.model = self.load_model()
+        self.env_model = self.load_env_model()
+        # Was das Geraet ueber sein Environment gemeldet hat. Bleibt None, solange nichts
+        # gelesen wurde -- die GUI behauptet dann nicht, sie wuesste, was im EEPROM steht.
+        self.env_identity: Optional[dict] = None
         self.cli = ResponseParser()
         self.result_queue = queue.Queue()
         self.connected = False
@@ -349,6 +359,70 @@ class BridgeGUI:
                 "Der Registertab bleibt leer. Pruefen mit: python check_register_model.py")
             return {}
         return model
+
+    def load_env_model(self) -> dict:
+        """Das Environment-Modell laden. Fehlt es, bleibt der Parametertab leer und sagt es."""
+        try:
+            with open(ENV_MODEL_FILE, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except FileNotFoundError:
+            messagebox.showerror(
+                "Environment-Modell fehlt",
+                f"{ENV_MODEL_FILE.name} wurde nicht gefunden.\n\n"
+                "Der Parametertab bleibt leer. Die Datei beschreibt den EEPROM-Datensatz "
+                "je Kennung und Version.")
+            return {}
+        except ValueError as exc:
+            messagebox.showerror(
+                "Environment-Modell unlesbar",
+                f"{ENV_MODEL_FILE.name} ist kein gueltiges JSON:\n\n{exc}\n\n"
+                "Pruefen mit: python check_env_model.py")
+            return {}
+
+    def env_entry(self) -> dict:
+        """Der Modelleintrag, nach dem die GUI gerade arbeitet.
+
+        Solange das Geraet nichts gemeldet hat, ist das der einzige bzw. erste Eintrag --
+        die Felder muessen ja aufgebaut werden, bevor jemand verbindet. Nach dem Lesen der
+        Kennung wird der passende Eintrag genommen; gibt es keinen, ist das Ergebnis leer
+        und die GUI zeigt die Werte als nicht deutbar an, statt sie zu erfinden.
+        """
+        envs = self.env_model.get("environments", {})
+        if not envs:
+            return {}
+        if self.env_identity:
+            want = (self.env_identity.get("eeprom_id"), str(self.env_identity.get("eeprom_version")))
+            for env in envs.values():
+                if (env.get("id"), str(env.get("version"))) == want:
+                    return env
+            return {}
+        return next(iter(envs.values()))
+
+    def env_identity_label_color(self, ok: bool) -> None:
+        """Grau, solange alles zusammenpasst - rot, sobald es das nicht tut."""
+        widget = getattr(self, "_env_identity_widget", None)
+        if widget is not None:
+            widget.configure(foreground="#555" if ok else "#b00")
+
+    def env_identity_line(self) -> str:
+        """Die Zeile ueber dem Parametertab: was im EEPROM steht und ob wir es deuten koennen."""
+        if not self.env_model:
+            return "kein Environment-Modell geladen"
+        if not self.env_identity:
+            envs = ", ".join(self.env_model.get("environments", {}))
+            return f"Environment: noch nicht gelesen - Modell kennt {envs}. 'Read All' fragt das Geraet."
+        ident = self.env_identity
+        ee = f"{ident.get('eeprom_id')} v{ident.get('eeprom_version')}"
+        fw = f"{ident.get('firmware_id')} v{ident.get('firmware_version')}"
+        crc = ident.get("eeprom_crc", "?")
+        if self.env_entry():
+            note = "Modell passt"
+            if ee != fw:
+                note = f"ACHTUNG: EEPROM {ee}, Firmware schreibt {fw} - der Datensatz wurde verworfen"
+            return (f"Environment: EEPROM {ee} (crc {crc}) | Firmware {fw} "
+                    f"{ident.get('firmware_variant', '')} - {note}")
+        return (f"ACHTUNG: EEPROM meldet {ee}, dafuer gibt es kein Modell. Die Werte unten "
+                f"sind NICHT gedeutet. Firmware {fw} {ident.get('firmware_variant', '')}")
 
     def model_source_line(self) -> str:
         """Einzeiler zur Herkunft, den die GUI anzeigt -- damit sie nicht mehr behauptet,
@@ -468,6 +542,15 @@ class BridgeGUI:
         # Fields dictionary
         self.bridge_fields: Dict[str, tk.StringVar] = {}
 
+        # Kennung des Environments ganz oben, VOR dem Paned-Bereich - der fuellt mit
+        # expand=True den Rest, ein spaeter gepacktes Label landete darunter. Sie
+        # entscheidet, ob die Werte unten bedeuten, was die Beschriftung sagt.
+        self.env_identity_var = tk.StringVar(value=self.env_identity_line())
+        self._env_identity_widget = ttk.Label(frame, textvariable=self.env_identity_var,
+                                              foreground="#555", wraplength=1150,
+                                              justify=tk.LEFT)
+        self._env_identity_widget.pack(anchor="w", padx=8, pady=(4, 2))
+
         # Main paned window: parameters on left, commands/output on right
         paned = ttk.PanedWindow(frame, orient=tk.HORIZONTAL)
         paned.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
@@ -489,17 +572,28 @@ class BridgeGUI:
         canvas.create_window((0, 0), window=scrollable_frame, anchor="nw")
         canvas.configure(yscrollcommand=scrollbar.set)
 
-        # Create fields for bridge config
-        bridge_cfg = self.config.get("bridge", DEFAULT_CONFIG["bridge"])
-        for key, value in bridge_cfg.items():
-            self.bridge_fields[key] = tk.StringVar(value=str(value))
+        # Die Felder kommen aus env_model.json, nicht aus einer Liste im Quelltext: welche
+        # es gibt, haengt an Kennung und Version des Geraets, und genau das ist der Punkt.
+        saved = self.config.get("bridge", {})
+        for key, fld in self.env_entry().get("fields", {}).items():
+            self.bridge_fields[key] = tk.StringVar(value=str(saved.get(key, "")))
             row = ttk.Frame(scrollable_frame)
-            row.pack(fill=tk.X, padx=5, pady=2)
+            row.pack(fill=tk.X, padx=5, pady=(4, 0))
 
-            ttk.Label(row, text=key + ":", width=15).pack(side=tk.LEFT)
-            ttk.Entry(row, textvariable=self.bridge_fields[key], width=30).pack(side=tk.LEFT, padx=5)
-            ttk.Button(row, text="Read", width=5, command=lambda k=key: self.read_bridge_field(k)).pack(side=tk.LEFT, padx=1)
-            ttk.Button(row, text="Write", width=5, command=lambda k=key: self.write_bridge_field(k)).pack(side=tk.LEFT, padx=1)
+            ttk.Label(row, text=fld.get("label", key) + ":", width=22).pack(side=tk.LEFT)
+            ttk.Entry(row, textvariable=self.bridge_fields[key], width=24).pack(side=tk.LEFT, padx=5)
+            ttk.Button(row, text="Read", width=5,
+                       command=lambda k=key: self.read_bridge_field(k)).pack(side=tk.LEFT, padx=1)
+            ttk.Button(row, text="Write", width=5,
+                       command=lambda k=key: self.write_bridge_field(k)).pack(side=tk.LEFT, padx=1)
+
+            # Wann der Wert wirkt, steht dabei: "setenv" schreibt nur die RAM-Kopie, die MAC
+            # sogar erst nach einem Reset. Ohne den Hinweis haelt man einen geschriebenen
+            # Wert fuer einen wirksamen.
+            applies = fld.get("applies")
+            if applies:
+                ttk.Label(scrollable_frame, text=f"      {key} -> {applies}",
+                          font=("Courier", 7), foreground="#777").pack(anchor=tk.W, padx=5)
 
         canvas.pack(side="left", fill="both", expand=True)
         scrollbar.pack(side="right", fill="y")
@@ -513,7 +607,11 @@ class BridgeGUI:
         param_btn_frame.pack(fill=tk.X, padx=5, pady=5)
 
         ttk.Button(param_btn_frame, text="Read All", command=self.read_all_bridge, width=15).pack(fill=tk.X, padx=2, pady=2)
-        ttk.Button(param_btn_frame, text="Write All", command=self.write_all_bridge, width=15).pack(fill=tk.X, padx=2, pady=2)
+        # "Write Environment" statt "Write All": es schreibt nicht nur die Felder (setenv
+        # trifft nur die RAM-Kopie), sondern legt sie mit saveenv auch ins EEPROM. Der
+        # Name soll sagen, dass danach etwas Bleibendes im Geraet steht.
+        ttk.Button(param_btn_frame, text="Write Environment",
+                   command=self.write_environment, width=15).pack(fill=tk.X, padx=2, pady=2)
         ttk.Button(param_btn_frame, text="Save to JSON", command=self.save_bridge_json, width=15).pack(fill=tk.X, padx=2, pady=2)
         ttk.Button(param_btn_frame, text="Open from JSON", command=self.load_bridge_json, width=15).pack(fill=tk.X, padx=2, pady=2)
 
@@ -1253,6 +1351,27 @@ Example commands:
                     else:
                         self.set_error_status(f"Failed to read {key}")
 
+                elif result[0] == "env_identity":
+                    # Kennung des EEPROM-Datensatzes. Meldet das Geraet etwas, wofuer es
+                    # kein Modell gibt, sagt die Zeile das ausdruecklich -- und rot, denn
+                    # dann sind die Werte darunter nicht gedeutet.
+                    self.env_identity = result[1]
+                    if self.env_identity is None:
+                        # Gefragt wurde, nur kam keine Kennung zurueck. Das ist etwas
+                        # anderes als "noch nicht gefragt" und muss auch so dastehen,
+                        # sonst haelt man eine alte Firmware fuer eine ungelesene.
+                        self.env_identity_var.set(
+                            "Environment: das Geraet hat keine Kennung gemeldet - Firmware "
+                            "aelter als die Kennungszeile in showenv. Die Werte unten sind "
+                            "nach dem Modell gedeutet, ohne Nachweis, dass es passt.")
+                        self.env_identity_label_color(False)
+                    else:
+                        self.env_identity_var.set(self.env_identity_line())
+                        known = bool(self.env_entry())
+                        matches = self.env_identity.get("eeprom_id") == \
+                                  self.env_identity.get("firmware_id")
+                        self.env_identity_label_color(known and matches)
+
         except queue.Empty:
             pass
 
@@ -1355,6 +1474,9 @@ Example commands:
 
         def worker():
             output = self.send_command_via_link("showenv", timeout_ms=1500)
+            # Erst die Kennung: sie entscheidet, welcher Modelleintrag gilt und ob die
+            # Werte darunter ueberhaupt gedeutet werden duerfen.
+            self.result_queue.put(("env_identity", self.parse_env_identity(output)))
             found = 0
             for key in self.bridge_fields:
                 value = self.parse_showenv(output, key)
@@ -1367,15 +1489,40 @@ Example commands:
 
         threading.Thread(target=worker, daemon=True).start()
 
-    def write_all_bridge(self):
-        """Alle geänderten Bridge-Parameter schreiben.
+    def write_environment(self):
+        """Das ganze Environment schreiben: jedes gefuellte Feld, dann ins EEPROM.
 
-        setenv schreibt nur die RAM-Kopie; erst saveenv legt sie ins EEPROM.
-        Deshalb wird am Ende gefragt, ob persistiert werden soll.
+        Zwei Sicherungen, die beide begruendet sind:
+
+        Die Kennung wird vorher geprueft. Meldet das Geraet ein Environment, fuer das es
+        hier kein Modell gibt, waeren die setenv-Schluessel geraten - dann wird nicht
+        geschrieben. Wurde die Kennung noch gar nicht gelesen, holt diese Funktion sie
+        selbst nach, statt anzunehmen, es werde schon passen.
+
+        Und 'saveenv' ist die Vorgabe, nicht die Rueckfrage: wer "Write Environment"
+        drueckt, will etwas, das den Reset uebersteht. Wer nur die RAM-Kopie aendern will,
+        nimmt den Write-Knopf am einzelnen Feld.
         """
         if not self.port_link:
             self.set_error_status("Not connected")
             messagebox.showwarning("Nicht verbunden", "Erst auf Connect drücken.")
+            return
+
+        if not self.env_identity:
+            out = self.send_command_via_link("showenv", timeout_ms=1500)
+            self.env_identity = self.parse_env_identity(out)
+            self.env_identity_var.set(self.env_identity_line())
+
+        env = self.env_entry()
+        if not env:
+            ident = self.env_identity or {}
+            messagebox.showerror(
+                "Unbekanntes Environment",
+                f"Das Geraet meldet die Kennung {ident.get('eeprom_id', '?')} "
+                f"v{ident.get('eeprom_version', '?')}, dafuer gibt es kein Modell in "
+                f"{ENV_MODEL_FILE.name}.\n\n"
+                "Es wird nichts geschrieben: welche Felder dieses Environment hat und mit "
+                "welchen Schluesseln sie heissen, waere geraten.")
             return
 
         cmds = []
@@ -1391,67 +1538,72 @@ Example commands:
             messagebox.showinfo("Info", "Keine schreibbaren Parameter gefüllt.")
             return
 
-        if not messagebox.askyesno("Bestätigen",
-                                   "Folgende Kommandos an das Gerät schicken?\n\n"
-                                   + "\n".join(cmds)):
+        persist_cmd = env.get("commands", {}).get("persist", "saveenv")
+        if not messagebox.askyesno(
+                "Environment schreiben?",
+                f"{len(cmds)} Werte an das Geraet schicken und mit '{persist_cmd}' "
+                f"ins EEPROM legen?\n\n" + "\n".join(cmds) + f"\n{persist_cmd}"):
             return
-
-        persist = messagebox.askyesno(
-            "Persistieren?",
-            "Anschließend 'saveenv' ausführen?\n\n"
-            "Ja  = dauerhaft ins EEPROM (übersteht Reset)\n"
-            "Nein = nur RAM, bis zum nächsten Reset")
 
         def worker():
             log = []
             for cmd in cmds:
                 out = self.send_command_via_link(cmd, timeout_ms=1500)
                 log.append(f"> {cmd}\n{self.clean_response(cmd, out)}")
-            if persist:
-                out = self.send_command_via_link("saveenv", timeout_ms=3000)
-                log.append(f"> saveenv\n{self.clean_response('saveenv', out)}")
+            out = self.send_command_via_link(persist_cmd, timeout_ms=3000)
+            log.append(f"> {persist_cmd}\n{self.clean_response(persist_cmd, out)}")
+            # Danach zurueckhalen, was wirklich drinsteht - eine Schreibbestaetigung ist
+            # kein Beleg dafuer, dass das Geraet den Wert auch angenommen hat.
+            check = self.send_command_via_link("showenv", timeout_ms=1500)
+            self.result_queue.put(("env_identity", self.parse_env_identity(check)))
+            for key in self.bridge_fields:
+                value = self.parse_showenv(check, key)
+                self.result_queue.put(("bridge_read", key, value is not None, value or ""))
+            log.append(f"> showenv (Kontrolle)\n{self.clean_response('showenv', check)}")
             self.result_queue.put(("cmd_result", True, "\n".join(log)))
 
         threading.Thread(target=worker, daemon=True).start()
-        self.set_status("Writing bridge parameters...")
+        self.set_status("Writing environment...")
 
-    @staticmethod
-    def bridge_write_command(key: str, value: str) -> Optional[str]:
-        """Feldname -> setenv-Kommando (Schlüssel wie in env.c:cmd_setenv)."""
-        mapping = {
-            "ip_eth0":  f"setenv ip0 {value}",
-            "ip_eth1":  f"setenv ip1 {value}",
-            "mac_eth0": f"setenv mac0 {value}",
-            "mac_eth1": f"setenv mac1 {value}",
-            "plca_id":  f"setenv plca_id {value}",
-            "plca_cnt": f"setenv plca_cnt {value}",
-        }
-        return mapping.get(key)
+    def bridge_write_command(self, key: str, value: str) -> Optional[str]:
+        """Feldname -> CLI-Kommando, beides aus dem Modell.
 
-    @staticmethod
-    def parse_showenv(output: str, key: str) -> Optional[str]:
-        """Einen Wert aus der showenv-Ausgabe ziehen (Format: env.c:261-286).
-
-          eth0  ip 192.168.0.200  mask 255.255.255.0  gw ...  dns ...
-          eth0  mac 00:04:25:1A:00:00
-          plca  id 0  count 8  (eth0/T1S)
+        Weder der Schluessel noch die Kommandoform stehen noch im Quelltext: 'commands.
+        write_field' und 'cli_key' kommen aus env_model.json, damit eine andere Firmware-
+        Variante nur eine andere Modelldatei braucht und keinen Patch hier.
         """
-        if key in ("ip_eth0", "ip_eth1", "mac_eth0", "mac_eth1"):
-            what, iface = key.split("_")          # "ip"/"mac", "eth0"/"eth1"
-            for line in output.splitlines():
-                line = line.strip()
-                if not line.startswith(iface):
-                    continue
-                m = re.search(rf'\b{what}\s+(\S+)', line)
-                if m:
-                    return m.group(1)
+        env = self.env_entry()
+        fld = env.get("fields", {}).get(key)
+        if not fld:
             return None
+        template = env.get("commands", {}).get("write_field", "setenv {cli_key} {value}")
+        return template.format(cli_key=fld["cli_key"], value=value)
 
-        if key in ("plca_id", "plca_cnt"):
-            m = re.search(r'plca\s+id\s+(\d+)\s+count\s+(\d+)', output)
-            if m:
-                return m.group(1) if key == "plca_id" else m.group(2)
-        return None
+    def parse_showenv(self, output: str, key: str) -> Optional[str]:
+        """Einen Wert aus der showenv-Ausgabe ziehen -- mit dem Muster aus dem Modell.
+
+        'reads_as' bildet die Anzeige des Geraets auf den Wert ab, den setenv erwartet
+        (mirror meldet ON/OFF, geschrieben wird 1/0). Ohne das steht in der GUI ein Wort,
+        das man nicht zurueckschreiben kann.
+        """
+        fld = self.env_entry().get("fields", {}).get(key)
+        if not fld or not fld.get("pattern"):
+            return None
+        m = re.search(fld["pattern"], output)
+        if not m:
+            return None
+        raw = m.group(1)
+        return fld.get("reads_as", {}).get(raw, raw)
+
+    def parse_env_identity(self, output: str) -> Optional[dict]:
+        """Die Kennungszeile von showenv auswerten (Muster: env_model.json 'identity')."""
+        ident = self.env_model.get("identity", {})
+        if not ident.get("pattern"):
+            return None
+        m = re.search(ident["pattern"], output)
+        if not m:
+            return None
+        return dict(zip(ident.get("groups", []), m.groups()))
 
     def read_bridge_field(self, key: str):
         """Einen Bridge-Parameter über den offenen Link lesen."""
@@ -1467,24 +1619,27 @@ Example commands:
         threading.Thread(target=worker, daemon=True).start()
 
     def write_bridge_field(self, key: str):
-        """Write a specific bridge field"""
-        value = self.bridge_fields.get(key, tk.StringVar()).get()
+        """Einen einzelnen Parameter schreiben -- mit dem Kommando aus dem Modell.
 
+        Frueher stand hier eine eigene Zwei-Zeilen-Tabelle, und die schrieb plca_id mit
+        'plca_node': das aendert die LAUFENDE PLCA-Konfiguration und nicht das Environment.
+        Nach einem Reset war der Wert wieder weg, obwohl die GUI "geschrieben" gemeldet
+        hatte. Jetzt kommt jedes Kommando aus env_model.json, fuer alle Felder gleich.
+        """
+        value = self.bridge_fields.get(key, tk.StringVar()).get().strip()
         if not value:
             messagebox.showwarning("Warning", f"No value for {key}")
             return
 
-        # Map fields to commands
-        commands = {
-            "plca_id": f"plca_node {value}",
-            "plca_cnt": f"setenv plca_cnt {value}",
-        }
+        cmd = self.bridge_write_command(key, value)
+        if not cmd:
+            messagebox.showinfo("Info", f"Das Modell kennt kein Schreibkommando fuer {key}.")
+            return
 
-        cmd = commands.get(key)
-        if cmd:
-            self.run_async_cmd(cmd)
-        else:
-            messagebox.showinfo("Info", f"No write command for {key}")
+        fld = self.env_entry().get("fields", {}).get(key, {})
+        self.run_async_cmd(cmd)
+        applies = fld.get("applies", "")
+        self.set_status(f"{cmd}  ({applies})" if applies else cmd, duration=4000)
 
     def save_bridge_json(self):
         """Save bridge parameters to JSON"""

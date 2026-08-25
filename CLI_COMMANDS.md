@@ -273,6 +273,7 @@ showenv
 
 ```
 env (RAM shadow):
+  env   id EBRG  version 4  crc ok  |  firmware id EBRG  version 4  t1s_100baset_bridge
   eth0  ip 192.168.0.200  mask 255.255.255.0  gw 192.168.0.1  dns 192.168.0.1
   eth1  ip 192.168.0.210  mask 255.255.255.0  gw 192.168.0.1  dns 192.168.0.1
   eth0  mac 00:04:25:1C:A0:02
@@ -281,6 +282,20 @@ env (RAM shadow):
   mirror OFF at boot  (now: ON)
   (saveenv = persist+apply, readenv = reload, resetenv = defaults)
 ```
+
+The first line is the **environment identity**, and it names two things that can disagree.
+`id`/`version` is the record that was **found in the EEPROM at boot**; `firmware id`/`version` is
+what this firmware writes. They differ exactly when the stored record was rejected — a different
+firmware variant wrote it, or the layout changed — and in that case the compiled defaults are in
+use. That matters here: the default PLCA node id is 7, while the bridge has to run as coordinator
+(id 0), so a rejected record silently costs the beacons. `crc` says whether the stored record was
+intact.
+
+The id is four characters and identifies the **firmware variant**, not just "this is an env
+record": variants share the EEPROM offset but not the layout. `EBRG` is this bridge; `t1s_ptp_bridge`
+stores `ptp_auto`/`ptp_ival` where this one stores `mirror`. `LANE` is the id written before ids
+were per-variant — still read when version and CRC match this layout, and rewritten as `EBRG` on
+the next `saveenv`.
 
 The mirror line names **two** states on purpose, because they can differ: what the board will do after
 a reset, and what it is doing right now. `mirror 1` changes only the second.
