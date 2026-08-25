@@ -99,8 +99,8 @@
             {
               "doc": "DS80001075F",
               "item": "s1",
-              "summary": "OA_PHYID spiegelt die Clause-22-Register PHY_ID0/PHY_ID1 des eingebauten PHY-Blocks.",
-              "implication": "Das Register identifiziert NICHT das LAN8650/1 und nicht dessen Hardware-Revision. Dafuer DEVID auf 0x000A0094 lesen."
+              "summary": "OA_PHYID reflects the Clause 22 PHY_ID0/PHY_ID1 registers of the integrated PHY block.",
+              "implication": "It does NOT identify the LAN8650/1 or its hardware revision. Read DEVID at 0x000A0094 for that."
             }
           ],
           "page": 121
@@ -1037,8 +1037,8 @@
             {
               "doc": "DS80001075F",
               "item": "s1",
-              "summary": "PHY_ID1 identifiziert den eingebauten PHY-Block, nicht das Produkt.",
-              "implication": "Produkt und Revision stehen in DEVID (0x000A0094)."
+              "summary": "PHY_ID1 identifies the integrated PHY block, not the product.",
+              "implication": "Product and hardware revision are in DEVID (0x000A0094)."
             }
           ],
           "page": 153
@@ -2727,8 +2727,8 @@
             {
               "doc": "DS80001075F",
               "item": "s5",
-              "summary": "Empfaengt ein PLCA-Koordinator einen unerwarteten BEACON, setzt er UNEXPB in STS1.",
-              "implication": "Der PHY geht danach in einen Erholungszustand und sendet zwei PLCA-Buszyklen lang weder Pakete noch BEACONs. UNEXPB deutet auf einen zweiten Koordinator am Segment."
+              "summary": "If a PLCA coordinator receives an unexpected BEACON, it sets UNEXPB in STS1.",
+              "implication": "The PHY then enters a recovery state and transmits neither packets nor BEACONs for the next two PLCA bus cycles. UNEXPB points at a second coordinator on the segment."
             }
           ],
           "page": 218
@@ -4091,8 +4091,8 @@
             {
               "doc": "DS80001075F",
               "item": "s6",
-              "summary": "SLPCAL liefert beim Lesen 0x0001, muss aber immer als 0x0000 geschrieben werden.",
-              "implication": "Ein Rueckschreiben des gelesenen Wertes - auch aus einem Read-Modify-Write oder einem Bulk Write - setzt SLPCAL auf 1 und kann den Sleep-Modus unbrauchbar machen."
+              "summary": "SLPCAL returns 0x0001 when read, but must always be written as 0x0000.",
+              "implication": "Writing back a value that was just read - from a read-modify-write or a bulk write - sets SLPCAL to 1 and can leave sleep mode unusable."
             }
           ],
           "page": 269
@@ -4147,8 +4147,8 @@
             {
               "doc": "DS80001075F",
               "item": "s7",
-              "summary": "Als PLCA-Koordinator stoppt das Geraet die BEACONs beim Eintritt in den Sleep-Modus nicht sofort.",
-              "implication": "Beim Schlafenlegen eines Koordinators mit verzoegertem BEACON-Ende rechnen."
+              "summary": "As a PLCA coordinator the device does not stop transmitting BEACONs immediately when it enters sleep mode.",
+              "implication": "Expect BEACONs to continue for a while after putting a coordinator to sleep."
             }
           ],
           "page": 271
@@ -4383,8 +4383,8 @@
             {
               "doc": "DS80001075F",
               "item": "s5",
-              "summary": "PLCA_CTRL0 gehoert zum Umfeld des Mehrfach-Koordinator-Falls (s5).",
-              "implication": "Bei UNEXPB in STS1 pruefen, ob ein zweiter Knoten als Koordinator laeuft."
+              "summary": "PLCA_CTRL0 belongs to the multi-coordinator case described in s5.",
+              "implication": "If UNEXPB is set in STS1, check whether a second node is running as coordinator."
             }
           ],
           "page": 281
@@ -4738,8 +4738,8 @@
             {
               "doc": "DS80001075F",
               "item": "s1",
-              "summary": "DEVID ist die laut Errata richtige Quelle fuer Produkt-ID und Hardware-Revision.",
-              "implication": "Model Number und Revision Number hier ablesen, nicht in OA_PHYID."
+              "summary": "DEVID is the source the errata names for product ID and hardware revision.",
+              "implication": "Read Model Number and Revision Number here, not from OA_PHYID."
             }
           ],
           "page": 300

@@ -34,6 +34,13 @@ MODEL_PATH = Path(__file__).parent / "lan8651_model.json"
 GROUP_MMS = {"MMS0": 0, "MMS1": 1, "MMS2": 2, "MMS3": 3, "MMS4": 4, "MMS10": 10}
 
 ADDR_RE = re.compile(r"0x[0-9A-Fa-f]{8}$")
+# The model is English throughout: it quotes an English document and is meant to be read
+# by anyone who picks up the board. These words do not occur in English register prose,
+# so they are a reliable sign that a note was written in German and left that way.
+# Deliberately conservative - "die" is left out because a data sheet does say "die".
+GERMAN_WORDS = re.compile(
+    r"\b(und|nicht|oder|wenn|dass|beim|muss|wird|werden|sind|auch|eine|einem|einen|"
+    r"kein|keine|dieser|diese|dieses|nach|noch|schon|sowie|damit|weil|aber)\b", re.I)
 BITS_RE = re.compile(r"(\d+)(?::(\d+))?$")
 # A description this long is a pasted data sheet section rather than a description.
 LONG_DESCRIPTION = 400
@@ -64,6 +71,24 @@ def check_header(model, rep):
     # Microchip numbers documents DS<8 digits><revision letter>, e.g. DS60001734F.
     if not re.fullmatch(r"DS\d{8}[A-Z]?", ds.get("doc", "")):
         rep.warn("header", f"sources.datasheet.doc looks unusual: {ds.get('doc')!r}")
+
+
+def check_language(model, rep):
+    """Every string in the model must be English - see GERMAN_WORDS."""
+    def walk(node, path):
+        if isinstance(node, str):
+            hit = GERMAN_WORDS.search(node)
+            if hit:
+                rep.error(path, f"looks like German ({hit.group(0)!r}) - the model is English "
+                                f"throughout: {node[:70]}...")
+        elif isinstance(node, dict):
+            for key, value in node.items():
+                walk(value, f"{path}.{key}" if path else str(key))
+        elif isinstance(node, list):
+            for i, value in enumerate(node):
+                walk(value, f"{path}[{i}]")
+
+    walk(model, "")
 
 
 def check_model(model, rep):
@@ -172,6 +197,7 @@ def main():
 
     rep = Report()
     check_header(model, rep)
+    check_language(model, rep)
     n_regs, n_bits, n_verified = check_model(model, rep)
 
     if not args.quiet:
