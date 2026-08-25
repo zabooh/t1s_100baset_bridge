@@ -671,30 +671,34 @@ class BridgeGUI:
                                       font=("Courier", 8), foreground="#b00",
                                       wraplength=900, justify=tk.LEFT).pack(anchor=tk.W)
 
-                    # Bitfield definitions
+                    # Bitfield definitions. Der ausgelesene Wert steht am Ende DERSELBEN
+                    # Zeile statt in einer Sammelzeile darunter: das spart je Register eine
+                    # Zeile und erspart das Zurueckspringen zwischen Feldname und Wert.
+                    # Zwei Labels nebeneinander, weil ein ttk.Label nur eine Farbe kann.
+                    field_vars: Dict[str, tk.StringVar] = {}
                     for bits, meaning in bitfields.items():
-                        bitfield_label = ttk.Label(sep_row, text=f"   [{bits}] {meaning}", font=("Courier", 8), foreground="#444")
-                        bitfield_label.pack(anchor=tk.W)
+                        bf_row = ttk.Frame(sep_row)
+                        bf_row.pack(anchor=tk.W, fill=tk.X)
+                        ttk.Label(bf_row, text=f"   [{bits}] {meaning}",
+                                  font=("Courier", 8), foreground="#444").pack(side=tk.LEFT)
+                        fv = tk.StringVar()
+                        field_vars[bits] = fv
+                        ttk.Label(bf_row, textvariable=fv, font=("Courier", 8),
+                                  foreground="#009900").pack(side=tk.LEFT)
 
-                    # Decoded value label (updated when value changes)
-                    decoded_var = tk.StringVar()
-                    decoded_label = ttk.Label(sep_row, textvariable=decoded_var, font=("Courier", 8), foreground="#009900", wraplength=400)
-                    decoded_label.pack(anchor=tk.W, padx=25)
-
-                    # Create update function with proper closure
-                    def make_update_decoded(val_var, bf_dict, dec_var):
+                    # Ein Callback je Register aktualisiert alle seine Felder. Die
+                    # Default-Argumente sind Pflicht: ohne sie zeigen alle Callbacks nach
+                    # der Schleife auf die zuletzt erzeugten Variablen.
+                    def make_update_decoded(val_var=value_var, fvars=field_vars):
                         def update_decoded(*args):
-                            try:
-                                hex_val = val_var.get()
-                                if hex_val and hex_val.strip():
-                                    decoded = self.decode_bitfields(hex_val, bf_dict)
-                                    dec_var.set(f"✓ {decoded}")
-                            except Exception as e:
-                                dec_var.set(f"Error: {e}")
+                            hex_val = val_var.get()
+                            for spec, var in fvars.items():
+                                var.set(self.decode_one_bitfield(hex_val, spec))
                         return update_decoded
 
-                    callback = make_update_decoded(value_var, bitfields, decoded_var)
+                    callback = make_update_decoded()
                     value_var.trace_add("write", callback)
+                    callback()   # gespeicherte Werte gleich beim Aufbau zeigen
 
             canvas.pack(side="left", fill="both", expand=True)
             scrollbar.pack(side="right", fill="y")
@@ -1259,49 +1263,31 @@ Example commands:
         self.root.after(POLL_MS, self.process_queue)
 
     # Register read/write via open Link (not cli.py)
-    def decode_bitfields(self, value_hex: str, bitfields: dict) -> str:
-        """Decode bitfield value into human-readable format with interpretations
+    def decode_one_bitfield(self, value_hex: str, bits_range: str) -> str:
+        """Den Wert EINES Bitfelds als Anhaengsel fuer dessen eigene Zeile.
 
-        Args:
-            value_hex: Hex value like "0x00000800"
-            bitfields: Dict like {"15:8": "NODE_CNT — Number of nodes...", "7:0": "NODE_ID — ..."}
-
-        Returns:
-            Formatted string with extracted and interpreted values
+        Leerer String, wenn nichts gelesen wurde oder der Wert unlesbar ist - dann steht
+        in der Zeile nur die Beschreibung, und niemand haelt eine 0 fuer eine Messung.
         """
-        if not value_hex or not bitfields:
+        if not value_hex or not value_hex.strip():
             return ""
-
         try:
             value = int(value_hex, 16)
         except (ValueError, TypeError):
             return ""
-
-        decoded = []
-        for bits_range, meaning in bitfields.items():
-            # Feldname ist der Teil vor dem Trennstrich, so wie ihn die Config
-            # aus dem Datenblatt mitbringt ("NODE_CNT - PLCA node count").
-            key = meaning.split(" - ")[0].strip()
-
-            try:
-                if ":" in bits_range:
-                    high, low = map(int, bits_range.split(":"))
-                    width = high - low + 1
-                    field_value = (value >> low) & ((1 << width) - 1)
-                else:
-                    width = 1
-                    field_value = (value >> int(bits_range)) & 1
-            except ValueError:
-                continue
-
-            # Keine Interpretation raten: bei einem Bit 0/1, sonst dezimal und
-            # hex. Was die Werte bedeuten, steht in der Zeile darüber.
-            if width == 1:
-                decoded.append(f"{key}={field_value}")
+        try:
+            if ":" in bits_range:
+                high, low = map(int, bits_range.split(":"))
+                width = high - low + 1
+                field_value = (value >> low) & ((1 << width) - 1)
             else:
-                decoded.append(f"{key}={field_value} (0x{field_value:X})")
-
-        return "  ".join(decoded)
+                width = 1
+                field_value = (value >> int(bits_range)) & 1
+        except ValueError:
+            return ""
+        if width == 1:
+            return f"  = {field_value}"
+        return f"  = {field_value} (0x{field_value:X})"
 
     def send_command_via_link(self, cmd: str, timeout_ms: int = 700) -> str:
         """Kommando über den offenen Link schicken und auf die Antwort warten.
