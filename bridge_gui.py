@@ -296,9 +296,18 @@ class BridgeGUI:
         self.process_queue()
 
     def load_config(self) -> dict:
-        """Load configuration from JSON or create default"""
+        """Load configuration from JSON or create default.
+
+        encoding="utf-8" is not optional here. save_config() writes UTF-8; without an
+        explicit encoding this read takes the Windows default (cp1252), so the three
+        bytes of "'" come back as three separate characters and the next save writes
+        THOSE as UTF-8. The damage therefore compounds with every round trip -
+        "Manufacturer's" turned into "Manufacturerâ€™s" and then into
+        "ManufacturerÃ¢â‚¬â„¢s" - and nothing ever reports an error, because every
+        intermediate file is valid JSON.
+        """
         if CONFIG_FILE.exists():
-            with open(CONFIG_FILE, 'r') as f:
+            with open(CONFIG_FILE, 'r', encoding="utf-8") as f:
                 return json.load(f)
         return DEFAULT_CONFIG.copy()
 
@@ -1417,7 +1426,7 @@ Example commands:
             messagebox.showwarning("Warning", "Config file not found")
             return
 
-        cfg = json.load(open(CONFIG_FILE))
+        cfg = json.load(open(CONFIG_FILE, encoding="utf-8"))
         bridge_cfg = cfg.get("bridge", {})
 
         for key, value in bridge_cfg.items():
@@ -1588,7 +1597,7 @@ Example commands:
             messagebox.showwarning("Warning", "Config file not found")
             return
 
-        cfg = json.load(open(CONFIG_FILE))
+        cfg = json.load(open(CONFIG_FILE, encoding="utf-8"))
         regs = cfg.get("registers", {})
 
         n = 0
