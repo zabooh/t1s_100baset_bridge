@@ -575,6 +575,9 @@ class BridgeGUI:
         # Die Felder kommen aus env_model.json, nicht aus einer Liste im Quelltext: welche
         # es gibt, haengt an Kennung und Version des Geraets, und genau das ist der Punkt.
         saved = self.config.get("bridge", {})
+        # Der Normalfall: das Kommando, das den Wert dauerhaft macht. Felder, die genau so
+        # wirken, brauchen keinen Hinweis - nur die Ausreisser bekommen einen.
+        default_applies = self.env_entry().get("commands", {}).get("persist", "saveenv")
         for key, fld in self.env_entry().get("fields", {}).items():
             self.bridge_fields[key] = tk.StringVar(value=str(saved.get(key, "")))
             row = ttk.Frame(scrollable_frame)
@@ -587,13 +590,15 @@ class BridgeGUI:
             ttk.Button(row, text="Write", width=5,
                        command=lambda k=key: self.write_bridge_field(k)).pack(side=tk.LEFT, padx=1)
 
-            # Wann der Wert wirkt, steht dabei: "setenv" schreibt nur die RAM-Kopie, die MAC
-            # sogar erst nach einem Reset. Ohne den Hinweis haelt man einen geschriebenen
-            # Wert fuer einen wirksamen.
-            applies = fld.get("applies")
-            if applies:
-                ttk.Label(scrollable_frame, text=f"      {key} -> {applies}",
-                          font=("Courier", 7), foreground="#777").pack(anchor=tk.W, padx=5)
+            # Wann der Wert wirkt -- aber NUR, wenn es vom Normalfall abweicht. Fuer elf
+            # der dreizehn Felder ist das saveenv, und eine Zeile "mask0 -> saveenv" unter
+            # "mask eth0:" wiederholt bloss die Beschriftung. Uebrig bleiben die zwei
+            # Faelle, die wirklich ueberraschen: die MAC wirkt erst nach einem Reset, der
+            # Mirror erst beim naechsten Boot. Die stehen dafuer in der Zeile und in Rot.
+            applies = fld.get("applies", "")
+            if applies and applies != default_applies:
+                ttk.Label(row, text=f"  {applies}", font=("Courier", 8),
+                          foreground="#b00").pack(side=tk.LEFT)
 
         canvas.pack(side="left", fill="both", expand=True)
         scrollbar.pack(side="right", fill="y")
