@@ -25,9 +25,14 @@
 `eth1` + MikroElektronika Two-Wire ETH Click mit **LAN8651** (MIKROE-5543) an `eth0`, SPI CS = PC15,
 INT = PC14.
 
-**Session hier öffnen, nicht im Elternverzeichnis** `C:\work\t1s_bridge` — der Auto-Memory-Schlüssel
-hängt an der Repo-Wurzel, und das Elternverzeichnis ist kein Repo, erzeugt also einen zweiten,
-getrennten Schlüssel. Die `CLAUDE.md` dort ergänzt diese nur um die Container-Ebene.
+**Session in `C:\work\t1s_bridge\bridge\t1s_100baset_bridge` öffnen** — das ist seit 2026-08-25 die
+Repo-Wurzel und damit der Auto-Memory-Schlüssel. **Nicht** im Elternverzeichnis `C:\work\t1s_bridge`
+(kein Repo, erzeugt einen zweiten, getrennten Schlüssel; die `CLAUDE.md` dort ergänzt diese nur um
+die Container-Ebene) und **nicht** in `C:\work\t1s_bridge\t1s_100baset_bridge`: dieser gleichnamige
+Ordner ist eine aufgegebene Kopie **ohne `.git`**, der **113 getrackte Dateien fehlen** — das ganze
+`firmware\src\config\default\driver\` samt gepatchtem `drv_lan865x_api.c`, dazu `crypto\`,
+`default.mhc\`, Teile von `library\tcpip\src\` und `docs\`. Sie baut nicht mehr (letzter Build
+2026-08-19) und wird nicht mehr gepflegt; alles daraus Wertvolle steckt in `9d72b26`.
 
 ---
 
@@ -40,8 +45,19 @@ build.bat clean
 flash.bat                 :: pyOCD über den EDBG-Probe
 flash.bat --dry-run
 flash.bat --list          :: angeschlossene Probes
+install.bat --select      :: welches Board flash.bat programmiert (-> bench.json)
 setup.bat                 :: einmalig pro Rechner
 ```
+
+- **`build.bat` baut parallel** mit `-j%NUMBER_OF_PROCESSORS%` und `-Otarget` (Vollbuild an diesem
+  Rechner 2 m 02 s → 35 s bei 14 Kernen). `BUILD_JOBS=n` übersteuert, `BUILD_JOBS=1` stellt einen
+  Fehler seriell nach. Die Kernzahl kommt aus der Umgebung, damit nichts pro Rechner konfiguriert
+  werden muss und nichts veraltet.
+- **Welches Board `flash.bat` programmiert, steht in `bench.json`** (gitignoriert, pro Rechner):
+  `install.bat` fragt bei jedem Lauf, listet die angesteckten Sonden nummeriert auf, Enter behält die
+  aktuelle. `flash.bat` liest die Seriennummer über `flash_same54.py --show-probe` und reicht sie als
+  `-u` an pyOCD. Ohne Eintrag sucht pyOCD selbst — das geht nur mit **einer** Sonde am USB, und an
+  diesem Tisch hängen drei. Übersteuern: `set "PROBE=..."` in `flash.bat` oder `flash.bat --probe <serial>`.
 
 - **Ein frischer Klon baut ohne Vorbereitung.** Die `nbproject\Makefile-*.mk`-Fragmente sind
   gitignoriert (sie tragen absolute Pfade *dieses* Rechners, eingecheckt wären sie anderswo falsch,
@@ -69,7 +85,7 @@ setup.bat                 :: einmalig pro Rechner
 - **Konsole:** EDBG-COM-Port, **115200 8N1**. Host-seitig: `python cli.py --port COM8 --read 1 "<cmd>"`.
 
 Beim Aufruf von `.bat`-Dateien aus Git Bash den **absoluten Pfad** verwenden und `< /dev/null`
-anhängen (`MSYS_NO_PATHCONV=1 cmd /c "C:\work\t1s_bridge\t1s_100baset_bridge\build.bat" < /dev/null`)
+anhängen (`MSYS_NO_PATHCONV=1 cmd /c "C:\work\t1s_bridge\bridge\t1s_100baset_bridge\build.bat" < /dev/null`)
 — sonst wird die Datei nicht gefunden bzw. hängt ein `pause` bis zum Timeout.
 
 ---
@@ -362,6 +378,16 @@ Erst zurückstellen, dann Verkehr messen.
   stellt den Stand wieder her (für Fall 2 genügt auch `git update-index --refresh`).
   **Merksatz:** vor dem Committen nach einem IDE-Lauf `git diff -- <pfad>` fragen, nicht `git status`
   — sonst committet man einen ~22 000-Zeilen-Hex-Diff oder eine Datei, die sich gar nicht geändert hat.
+- **2026-08-25 — Der parallele Build ist einmal in ~15 Läufen gescheitert, Ursache nicht gefunden.**
+  Symptom: der Linker startete, bevor `app.o` geschrieben war — `pic32c-gcc.exe: error:
+  build/…/app.o: No such file or directory`, `Error 1` auf der `…production.hex`-Regel. Nicht
+  reproduzierbar: danach 15 Vollbuilds am Stück sauber, auch mit derselben Vorgeschichte
+  (inkrementelle Läufe, dann `rebuild`). `-Otarget` ist **nicht** der Auslöser (drei Vollbuilds damit
+  fehlerfrei). Warum das hinnehmbar ist: der Fehler ist ein **harter Abbruch mit Exitcode ≠ 0**, keine
+  stillschweigend falsche HEX — er kostet einen erneuten Lauf, er liefert kein falsches Binary aus.
+  Wer ihn sieht: `BUILD_JOBS=1 build.bat rebuild` baut seriell und beweist, dass es der Wettlauf war.
+  Ein Vergleich seriell/parallel ergab damals eine HEX, die sich in **genau einer Zeile** unterschied
+  — dem einkompilierten `Build Timestamp` —, sonst Byte für Byte gleich.
 - **2026-08-25 — Registernamen und -adressen NICHT aus der Firmware ableiten und schon gar nicht
   raten: die vollständige Karte steht im Datenblatt, Kapitel 11.** Die Firmware kennt nur die fünf
   `#define`s in `lan865x_diag.h:57-61`, die der Code selbst braucht (`T1STSTCTL`, `T1SPMACTL`,
