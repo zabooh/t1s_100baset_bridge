@@ -31,6 +31,14 @@ except ImportError:
 # Configuration file path
 CONFIG_FILE = Path(__file__).parent / "bridge_config.json"
 
+# Das Registermodell: Adressen, Mnemonics, Bitfelder, Herkunft. Getrennt von der
+# Konfiguration, weil es etwas anderes ist -- eine aus dem Datenblatt abgeleitete
+# Referenz, auf die sich jemand verlaesst, der einen Fehler sucht. Die GUI liest es
+# und schreibt es NIE; Werte und Sitzungszustand gehoeren in bridge_config.json.
+# Stimmt etwas nicht, wird diese Datei korrigiert, nicht dieser Quelltext -- danach
+# "python check_register_model.py".
+MODEL_FILE = Path(__file__).parent / "lan8651_model.json"
+
 # Default configuration
 # Vorgaben, falls bridge_config.json fehlt. Die Registerkarte kommt dann NICHT
 # mit -- sie stammt aus dem Datenblatt (LAN8650-1-Data-Sheet-60001734.pdf,
@@ -267,6 +275,7 @@ class BridgeGUI:
         self.root.minsize(1180, 500)
 
         self.config = self.load_config()
+        self.model = self.load_model()
         self.cli = ResponseParser()
         self.result_queue = queue.Queue()
         self.connected = False
@@ -315,6 +324,48 @@ class BridgeGUI:
         x = max(0, (screen_w - width) // 2)
         y = max(0, min(40, (screen_h - height) // 2))
         return f"{width}x{height}+{x}+{y}"
+
+    def load_model(self) -> dict:
+        """Das Registermodell laden. Fehlt es, wird das GESAGT, nicht verschwiegen.
+
+        Ein leerer Registertab waere die schlechteste Antwort: die GUI saehe funktionsfaehig
+        aus und haette nur keine Register. Wer hier debuggt, soll wissen, dass ihm die
+        Referenz fehlt.
+        """
+        try:
+            with open(MODEL_FILE, "r", encoding="utf-8") as f:
+                model = json.load(f)
+        except FileNotFoundError:
+            messagebox.showerror(
+                "Registermodell fehlt",
+                f"{MODEL_FILE.name} wurde nicht gefunden.\n\n"
+                "Der Registertab bleibt leer. Die Datei gehoert neben bridge_gui.py und "
+                "beschreibt den Registersatz des LAN8651 (Adressen, Bitfelder, Herkunft).")
+            return {}
+        except ValueError as exc:
+            messagebox.showerror(
+                "Registermodell unlesbar",
+                f"{MODEL_FILE.name} ist kein gueltiges JSON:\n\n{exc}\n\n"
+                "Der Registertab bleibt leer. Pruefen mit: python check_register_model.py")
+            return {}
+        return model
+
+    def model_source_line(self) -> str:
+        """Einzeiler zur Herkunft, den die GUI anzeigt -- damit sie nicht mehr behauptet,
+        als sie belegen kann."""
+        if not self.model:
+            return "kein Registermodell geladen"
+        ds = self.model.get("sources", {}).get("datasheet", {})
+        er = self.model.get("sources", {}).get("errata", {})
+        ver = self.model.get("verification", {})
+        n_reg = sum(len(g.get("registers", {})) for g in self.model.get("groups", {}).values())
+        n_ver = ver.get("registers_verified", 0)
+        line = (f"Modell: {ds.get('doc', '?')} ({ds.get('date', '?')}), Kapitel "
+                f"{ds.get('chapter', '?')} - {n_reg} Register, {n_ver} davon gegen das "
+                f"Dokument abgeglichen")
+        if er:
+            line += f" | Errata {er.get('doc')}"
+        return line
 
     def load_config(self) -> dict:
         """Load configuration from JSON or create default.
@@ -503,17 +554,20 @@ class BridgeGUI:
         # die aus dem Datenblatt erzeugte Karte beim ersten Speichern vernichtet.
         self.register_meta: Dict[str, dict] = {}
 
+        # Herkunftszeile: welches Dokument, welche Revision, wie viel davon abgeglichen.
+        # Steht bewusst oben und nicht in einem Hilfetext -- wer Register liest, soll
+        # sehen, worauf er sich gerade verlaesst.
+        ttk.Label(frame, text=self.model_source_line(), foreground="#555").pack(
+            anchor="w", padx=8, pady=(4, 0))
+
         # Create sub-notebook for register categories
         reg_notebook = ttk.Notebook(frame)
         reg_notebook.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
 
-        # Get registers grouped by category
-        registers = self.config.get("registers", DEFAULT_CONFIG["registers"])
-
-        # If old flat format, convert it
-        if registers and isinstance(next(iter(registers.values())), str):
-            # Old format: convert to new format
-            registers = {"All Registers": registers}
+        # Die Karte kommt aus dem Modell, die zuletzt gelesenen Werte aus der Config.
+        registers = {name: g.get("registers", {})
+                     for name, g in self.model.get("groups", {}).items()}
+        saved_values = self.config.get("values", {})
 
         # Create a tab for each category
         for category, regs in registers.items():
@@ -555,23 +609,22 @@ class BridgeGUI:
 
             # Create fields for each register in this category
             for addr, info in regs.items():
-                self.register_fields[addr] = tk.StringVar(value="")
+                self.register_fields[addr] = tk.StringVar(value=saved_values.get(addr, ""))
 
-                # Parse register info (support old string format and new dict format)
-                if isinstance(info, dict):
-                    reg_name = info.get("name", "")
-                    reg_desc = info.get("description", "")
-                    bitfields = info.get("bitfields", {})
-                else:
-                    reg_name = ""
-                    reg_desc = str(info)
-                    bitfields = {}
+                # Modellformat: mnemonic + name, bits als Objekte mit name/description.
+                reg_name = info.get("mnemonic", "")
+                reg_desc = info.get("name", "")
+                bits = info.get("bits", {})
+                bitfields = {spec: f"{f.get('name', '')} - {f.get('description', '')}".strip(" -")
+                             for spec, f in bits.items()}
+                errata = info.get("errata", [])
 
                 self.register_meta[addr] = {
                     "category": category,
                     "name": reg_name,
                     "description": reg_desc,
                     "bitfields": bitfields,
+                    "errata": errata,
                 }
 
                 # Main row (address, name, value, buttons)
@@ -581,6 +634,14 @@ class BridgeGUI:
                 ttk.Label(row, text=f"{addr}", width=14, font=("Courier", 9)).pack(side=tk.LEFT)
                 name_text = f"{reg_name}" if reg_name else reg_desc[:20]
                 ttk.Label(row, text=name_text, width=30).pack(side=tk.LEFT)
+
+                # Register mit Errata-Eintrag werden markiert. Ohne die Marke sieht ein
+                # Register, dessen Wert laut Errata nicht bedeutet, was dransteht, genauso
+                # aus wie jedes andere -- das ist die Irrefuehrung, um die es hier geht.
+                if errata:
+                    items = ", ".join(e.get("item", "?") for e in errata)
+                    ttk.Label(row, text=f"⚠ {items}", foreground="#b00",
+                              font=("Courier", 8)).pack(side=tk.LEFT, padx=(0, 4))
 
                 value_var = self.register_fields[addr]
                 value_entry = ttk.Entry(row, textvariable=value_var, width=14, font=("Courier", 9))
@@ -598,6 +659,17 @@ class BridgeGUI:
                     # Description + Bitfields
                     desc_text = ttk.Label(sep_row, text=f"📋 {reg_desc}", font=("Courier", 8), foreground="#666")
                     desc_text.pack(anchor=tk.W)
+
+                    for e in errata:
+                        ttk.Label(sep_row,
+                                  text=f"   ⚠ {e.get('doc', '')} {e.get('item', '')}: "
+                                       f"{e.get('summary', '')}",
+                                  font=("Courier", 8), foreground="#b00",
+                                  wraplength=900, justify=tk.LEFT).pack(anchor=tk.W)
+                        if e.get("implication"):
+                            ttk.Label(sep_row, text=f"      -> {e['implication']}",
+                                      font=("Courier", 8), foreground="#b00",
+                                      wraplength=900, justify=tk.LEFT).pack(anchor=tk.W)
 
                     # Bitfield definitions
                     for bits, meaning in bitfields.items():
@@ -1585,59 +1657,50 @@ Example commands:
         thread.start()
 
     def save_registers_json(self):
-        """Werte speichern -- die Registerkarte dabei UNANGETASTET lassen.
+        """Nur die gelesenen WERTE speichern. Das Modell kann die GUI nicht mehr anfassen.
 
-        Diese Funktion hat die Karte früher zerstört: sie setzte
-        self.config["registers"] = {} und schrieb dann {Adresse: Wert}. Nach dem
-        ersten Klick auf 'Save to JSON' waren Mnemonic, Beschreibung und
-        Bitfelder aller 182 Register weg, und die GUI zeigte danach nur noch
-        nackte Adressen -- ohne Fehlermeldung. Deshalb wird hier ausschließlich
-        das Feld 'value' fortgeschrieben, und die Struktur kommt aus
-        register_meta, nicht aus dem, was gerade in der Datei steht.
+        Frueher schrieb diese Funktion die ganze Registerkarte zurueck und hat sie dabei
+        zweimal beschaedigt: einmal, weil sie sie aus den Widgets neu aufbaute (alles ohne
+        Widget fiel raus), einmal ueber die Kodierung. Seit die Karte in lan8651_model.json
+        liegt und hier nur {Adresse: Wert} landet, ist diese Fehlerklasse konstruktiv weg --
+        eine Funktion, die eine Datei nicht schreibt, kann sie nicht kaputtmachen.
         """
-        if not self.register_meta:
-            messagebox.showwarning("Warnung", "Keine Registerkarte geladen - nichts gespeichert.")
+        if not self.register_fields:
+            messagebox.showwarning("Warnung", "Kein Registermodell geladen - nichts gespeichert.")
             return
 
-        registers: Dict[str, dict] = {}
-        for addr, meta in self.register_meta.items():
-            category = meta["category"]
-            registers.setdefault(category, {})[addr] = {
-                "name": meta["name"],
-                "description": meta["description"],
-                "value": self.register_fields[addr].get(),
-                "bitfields": meta["bitfields"],
-            }
-
-        self.config["registers"] = registers
+        values = {addr: var.get() for addr, var in self.register_fields.items() if var.get()}
+        self.config["values"] = values
+        self.config.pop("registers", None)  # Altlast aus der Zeit, als die Karte hier stand
         self.save_config()
 
-        n_val = sum(1 for a in self.register_meta if self.register_fields[a].get())
-        self.set_status(f"{len(self.register_meta)} Register gespeichert "
-                        f"({n_val} mit Wert)", duration=3000)
+        self.set_status(f"{len(values)} Registerwerte gespeichert "
+                        f"(Modell unveraendert)", duration=3000)
 
     def load_registers_json(self):
-        """Load registers from JSON"""
+        """Gespeicherte Registerwerte zurueck in die Felder holen."""
         if not CONFIG_FILE.exists():
             messagebox.showwarning("Warning", "Config file not found")
             return
 
         cfg = json.load(open(CONFIG_FILE, encoding="utf-8"))
-        regs = cfg.get("registers", {})
-
         n = 0
-        for key, value in regs.items():
+        for addr, val in (cfg.get("values") or {}).items():
+            if addr in self.register_fields and val:
+                self.register_fields[addr].set(str(val))
+                n += 1
+
+        # Aeltere bridge_config.json trugen die Werte noch im "registers"-Baum.
+        for key, value in (cfg.get("registers") or {}).items():
             if isinstance(value, dict):
-                # Kategorie -> {Adresse: Eintrag}. Der Eintrag ist entweder das
-                # volle Objekt aus der Datenblatt-Karte oder (alt) ein Wertstring.
                 for addr, entry in value.items():
                     if addr not in self.register_fields:
                         continue
                     val = entry.get("value", "") if isinstance(entry, dict) else str(entry)
-                    self.register_fields[addr].set(val)
-                    n += 1 if val else 0
+                    if val:
+                        self.register_fields[addr].set(val)
+                        n += 1
             elif key in self.register_fields:
-                # Ganz altes flaches Format: Adresse -> Wert
                 self.register_fields[key].set(str(value))
                 n += 1
 

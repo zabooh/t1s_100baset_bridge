@@ -18,8 +18,10 @@
 | `README.md` | Ausführliche Projektdoku (**englisch**): Hardware-BOM, Architektur, CLI, Mirror, iperf, `env` |
 | `LAN8651_TEST_MODES.md` | **Vertiefung zu Abschnitt 3+4 dieser Datei** (**englisch**) — die vier Modi, Messaufbau am Bus, generischer Registerweg vs. `testmode`/`lan_rmw`, Messprotokoll |
 | `cli.py` | Kommandos über COM-Port schicken und Antworten einsammeln |
-| `bridge_gui.py` | **Bedien-GUI** (tkinter): Bridge-Parameter, alle 182 LAN8651-Register mit Bitfeldern, Testmodi, Terminal. **Standalone** — braucht nur `pyserial` und `bridge_config.json`, ruft weder `cli.py` noch `test_lan8651.py` auf (Abschnitt 6) |
-| `bridge_config.json` | Registerkarte für die GUI: Adresse, Mnemonic, Beschreibung, Bitfelder — erzeugt aus dem Datenblatt, Abschnitt 6 |
+| `bridge_gui.py` | **Bedien-GUI** (tkinter): Bridge-Parameter, alle 183 LAN8651-Register mit Bitfeldern, Testmodi, Terminal. **Standalone** — braucht nur `pyserial`, `lan8651_model.json` und `bridge_config.json`, ruft weder `cli.py` noch `test_lan8651.py` auf (Abschnitt 6) |
+| `lan8651_model.json` | **Das Registermodell** — 183 Register, 535 Bitfelder, je mit Abschnitt und Seite im Datenblatt, dazu Errata-Anmerkungen. Die GUI **liest** es und schreibt es nie. Fehler werden **hier** korrigiert, nicht im Python-Quelltext, danach `python check_register_model.py` |
+| `check_register_model.py` | Prüft das Modell gegen sich selbst: MMS gegen Gruppe, doppelte Adressen und Mnemonics, Bitbereiche verdreht/über 31/überlappend, fehlende Namen. Exitcode ≠ 0 bei Fehlern |
+| `bridge_config.json` | **Nur Sitzungszustand**: COM-Port, Bridge-Parameter, zuletzt gelesene Registerwerte (`values`). Trägt seit 2026-08-25 **keine** Registerkarte mehr |
 
 **Hardware:** SAM E54 Curiosity Ultra (DM320210) + LAN8740A PHY Daughter Board (AC320004-3) an
 `eth1` + MikroElektronika Two-Wire ETH Click mit **LAN8651** (MIKROE-5543) an `eth0`, SPI CS = PC15,
@@ -388,6 +390,26 @@ Erst zurückstellen, dann Verkehr messen.
   Wer ihn sieht: `BUILD_JOBS=1 build.bat rebuild` baut seriell und beweist, dass es der Wettlauf war.
   Ein Vergleich seriell/parallel ergab damals eine HEX, die sich in **genau einer Zeile** unterschied
   — dem einkompilierten `Build Timestamp` —, sonst Byte für Byte gleich.
+- **2026-08-25 — Die Registerkarte gehört in eine Modelldatei, nicht in die Konfiguration — und ein
+  Abgleich gegen das Datenblatt fand drei Fehler, die keine Strukturprüfung je gefunden hätte.**
+  `lan8651_model.json` ist seither die Referenz (nur lesen), `bridge_config.json` nur noch Zustand.
+  Der Abgleich gegen **DS60001734F (Aug-2025), Kapitel 11** ergab: 183 Register im PDF gegen 182 im
+  alten Stand, alle Mnemonics und alle Bitgrenzen identisch — aber (1) **205 von 524 Bitfeldnamen
+  waren um ihren Index verkürzt** (`SPD_SEL` statt `SPD_SEL[0]`/`[1]`, `OUI` statt `OUI[2:9]`/`[10:17]`),
+  weil das ursprüngliche Suchmuster `(?:\[[\d:]+\])?` **außerhalb** der Namensklammer stehen hatte;
+  (2) **PADCTRL (`0x000A0088`) fehlte komplett** — im PDF-Textlayer steht dort `x0088` **ohne führende
+  Null**, das Muster verlangte `0x…`, und die elf Bitfelder landeten beim Vorgängerregister, was
+  schlimmer ist als ein fehlender Eintrag, weil es plausibel aussieht; (3) ein Titel hatte einen
+  kompletten Abschnittsabzug von 3 836 Zeichen geschluckt, weil das Muster mit `re.S` über
+  Zeilengrenzen griff — Titel sind **einzeilig**. **Merksatz: bei einer PDF-Extraktion nicht die
+  Trefferzahl prüfen, sondern die Gegenrichtung** — was steht im Dokument, das im Ergebnis fehlt.
+- **2026-08-25 — Die Errata ist für ein Diagnosewerkzeug so wichtig wie das Datenblatt.**
+  `LAN8650-1-Errata-80001075.pdf` (**DS80001075F**) enthält registerbezogene Klarstellungen, die man
+  einem Registerwert nicht ansieht: **s1** — `OA_PHYID` identifiziert **nicht** das LAN8650/1, sondern
+  nur den eingebauten PHY-Block, dafür ist `DEVID` (`0x000A0094`) zuständig; **s6** — `SLPCTL0` liefert
+  beim Lesen `SLPCAL = 1`, das Feld **muss aber immer als 0 geschrieben werden**, ein „Bulk Write All"
+  würde also den Sleep-Modus lahmlegen; **s5** — `UNEXPB` in `STS1` heißt: zweiter PLCA-Koordinator am
+  Segment. Diese Punkte stehen im Modell unter `errata` und werden in der GUI rot markiert.
 - **2026-08-25 — Registernamen und -adressen NICHT aus der Firmware ableiten und schon gar nicht
   raten: die vollständige Karte steht im Datenblatt, Kapitel 11.** Die Firmware kennt nur die fünf
   `#define`s in `lan865x_diag.h:57-61`, die der Code selbst braucht (`T1STSTCTL`, `T1SPMACTL`,
