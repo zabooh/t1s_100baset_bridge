@@ -250,14 +250,14 @@ Settings are stored in `bridge_config.json` in the same directory as the script.
 2. All fields populate from saved file
 3. Click **Write All** to apply to device
 4. Go to **LAN8651 Registers**, click **Open from JSON**
-5. Click **Bulk Write All** to apply to device
+5. Click **Bulk Register Write All** to apply to device
 
 ### Examine Multiple Registers Across Categories
 
 1. Go to **LAN8651 Registers** tab (shown as sub-tabs)
 2. Each category has its own tab: Test Mode, PLCA, MAC, Status, Diagnostics
 3. Individual **Read** on any register to fetch current value
-4. Or click **Bulk Read All** (left pane, bottom) to read all categories at once
+4. Or click **Bulk Register Read All** (left pane, bottom) to read all categories at once
 5. Click **Save to JSON** to store all values for comparison later
 
 ### Interactive Terminal Session

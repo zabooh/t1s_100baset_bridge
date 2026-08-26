@@ -23,13 +23,21 @@ DEFAULT_FILES = [Path(__file__).parent / "bridge_gui.py"]
 # 39 German strings. The five they missed were short status lines built from nouns and
 # participles ("Registerwerte gespeichert", "Verbindung verloren", "ohne Antwort") - exactly
 # the kind of text that reaches a user most often. So the nouns are in the list too.
+#
+# 2026-08-26 — two strings slipped through this checker for a while before someone noticed
+# them on screen, both because their German words simply were not in the list yet:
+# model_source_line()'s f-string ("Modell: ... Kapitel ... davon gegen das Dokument
+# abgeglichen") and a log line ("> showenv (Kontrolle)"). Added below; "Register" and
+# "Errata" stayed out on purpose - both are also English words, and flagging them would
+# make the checker fire on correct English text (e.g. "11 registers", "Errata DS...").
 GERMAN_WORDS = re.compile(
     r"\b(und|nicht|oder|wenn|dass|beim|muss|wird|werden|sind|auch|eine|einem|einen|"
     r"kein|keine|dieser|diese|dieses|noch|schon|sowie|damit|weil|aber|nur|vom|zum|zur|"
     r"ueber|über|fuer|für|waehrend|während|ohne|erst|bitte|"
     r"gedeutet|geladen|gespeichert|verbunden|gefunden|verloren|fehlt|fehlen|unlesbar|"
     r"Meldung|Fehler|Wert|Werte|Geraet|Gerät|Verbindung|Kommando|Antwort|Datei|Kennung|"
-    r"Datensatz|Sonde|Achtung|Hinweis|druecken|drücken)\b", re.I)
+    r"Datensatz|Sonde|Achtung|Hinweis|druecken|drücken|"
+    r"Modell|Kapitel|abgeglichen|davon|Dokument|Kontrolle)\b", re.I)
 
 
 def gather_strings(tree):

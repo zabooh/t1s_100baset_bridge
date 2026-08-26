@@ -374,8 +374,10 @@ class BridgeGUI:
             reg_nb = getattr(self, "_reg_notebook", None)
             self._active_scroll_canvas = (
                 self._reg_tab_canvases.get(reg_nb.select()) if reg_nb else None)
+        elif current == "Test Modes":
+            self._active_scroll_canvas = getattr(self, "_testmodes_scroll_canvas", None)
         else:
-            # Test Modes/Terminal/Help scrollen nicht ueber ein registriertes Canvas.
+            # Terminal/Help scrollen nicht ueber ein registriertes Canvas.
             self._active_scroll_canvas = None
 
     def _on_reg_tab_changed(self, event=None):
@@ -571,9 +573,9 @@ class BridgeGUI:
         ver = self.model.get("verification", {})
         n_reg = sum(len(g.get("registers", {})) for g in self.model.get("groups", {}).values())
         n_ver = ver.get("registers_verified", 0)
-        line = (f"Modell: {ds.get('doc', '?')} ({ds.get('date', '?')}), Kapitel "
-                f"{ds.get('chapter', '?')} - {n_reg} Register, {n_ver} davon gegen das "
-                f"Dokument abgeglichen")
+        line = (f"Model: {ds.get('doc', '?')} ({ds.get('date', '?')}), Chapter "
+                f"{ds.get('chapter', '?')} - {n_reg} registers, {n_ver} checked against "
+                f"the document")
         if er:
             line += f" | Errata {er.get('doc')}"
         return line
@@ -642,8 +644,8 @@ class BridgeGUI:
         # registers, and the tab scrolls - a button below the scroll area is off screen
         # exactly when it is wanted.
         ttk.Separator(top_frame, orient=tk.VERTICAL).pack(side=tk.LEFT, fill=tk.Y, padx=6)
-        ttk.Button(top_frame, text="🔄 Bulk Read All", command=self.bulk_read_registers).pack(side=tk.LEFT, padx=2)
-        ttk.Button(top_frame, text="💾 Bulk Write All", command=self.bulk_write_registers).pack(side=tk.LEFT, padx=2)
+        ttk.Button(top_frame, text="🔄 Bulk Register Read All", command=self.bulk_read_registers).pack(side=tk.LEFT, padx=2)
+        ttk.Button(top_frame, text="💾 Bulk Register Write All", command=self.bulk_write_registers).pack(side=tk.LEFT, padx=2)
         ttk.Button(top_frame, text="Save to JSON", command=self.save_registers_json).pack(side=tk.LEFT, padx=2)
         ttk.Button(top_frame, text="Open from JSON", command=self.load_registers_json).pack(side=tk.LEFT, padx=2)
 
@@ -810,6 +812,8 @@ class BridgeGUI:
                 ("Mirror: Disable", lambda: self.run_async_cmd("mirror 0")),
                 ("Read Stats", lambda: self.run_async_cmd("stats")),
                 ("Memory Info", lambda: self.run_async_cmd("meminfo")),
+                ("Build Timestamp", lambda: self.run_async_cmd("timestamp")),
+                ("Reset Device", self.reset_device),
             ]),
         ]
         self._build_quick_command_groups(right_frame, quick_command_groups)
@@ -992,90 +996,108 @@ class BridgeGUI:
         # The bulk buttons that used to sit here are in the top bar now (create_widgets),
         # where they stay visible no matter which tab is open or how far it is scrolled.
 
+    # (mode, title, description) - description is the "ausführlich erklärt" text shown
+    # in that mode's own group. Kept here as data, not spread across widget calls, so a
+    # fifth mode is one more tuple. Longer background (setup notes, safety) stays in
+    # LAN8651_TEST_MODES.md; this is the summary worth having next to the button.
+    TEST_MODES = [
+        (1, "Output Voltage & Timing Jitter",
+         "Drives the bus with the IEEE 802.3 §147.5.2 test pattern for amplitude and edge timing.\n"
+         "Measures: differential output amplitude (peak-to-peak), timing jitter of the edges, rise/fall time.\n"
+         "Instrument: oscilloscope, differential probe at the MDI, terminated bus."),
+        (2, "Output Droop",
+         "Drives the bus with a sustained-symbol pattern to expose AC-coupling droop.\n"
+         "Measures: amplitude sag from the start to the end of the sustained interval, as % of the initial value.\n"
+         "Instrument: oscilloscope, differential probe, averaging on."),
+        (3, "PSD Mask (Spectral Emissions)",
+         "Drives the bus with a pattern whose spectral content is compared against the IEEE PSD mask.\n"
+         "Measures: power spectral density vs. the standard's mask, especially where the trace comes closest to it.\n"
+         "Instrument: spectrum analyzer - needs a balun/transformer fixture, the bus is differential 100 Ω, "
+         "the analyzer input is single-ended 50 Ω."),
+        (4, "Transmitter High Impedance",
+         "Puts the transmitter into a high-impedance state instead of driving the bus.\n"
+         "Measures: the rest of the segment without this node's contribution, or this node's own off-state impedance.\n"
+         "Instrument: oscilloscope, TDR, or ohmmeter - this node stays physically attached but electrically silent."),
+    ]
+
     def create_testmodes_tab(self):
-        """Create Test Modes tab"""
+        """Create Test Modes tab: one group per mode, each with its own start button and
+        auto-revert field - an empty field means that mode runs until something else
+        changes it, not just until the next read.
+        """
         frame = ttk.Frame(self.notebook)
         self.notebook.add(frame, text="Test Modes")
 
-        # Test mode selection
-        info_frame = ttk.LabelFrame(frame, text="IEEE 802.3 Test Modes (0x000308FB)", padding=10)
-        info_frame.pack(fill=tk.X, padx=5, pady=5)
+        # Scrollable wie die anderen inhaltsschweren Tabs (Bridge Parameters, Registers) -
+        # fuenf Gruppen mit Beschreibung passen nicht auf jeden Bildschirm. Siehe
+        # _register_wheel_canvas fuer den globalen Mausrad-Handler und
+        # _bind_page_scroll_keys fuer den Bild-hoch/-runter-Fallback (Touchpad).
+        canvas = tk.Canvas(frame)
+        scrollbar = ttk.Scrollbar(frame, orient="vertical", command=canvas.yview)
+        scrollable_frame = ttk.Frame(canvas)
 
-        ttk.Label(
-            info_frame,
-            text="Select a test mode and optionally set auto-revert timeout (seconds).\n"
-                 "Mode 0 = Normal, 1-4 = Test modes, see LAN8651_TEST_MODES.md\n\n"
-                 "⚠️  Warning: Test modes disconnect the T1S link. The bridge is unreachable during test.",
-            justify=tk.LEFT,
-            foreground="red"
-        ).pack(anchor=tk.W)
-
-        # Mode and timeout input
-        input_frame = ttk.Frame(info_frame)
-        input_frame.pack(fill=tk.X, pady=10)
-
-        ttk.Label(input_frame, text="Mode:").pack(side=tk.LEFT, padx=5)
-        self.testmode_var = tk.StringVar(value="0")
-        mode_spin = ttk.Spinbox(
-            input_frame,
-            from_=0, to=4,
-            textvariable=self.testmode_var,
-            width=5
+        scrollable_frame.bind(
+            "<Configure>",
+            lambda e: canvas.configure(scrollregion=canvas.bbox("all"))
         )
-        mode_spin.pack(side=tk.LEFT, padx=5)
+        canvas.create_window((0, 0), window=scrollable_frame, anchor="nw")
+        canvas.configure(yscrollcommand=scrollbar.set)
 
-        ttk.Label(input_frame, text="Auto-revert (sec):").pack(side=tk.LEFT, padx=5)
-        self.testmode_timeout_var = tk.StringVar(value="")
-        ttk.Entry(input_frame, textvariable=self.testmode_timeout_var, width=8).pack(side=tk.LEFT, padx=5)
+        self._register_wheel_canvas(canvas)
+        self._testmodes_scroll_canvas = canvas
 
-        # Buttons
-        btn_frame = ttk.Frame(info_frame)
-        btn_frame.pack(fill=tk.X, pady=10)
+        canvas.pack(side="left", fill="both", expand=True)
+        scrollbar.pack(side="right", fill="y")
 
-        ttk.Button(btn_frame, text="Apply Test Mode", command=self.apply_testmode, width=20).pack(side=tk.LEFT, padx=2)
-        ttk.Button(btn_frame, text="Read Current Mode", command=self.read_testmode, width=20).pack(side=tk.LEFT, padx=2)
-
-        # Hinweis auf die Testsuite. Bewusst kein Knopf: test_lan8651.py öffnet
-        # den COM-Port selbst und kollidiert mit der offenen Verbindung dieser
-        # GUI. Erst Disconnect, dann das Skript in einer Konsole starten.
-        script_frame = ttk.LabelFrame(frame, text="Automated Testing", padding=10)
-        script_frame.pack(fill=tk.X, padx=5, pady=5)
+        # Zwei Spalten statt einer langen Kette von fuenf Gruppen - Mode 0 ueber die volle
+        # Breite, Mode 1-4 im 2x2-Raster darunter. Nutzt die Breite, die ein maximiertes
+        # Fenster tatsaechlich hat, statt sie ungenutzt zu lassen, und braucht dadurch nur
+        # drei Zeilen statt fuenf: passt auf jeden vernuenftig grossen Bildschirm, ohne zu
+        # scrollen. Alle Kinder von scrollable_frame muessen deshalb konsequent grid() statt
+        # pack() verwenden - Tk erlaubt beides nicht gemischt im selben Container.
+        scrollable_frame.columnconfigure(0, weight=1, uniform="testmode_col")
+        scrollable_frame.columnconfigure(1, weight=1, uniform="testmode_col")
 
         ttk.Label(
-            script_frame,
-            text="Full test suite (readback, traffic stops, traffic returns):\n"
-                 "    python test_lan8651.py --port <COM>\n"
-                 "Press Disconnect here first - the script needs the port to itself.",
-            justify=tk.LEFT, font=("Courier", 9)
-        ).pack(anchor=tk.W)
+            scrollable_frame,
+            text="⚠️  Test modes disconnect the T1S link - the bridge is unreachable while one is active.\n"
+                 "Register: T1STSTCTL (0x000308FB), bits 15:13. Background and measurement setup: LAN8651_TEST_MODES.md",
+            justify=tk.LEFT, foreground="red"
+        ).grid(row=0, column=0, columnspan=2, sticky="w", padx=8, pady=8)
 
-        # Info frame
-        info_frame2 = ttk.LabelFrame(frame, text="Test Mode Reference", padding=10)
-        info_frame2.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
+        # Mode 0: immer zuerst erreichbar, unabhaengig davon, welcher Testmodus gerade
+        # laeuft - kein Auto-Revert-Feld, "Normalbetrieb" hat keine Dauer.
+        normal_frame = ttk.LabelFrame(scrollable_frame, text="Mode 0 - Normal Operation", padding=10)
+        normal_frame.grid(row=1, column=0, columnspan=2, sticky="ew", padx=8, pady=5)
+        ttk.Label(normal_frame, text="Ends any active test mode and restores normal T1S operation.",
+                  justify=tk.LEFT).pack(anchor=tk.W)
+        row0 = ttk.Frame(normal_frame)
+        row0.pack(fill=tk.X, pady=(8, 0))
+        ttk.Button(row0, text="Return to Normal Mode",
+                   command=lambda: self.apply_testmode(0), width=22).pack(side=tk.LEFT, padx=2)
+        ttk.Button(row0, text="Read Current Mode",
+                   command=self.read_testmode, width=22).pack(side=tk.LEFT, padx=2)
 
-        ref_text = tk.Text(info_frame2, height=12, width=80, wrap=tk.WORD, state=tk.NORMAL)
-        ref_text.pack(fill=tk.BOTH, expand=True)
+        # Je Testmodus ein eigenes StringVar fuers Auto-Revert-Feld, damit apply_testmode
+        # weiss, welches Feld zu welchem "Start"-Knopf gehoert.
+        self.testmode_timeout_vars: Dict[int, tk.StringVar] = {}
+        for i, (mode, title, description) in enumerate(self.TEST_MODES):
+            grp_row, grp_col = divmod(i, 2)
+            grp = ttk.LabelFrame(scrollable_frame, text=f"Mode {mode} - {title}", padding=10)
+            grp.grid(row=2 + grp_row, column=grp_col, sticky="nsew", padx=8, pady=5)
 
-        ref_content = """Mode 1 - Test Mode 1: Output Voltage & Timing Jitter
-  Use: Oscilloscope
-  Measures: Signal shape, timing jitter, rise/fall time
+            # wraplength haelt die Beschreibung in der jetzt halb so breiten Spalte lesbar,
+            # statt die Spalte auf die Laenge der laengsten Zeile aufzuziehen.
+            ttk.Label(grp, text=description, justify=tk.LEFT, wraplength=600).pack(anchor=tk.W)
 
-Mode 2 - Test Mode 2: Output Droop
-  Use: Oscilloscope
-  Measures: Voltage droop under load
-
-Mode 3 - Test Mode 3: PSD Mask (Spectral Emissions)
-  Use: Spectrum Analyzer
-  Measures: Power spectral density, EMI compliance
-
-Mode 4 - Test Mode 4: Transmitter High Impedance
-  Use: Bus analyzer, probe without active sender
-  Measures: Bus impedance, passive monitoring
-
-For detailed measurement setup and verification procedures, see LAN8651_TEST_MODES.md"""
-
-        ref_text.insert(1.0, ref_content)
-        ref_text.config(state=tk.DISABLED)
+            ctrl = ttk.Frame(grp)
+            ctrl.pack(fill=tk.X, pady=(8, 0))
+            ttk.Label(ctrl, text="Auto-revert (sec, empty = runs until changed):").pack(side=tk.LEFT, padx=(0, 5))
+            timeout_var = tk.StringVar(value="")
+            self.testmode_timeout_vars[mode] = timeout_var
+            ttk.Entry(ctrl, textvariable=timeout_var, width=8).pack(side=tk.LEFT, padx=5)
+            ttk.Button(ctrl, text=f"Start Test Mode {mode}",
+                       command=lambda m=mode: self.apply_testmode(m), width=20).pack(side=tk.LEFT, padx=10)
 
     def create_terminal_tab(self):
         """Create Serial Terminal tab with gui_term.py logic"""
@@ -1443,6 +1465,17 @@ Example commands:
         threading.Thread(target=worker, daemon=True).start()
         self.set_status(f"Running: {command}")
 
+    def reset_device(self):
+        """Reset the MCU via the Harmony command processor's built-in 'reset' command.
+
+        Confirmed first, unlike the other Device buttons (mirror/stats/meminfo/timestamp):
+        those just read or flip a runtime flag, this one reboots the board and drops
+        whatever else was in progress on the link.
+        """
+        if not messagebox.askyesno("Confirm", "Reset the device now? The board will reboot."):
+            return
+        self.run_async_cmd("reset")
+
     @staticmethod
     def clean_response(command: str, output: str) -> str:
         """Echo des Kommandos und Prompt-Zeichen aus der Antwort entfernen."""
@@ -1753,7 +1786,7 @@ Example commands:
             for key in self.bridge_fields:
                 value = self.parse_showenv(check, key)
                 self.result_queue.put(("bridge_read", key, value is not None, value or ""))
-            log.append(f"> showenv (Kontrolle)\n{self.clean_response('showenv', check)}")
+            log.append(f"> showenv (verify)\n{self.clean_response('showenv', check)}")
             self.result_queue.put(("cmd_result", True, "\n".join(log)))
 
         threading.Thread(target=worker, daemon=True).start()
@@ -2014,10 +2047,16 @@ Example commands:
         """Read current test mode"""
         self.run_async_cmd("lan_read 0x000308FB")
 
-    def apply_testmode(self):
-        """Apply selected test mode"""
-        mode = self.testmode_var.get()
-        timeout = self.testmode_timeout_var.get()
+    def apply_testmode(self, mode: int):
+        """Start the given test mode (0 = back to normal).
+
+        Modes 1-4 each have their own auto-revert field on the Test Modes tab; mode 0 has
+        none, since "return to normal" has no duration to set. An empty field means the
+        mode runs until something else changes it, matching what the firmware's own
+        `testmode <mode>` (no timeout argument) does.
+        """
+        timeout_var = getattr(self, "testmode_timeout_vars", {}).get(mode)
+        timeout = timeout_var.get().strip() if timeout_var else ""
 
         cmd = f"testmode {mode}"
         if timeout:
