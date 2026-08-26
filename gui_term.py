@@ -8,13 +8,15 @@ debug probe's USB serial and re-resolves the COM port at every run, because its
 boards get re-plugged into different USB hubs constantly. This repo assigns
 COM ports directly instead - open "Setup > Configure Ports", pick a port from
 the live list for each of the three terminal slots, give it a name, Save. The
-assignment lives in term_ports.json (gitignored, machine-specific, created by
-that dialog - do not hand-edit it) and takes effect immediately, no restart.
+same dialog's "Display" section sets the font size and text color for all
+three panes at once. The assignment lives in term_ports.json (gitignored,
+machine-specific, created by that dialog - do not hand-edit it) and takes
+effect immediately, no restart.
 
     python gui_term.py                  three panes, not connected
     python gui_term.py --connect        connect all three on startup
     python gui_term.py --columns        panes side by side instead of stacked
-    python gui_term.py --font-size 9
+    python gui_term.py --font-size 9    override term_ports.json for this run only
     python gui_term.py --selftest       no window: check the screen model
 
 Nothing connects on its own except with --connect: click "Connect All", or the
@@ -93,6 +95,15 @@ HEAD_BG = "#1c1c1c"
 DOT_ON = "#48b048"
 DOT_OFF = "#b04848"
 
+# Terminal text font size and color are configurable (Setup > Configure Ports,
+# "Display" section) - these are just the fallback for a fresh term_ports.json
+# or one written before that section existed. BG and the header colors stay
+# fixed; only the requested "color of the terminal font" is a setting.
+DEFAULT_FONT_SIZE = 10
+DEFAULT_TEXT_COLOR = FG
+MIN_FONT_SIZE = 6
+MAX_FONT_SIZE = 24
+
 try:
     import tkinter as tk
     from tkinter import ttk, scrolledtext, messagebox
@@ -153,27 +164,33 @@ def get_available_com_ports():
 
 
 # --------------------------------------------------------------- assignment
-def load_slots(path=CONFIG):
-    """[(key, name, port), ...] for the three terminal slots, in SLOT_KEYS order.
+def load_config(path=CONFIG):
+    """(slot_list, font_size, text_color) - everything term_ports.json holds.
 
-    A missing file is not an error: every slot just comes back unnamed and
-    without a port, and each pane says so - "Setup > Configure Ports" is what
-    creates the file, on the first Save.
+    slot_list is [(key, name, port), ...] for the three terminal slots, in
+    SLOT_KEYS order. A missing file is not an error: every slot comes back
+    unnamed and without a port, and font_size/text_color come back as the
+    DEFAULT_* constants - each pane says so, and "Setup > Configure Ports" is
+    what creates the file, on the first Save.
     """
     slots = {}
+    display = {}
     if os.path.exists(path):
         with open(path, encoding="utf-8") as fh:
             cfg = json.load(fh)
         slots = cfg.get("slots") or {}
-    out = []
+        display = cfg.get("display") or {}
+    slot_list = []
     for key in SLOT_KEYS:
         info = slots.get(key) or {}
-        out.append((key, info.get("name") or "", info.get("port") or None))
-    return out
+        slot_list.append((key, info.get("name") or "", info.get("port") or None))
+    font_size = display.get("font_size") or DEFAULT_FONT_SIZE
+    text_color = display.get("text_color") or DEFAULT_TEXT_COLOR
+    return slot_list, font_size, text_color
 
 
-def save_slots(path, entries):
-    """Write term_ports.json from [(key, name, port), ...].
+def save_config(path, entries, font_size, text_color):
+    """Write term_ports.json from [(key, name, port), ...] plus the display settings.
 
     Serialize to a neighbor file and os.replace() over the target, rather than
     truncating it in place - a crash mid-write leaves the old file intact
@@ -182,12 +199,13 @@ def save_slots(path, entries):
     """
     cfg = {
         "version": 1,
-        "note": ("COM port assignment for gui_term.py, picked directly from the "
-                 "currently available ports via 'Setup > Configure Ports' - not "
-                 "resolved from a probe serial number like the sibling project's "
-                 "bench.json. Machine-specific; do not expect it to mean anything "
-                 "on another machine, and do not hand-edit it, the dialog is the "
-                 "source of truth."),
+        "note": ("Port assignment and display settings for gui_term.py, set via "
+                 "'Setup > Configure Ports' - ports are picked directly from the "
+                 "currently available list, not resolved from a probe serial "
+                 "number like the sibling project's bench.json. Machine-specific; "
+                 "do not expect it to mean anything on another machine, and do "
+                 "not hand-edit it, the dialog is the source of truth."),
+        "display": {"font_size": font_size, "text_color": text_color},
         "slots": {key: {"name": name, "port": port} for key, name, port in entries},
     }
     tmp = path + ".tmp"
@@ -329,7 +347,7 @@ class Screen:
 class Pane:
     """A header (state dot, title, connect button) and the terminal below it."""
 
-    def __init__(self, parent, key, name, port, app, font, height):
+    def __init__(self, parent, key, name, port, app, font, height, text_color):
         self.key = key
         self.name = name
         self.port = port
@@ -356,11 +374,11 @@ class Pane:
 
         self.text = scrolledtext.ScrolledText(
             self.frame, wrap="char", width=COLUMNS, height=height,
-            font=font, background=BG, foreground=FG,
+            font=font, background=BG, foreground=text_color,
             insertwidth=0,               # own block cursor instead of Tk's caret
             state="disabled")
         self.text.pack(side="top", fill="both", expand=True)
-        self.text.tag_config("cursor", background=FG, foreground=BG)
+        self.text.tag_config("cursor", background=text_color, foreground=BG)
 
         self.text.bind("<Key>", self._on_key)
         self.text.bind("<Control-c>", self._on_ctrl_c)
@@ -380,6 +398,11 @@ class Pane:
         self.name = name
         self.port = port
         self.title_label.config(text=self._title())
+
+    def apply_display(self, font, text_color):
+        """Font size / text color from Setup > Configure Ports, live."""
+        self.text.config(font=font, foreground=text_color)
+        self.text.tag_config("cursor", background=text_color, foreground=BG)
 
     # -- output -------------------------------------------------------
     def feed(self, data):
@@ -534,6 +557,25 @@ class ConfigDialog(tk.Toplevel):
             combo.pack(side="left", padx=5)
             self.port_combos[key] = combo
 
+        # Applies to all three panes at once, not per terminal - one font,
+        # one text color for the whole window.
+        disp_frame = ttk.LabelFrame(self, text="Display", padding=10)
+        disp_frame.pack(fill="x", padx=10, pady=(10, 0))
+
+        row = ttk.Frame(disp_frame)
+        row.pack(fill="x", pady=2)
+        ttk.Label(row, text="Font Size:", width=10).pack(side="left")
+        self.font_size_var = tk.IntVar(value=app.font_size)
+        ttk.Spinbox(row, from_=MIN_FONT_SIZE, to=MAX_FONT_SIZE,
+                   textvariable=self.font_size_var, width=5).pack(side="left", padx=5)
+
+        ttk.Label(row, text="Text Color:").pack(side="left", padx=(20, 5))
+        self.text_color_var = tk.StringVar(value=app.text_color)
+        self.color_swatch = tk.Label(row, text="      ", relief="sunken",
+                                     background=app.text_color)
+        self.color_swatch.pack(side="left", padx=(0, 5))
+        ttk.Button(row, text="Choose...", command=self._pick_color).pack(side="left")
+
         btn_row = ttk.Frame(self)
         btn_row.pack(fill="x", padx=10, pady=10)
         ttk.Button(btn_row, text="Refresh Ports", command=self._refresh_ports).pack(side="left")
@@ -554,6 +596,15 @@ class ConfigDialog(tk.Toplevel):
                 values.append(saved)
             self.port_combos[key]["values"] = [""] + values
 
+    def _pick_color(self):
+        from tkinter import colorchooser
+        _rgb, hex_color = colorchooser.askcolor(
+            color=self.text_color_var.get() or DEFAULT_TEXT_COLOR,
+            title="Terminal Text Color", parent=self)
+        if hex_color:
+            self.text_color_var.set(hex_color)
+            self.color_swatch.config(background=hex_color)
+
     def _save(self):
         entries = []
         used_by = {}
@@ -569,20 +620,32 @@ class ConfigDialog(tk.Toplevel):
             if port:
                 used_by[port] = key
             entries.append((key, name, port))
-        save_slots(self.app.config_path, entries)
+
+        try:
+            font_size = int(self.font_size_var.get())
+        except (tk.TclError, ValueError):
+            font_size = self.app.font_size
+        font_size = max(MIN_FONT_SIZE, min(MAX_FONT_SIZE, font_size))
+        text_color = self.text_color_var.get().strip() or self.app.text_color
+
+        save_config(self.app.config_path, entries, font_size, text_color)
         self.app.apply_slots(entries)
+        self.app.apply_display(font_size, text_color)
         self.destroy()
 
 
 # --------------------------------------------------------------- the window
 class App:
-    def __init__(self, root, config_path, slot_list, font_size=10, columns=False, height=HEIGHT):
+    def __init__(self, root, config_path, slot_list, font_size=DEFAULT_FONT_SIZE,
+                 text_color=DEFAULT_TEXT_COLOR, columns=False, height=HEIGHT):
         self.root = root
         self.config_path = config_path
         self.q = queue.Queue()
         self.links = {}
         self.panes = {}
         self.slot_list = slot_list
+        self.font_size = font_size
+        self.text_color = text_color
 
         font = ("Consolas", font_size)
 
@@ -605,7 +668,7 @@ class App:
                                 orient="horizontal" if columns else "vertical")
         self.panes_container.pack(side="top", fill="both", expand=True)
         for key, name, port in slot_list:
-            pane = Pane(self.panes_container, key, name, port, self, font, height)
+            pane = Pane(self.panes_container, key, name, port, self, font, height, text_color)
             self.panes_container.add(pane.frame, weight=1)
             self.panes[key] = pane
             if not port:
@@ -639,6 +702,14 @@ class App:
                 pane.note("reconfigured - was connected, disconnected")
             pane.retitle(name, port)
         self._retitle_window()
+
+    def apply_display(self, font_size, text_color):
+        """Font size / text color from Setup > Configure Ports, live."""
+        self.font_size = font_size
+        self.text_color = text_color
+        font = ("Consolas", font_size)
+        for pane in self.panes.values():
+            pane.apply_display(font, text_color)
 
     # -- connect --------------------------------------------------------
     def connected(self, key):
@@ -840,16 +911,17 @@ def selftest():
     check("text() across both", s.text(), "ab\ncd")
 
     try:
-        slots = load_slots(CONFIG)
+        slots, font_size, text_color = load_config(CONFIG)
     except (OSError, ValueError) as error:
         fails.append("term_ports.json: %s" % error)
-        slots = []
+        slots, font_size, text_color = [], DEFAULT_FONT_SIZE, DEFAULT_TEXT_COLOR
     if slots:
         keys = [s[0] for s in slots]
         if keys != SLOT_KEYS:
             fails.append("slot order %r != %r" % (keys, SLOT_KEYS))
         print("   assignment: " + ", ".join(
             "%s=%s(%s)" % (k, n or "-", p or "-") for k, n, p in slots))
+        print("   display: font_size=%s text_color=%s" % (font_size, text_color))
 
     for line in fails:
         print("FAIL " + line)
@@ -869,7 +941,8 @@ def main():
                     help="open all three ports right at startup (default: no)")
     ap.add_argument("--columns", action="store_true",
                     help="panes side by side instead of stacked")
-    ap.add_argument("--font-size", type=int, default=10)
+    ap.add_argument("--font-size", type=int, default=None,
+                    help="override the font size from term_ports.json for this run only")
     ap.add_argument("--height", type=int, default=HEIGHT,
                     help="lines per pane at startup")
     ap.add_argument("--selftest", action="store_true",
@@ -883,10 +956,12 @@ def main():
         print("Tkinter is missing from this Python.")
         return 2
 
-    slot_list = load_slots(args.config)
+    slot_list, font_size, text_color = load_config(args.config)
+    if args.font_size is not None:
+        font_size = args.font_size
 
     root = tk.Tk()
-    app = App(root, args.config, slot_list, font_size=args.font_size,
+    app = App(root, args.config, slot_list, font_size=font_size, text_color=text_color,
               columns=args.columns, height=args.height)
     if args.connect:
         app.connect(list(app.panes))
