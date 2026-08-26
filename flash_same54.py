@@ -148,6 +148,16 @@ def flash(image, target, pack, probe, frequency, reset, dry_run):
     return rc
 
 
+def erase(target, pack, probe, frequency, dry_run):
+    """Chip-erase the target: firmware AND the emulated EEPROM, since both live in the
+    same physical flash. '--chip' (not '--sector'/'--mass') is pyOCD's whole-device
+    erase - the deliberate choice here, not the default 'erase nothing without an
+    explicit mode' behavior. No reset afterward: unlike flash(), there is no program
+    left to run."""
+    common = build_common_args(target, pack, probe, frequency)
+    return run_pyocd(["erase", "--chip"] + common, dry_run)
+
+
 def read_memory(address, length, target, pack, probe, frequency, out, dry_run):
     """Read target memory via 'pyocd commander'. Without --out, prints a hex dump
     (commander's read8); with --out, saves the raw bytes to a binary file (savemem)."""
@@ -175,6 +185,10 @@ def main():
                          help="Read LENGTH bytes starting at ADDRESS (e.g. 0x0) instead of flashing. "
                               "Prints a hex dump unless --out is given.")
     parser.add_argument("--out", help="With --read: save the read memory to this binary file instead of printing a hex dump")
+    parser.add_argument("--erase", action="store_true",
+                        help="Chip-erase the target (firmware AND the emulated EEPROM, both live in "
+                             "the same physical flash) instead of flashing. Irreversible - the board "
+                             "needs reflashing afterward. No image argument needed with this.")
     parser.add_argument("--dry-run", action="store_true", help="Print the pyOCD commands without executing them")
     args = parser.parse_args()
 
@@ -188,8 +202,8 @@ def main():
         probes = list_probes()
         sys.exit(0 if probes else 1)
 
-    if not args.read and not args.image:
-        parser.error("image is required unless --list or --read is given")
+    if not args.read and not args.erase and not args.image:
+        parser.error("image is required unless --list, --read, or --erase is given")
 
     image = None
     if args.image:
@@ -227,6 +241,10 @@ def main():
     if args.read:
         address, length = args.read
         rc = read_memory(address, length, args.target, pack, args.probe, args.frequency, args.out, args.dry_run)
+        sys.exit(rc)
+
+    if args.erase:
+        rc = erase(args.target, pack, args.probe, args.frequency, args.dry_run)
         sys.exit(rc)
 
     rc = flash(image, args.target, pack, args.probe, args.frequency, not args.no_reset, args.dry_run)

@@ -12,9 +12,11 @@ exklusiv ist. Alle Kommandos laufen über den einen offenen Link.
 """
 
 import tkinter as tk
-from tkinter import ttk, messagebox, scrolledtext
+from tkinter import ttk, messagebox, scrolledtext, simpledialog
 import json
 import os
+import subprocess
+import sys
 import threading
 import re
 from pathlib import Path
@@ -28,8 +30,42 @@ try:
 except ImportError:
     serial = None
 
+
+def _console_python() -> str:
+    """Never use sys.executable blindly for the flash_same54.py subprocess call: if
+    this GUI is running under pythonw.exe (no second console window), flash_same54.py
+    builds [sys.executable, "-m", "pyocd", ...] from it - i.e. "pythonw.exe -m pyocd
+    erase --chip ...". That GRANDCHILD process loses its stdout somewhere in the
+    chain under pythonw: the flash/erase command still echoes, then nothing more -
+    not even "Chip erase complete", even though the erase itself completed fine on
+    the real board (measured on the sibling project this was ported from: under
+    console python.exe it streams every sector line in under 10s, under pythonw.exe
+    it goes silent right after the command line). python.exe sits next to
+    pythonw.exe in a standard install; falls back to sys.executable if that is not
+    there."""
+    exe = Path(sys.executable)
+    if exe.name.lower() == "pythonw.exe":
+        candidate = exe.with_name("python.exe")
+        if candidate.is_file():
+            return str(candidate)
+    return sys.executable
+
+
+PYOCD_PYTHON = _console_python()
+
 # Configuration file path
 CONFIG_FILE = Path(__file__).parent / "bridge_config.json"
+
+# Flash/Erase over the EDBG probe (SWD), independent of the open serial link - see
+# flash_from_release()/erase_chip(). RELEASE_HEX is the same file build.bat copies
+# to after every build (see CLAUDE.md section 2); FLASH_SAME54_SCRIPT already knows
+# how to find the SAME54_DFP pack and pick a probe, this GUI only adds the picker
+# for "which probe, if more than one is connected" and the confirmation dialogs.
+RELEASE_HEX = Path(__file__).parent / "release" / "T1S_100BaseT_Bridge.hex"
+FLASH_SAME54_SCRIPT = Path(__file__).parent / "flash_same54.py"
+# Typed into the erase confirmation dialog, not just clicked - a chip erase is not
+# reversible (wipes firmware AND the emulated EEPROM, both live in the same flash).
+ERASE_CONFIRM_WORD = "ERASE"
 
 # Das Registermodell: Adressen, Mnemonics, Bitfelder, Herkunft. Getrennt von der
 # Konfiguration, weil es etwas anderes ist -- eine aus dem Datenblatt abgeleitete
@@ -814,6 +850,8 @@ class BridgeGUI:
                 ("Memory Info", lambda: self.run_async_cmd("meminfo")),
                 ("Build Timestamp", lambda: self.run_async_cmd("timestamp")),
                 ("Reset Device", self.reset_device),
+                ("Flash from release/", self.flash_from_release),
+                ("Erase chip...", self.erase_chip),
             ]),
         ]
         self._build_quick_command_groups(right_frame, quick_command_groups)
@@ -1476,6 +1514,184 @@ Example commands:
             return
         self.run_async_cmd("reset")
 
+    def flash_from_release(self):
+        """Flash release/T1S_100BaseT_Bridge.hex via pyOCD - onto a probe YOU pick.
+
+        Goes through flash_same54.py directly, not through install.bat's saved probe
+        selection: with more than one EDBG probe on the desk, silently flashing
+        whichever one bench.json happens to name is exactly the mistake this dialog
+        exists to prevent. Asks pyOCD which probes are actually connected right now.
+
+        Independent of the open serial link: pyOCD talks to the EDBG probe's SWD
+        interface, not the COM port, so nothing needs to disconnect first.
+        """
+        if not RELEASE_HEX.is_file():
+            messagebox.showerror("Not found", f"{RELEASE_HEX} is missing.")
+            return
+        self._open_probe_picker("flash")
+
+    def erase_chip(self):
+        """Chip-erase a probe YOU pick - firmware AND the emulated EEPROM.
+
+        A plain flash only programs the regions the hex file covers and leaves the
+        emulated EEPROM (PLCA id/count, IP, MAC settings) untouched, by design. This
+        is the way to reach a true blank state for one probe, picked here rather than
+        assumed from bench.json - same reasoning as flash_from_release() above.
+        """
+        self._open_probe_picker("erase")
+
+    def _open_probe_picker(self, mode: str) -> None:
+        if not FLASH_SAME54_SCRIPT.is_file():
+            messagebox.showerror("Not found", f"{FLASH_SAME54_SCRIPT} is missing.")
+            return
+        probes = self._list_probes()
+        if not probes:
+            messagebox.showerror(
+                "pyOCD",
+                "No connected probes found (check the USB connection, or pip install pyocd).")
+            return
+        self._show_probe_picker(probes, mode)
+
+    def _list_probes(self) -> List[tuple]:
+        """Probes per pyOCD, via 'flash_same54.py --list' rather than importing pyocd
+        directly here - pyocd stays a dependency of the flash tool, not this GUI (see
+        the module docstring: "Standalone. Gebraucht werden nur pyserial"). Output is
+        one line per probe: '<unique_id>  <vendor> <product>' (flash_same54.py's own
+        list_probes())."""
+        try:
+            proc = subprocess.run(
+                [PYOCD_PYTHON, str(FLASH_SAME54_SCRIPT), "--list"],
+                capture_output=True, text=True, timeout=15,
+                creationflags=subprocess.CREATE_NO_WINDOW)
+        except (OSError, subprocess.SubprocessError) as exc:
+            messagebox.showerror("pyOCD", f"Could not list probes: {exc}")
+            return []
+        probes = []
+        for line in proc.stdout.splitlines():
+            m = re.match(r"^(\S+)\s{2,}(.+)$", line.strip())
+            if m:
+                probes.append((m.group(1), m.group(2)))
+        return probes
+
+    def _show_probe_picker(self, probes: List[tuple], mode: str) -> None:
+        """Modal dialog: pick ONE of the probes found, then go straight on - a second,
+        generic confirmation dialog afterward would just repeat what already stands
+        here in red. Erase still gets the typed-word prompt on top of this, the same
+        as ERASE_CONFIRM_WORD elsewhere - a click in a list is not a substitute for it.
+        """
+        if mode == "erase":
+            title = "Select probe to erase"
+            heading = "Chip-erase (firmware AND emulated EEPROM) via pyOCD on:"
+            warning = ("This erases EVERYTHING on the selected board: firmware and the "
+                       "emulated EEPROM (PLCA id/count, IP, MAC settings). "
+                       "It will need reflashing afterward.")
+            action_label = "Erase..."
+        else:
+            title = "Select probe to flash"
+            heading = f"Flash {RELEASE_HEX.name} (from release/) onto:"
+            warning = "This erases and reprograms the selected board, then resets it."
+            action_label = "Flash"
+
+        dialog = tk.Toplevel(self.root)
+        dialog.title(title)
+        dialog.transient(self.root)
+        dialog.grab_set()
+
+        ttk.Label(dialog, text=heading, padding=(10, 10, 10, 4)).pack(anchor=tk.W)
+
+        listbox = tk.Listbox(dialog, width=70, height=min(8, len(probes)))
+        for unique_id, desc in probes:
+            listbox.insert(tk.END, f"{unique_id}   {desc}")
+        listbox.selection_set(0)
+        listbox.pack(padx=10, pady=(0, 5), fill=tk.BOTH, expand=True)
+
+        ttk.Label(dialog, text=warning, foreground="#b00", wraplength=460,
+                  justify=tk.LEFT).pack(anchor=tk.W, padx=10)
+
+        btn_frame = ttk.Frame(dialog)
+        btn_frame.pack(pady=10)
+
+        def do_action(event=None):
+            sel = listbox.curselection()
+            if not sel:
+                return
+            unique_id, desc = probes[sel[0]]
+            dialog.destroy()
+            if mode == "erase":
+                self._erase_probe(unique_id, desc)
+            else:
+                self._flash_probe(unique_id, desc)
+
+        ttk.Button(btn_frame, text=action_label, command=do_action).pack(side=tk.LEFT, padx=5)
+        ttk.Button(btn_frame, text="Cancel", command=dialog.destroy).pack(side=tk.LEFT, padx=5)
+        dialog.bind("<Return>", do_action)
+        dialog.bind("<Escape>", lambda e: dialog.destroy())
+        listbox.focus_set()
+
+    def _flash_probe(self, unique_id: str, description: str) -> None:
+        """Start the actual flash, for ONE explicitly chosen probe."""
+        self.set_status(f"Flashing probe {unique_id} ...")
+        self._run_pyocd_op("Flash", [str(RELEASE_HEX), "--probe", unique_id], description)
+
+    def _erase_probe(self, unique_id: str, description: str) -> None:
+        """Chip-erase ONE explicitly chosen probe - gated on the typed confirmation
+        word, not just the click in the probe list (see _show_probe_picker())."""
+        typed = simpledialog.askstring(
+            "Confirm erase",
+            f"This PERMANENTLY erases probe {unique_id} ({description}):\n"
+            "firmware AND the emulated EEPROM.\n\n"
+            f"Type {ERASE_CONFIRM_WORD} to proceed:",
+            parent=self.root)
+        if typed != ERASE_CONFIRM_WORD:
+            self.set_status("Erase cancelled", duration=2000)
+            return
+        self.set_status(f"Erasing probe {unique_id} ...")
+        self._run_pyocd_op("Erase", ["--erase", "--probe", unique_id], description, timeout=120)
+
+    def _run_pyocd_op(self, label: str, extra_args: List[str], description: str = "",
+                       timeout: int = 180) -> None:
+        """Run flash_same54.py in the background and stream its output into the
+        Command Output box line by line, instead of showing it all at once at the
+        end.
+
+        Line by line rather than subprocess.run(capture_output=True): that collects
+        everything until the process exits, and the box would show NOTHING for the
+        ~20-30s an erase/program/reset takes - unsettling right at the moment someone
+        is most likely to wonder whether the click did anything at all.
+        PYTHONUNBUFFERED affects every Python interpreter in the chain
+        (flash_same54.py -> "python -m pyocd"), because neither of them sets its own
+        env= - without it, Python buffers its own stdout in blocks as soon as the
+        target is not a real console (here: the pipe). 'label' shows up in the status
+        line ("Flash OK"/"Erase failed") and at the top of the log.
+        """
+        def worker():
+            timestamp = time.strftime("%H:%M:%S")
+            suffix = f"  ({description})" if description else ""
+            self.result_queue.put(("op_line",
+                                   f"[{timestamp}] $ flash_same54.py {' '.join(extra_args)}{suffix}"))
+            env = dict(os.environ, PYTHONUNBUFFERED="1")
+            success = False
+            proc = None
+            try:
+                proc = subprocess.Popen(
+                    [PYOCD_PYTHON, str(FLASH_SAME54_SCRIPT)] + extra_args,
+                    stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                    text=True, bufsize=1, env=env,
+                    creationflags=subprocess.CREATE_NO_WINDOW)
+                for line in proc.stdout:
+                    self.result_queue.put(("op_line", line.rstrip("\n")))
+                proc.wait(timeout=timeout)
+                success = proc.returncode == 0
+            except subprocess.TimeoutExpired:
+                if proc is not None:
+                    proc.kill()
+                self.result_queue.put(("op_line", f"flash_same54.py did not finish within {timeout} s - killed."))
+            except OSError as exc:
+                self.result_queue.put(("op_line", f"flash_same54.py failed to start: {exc}"))
+            self.result_queue.put(("op_done", success, label))
+
+        threading.Thread(target=worker, daemon=True).start()
+
     @staticmethod
     def clean_response(command: str, output: str) -> str:
         """Echo des Kommandos und Prompt-Zeichen aus der Antwort entfernen."""
@@ -1550,6 +1766,25 @@ Example commands:
                     else:
                         self.set_error_status(f"Error: {output}")
                         messagebox.showerror("Error", f"Command failed:\n{output}")
+
+                elif result[0] == "op_line":
+                    # One line right away, not collected until the end - that is the
+                    # whole point of streaming it (see _run_pyocd_op()).
+                    if hasattr(self, 'bridge_output'):
+                        self.bridge_output.config(state=tk.NORMAL)
+                        self.bridge_output.insert(tk.END, result[1] + "\n")
+                        self.bridge_output.see(tk.END)
+                        self.bridge_output.config(state=tk.DISABLED)
+
+                elif result[0] == "op_done":
+                    _, success, label = result
+                    if success:
+                        self.set_status(f"{label} OK", duration=3000)
+                    else:
+                        self.set_error_status(f"{label} failed - see Command Output")
+                        messagebox.showerror(
+                            f"{label} failed",
+                            "flash_same54.py reported an error - see Command Output for details.")
 
                 elif result[0] == "register_read":
                     _, addr, success, value = result

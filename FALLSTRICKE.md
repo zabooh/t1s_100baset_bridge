@@ -354,3 +354,17 @@ Regel: siehe `CLAUDE.md` Abschnitt 7 „Erkenntnisse festhalten". Neue Einträge
   Leiste ersetzen (`root.config(menu="")`, dann eigene Leiste bauen) — das Dropdown selbst bleibt
   ein natives `tk.Menu`-Popup (kein ttk-Äquivalent dafür vorhanden), aber die durchgehend
   sichtbare Leiste ist jetzt korrekt themed, und genau die war das gemeldete Problem.
+- **2026-08-26 — "Flash from release/" und "Erase chip..." aus dem `t1s_ptp_bridge`-Schwesterprojekt
+  nach `bridge_gui.py` portiert, `flash_same54.py` brauchte dafür zuerst eine `--erase`-Option
+  (gab es hier noch nicht, dort schon).** `pyocd erase --chip` ist der richtige Modus fürs
+  vollständige Löschen (Firmware **und** emuliertes EEPROM, beide im selben physischen Flash) —
+  nicht `--sector`/`--mass`, das mit `-c`/`--chip` verwechselt eine harmlosere Teillöschung
+  auslöst. Mitportiert, weil im Schwesterprojekt schon schmerzhaft gefunden: **`sys.executable`
+  darf für den `flash_same54.py`-Subprozess-Aufruf nicht blind übernommen werden.** Läuft diese
+  GUI über `pythonw.exe` (kein zweites Konsolenfenster), verliert der ENKEL-Prozess
+  (`pythonw.exe -m pyocd erase --chip ...`) irgendwo in der Kette seine Standardausgabe — das
+  Kommando wird noch echot, dann kommt nichts mehr, auch nicht „Chip erase complete", obwohl der
+  Erase am echten Board durchlief. `_console_python()` sucht deshalb neben `pythonw.exe` nach
+  `python.exe` und nimmt das. Bei uns lösen `run_gui.bat`/`run_gui_modern.bat` aktuell **beide**
+  mit normalem `python`, nicht `pythonw` — der Fehler tritt hier also (noch) nicht auf, aber
+  die Absicherung bleibt drin, falls das mal über einen anderen Weg gestartet wird.
