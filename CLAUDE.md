@@ -278,6 +278,34 @@ Erst zurückstellen, dann Verkehr messen.
 
 ## 6. Fallstricke
 
+- **2026-08-26 — Ein Windows-Precision-Touchpad erzeugt bei Tk-Fenstern oft KEIN
+  `WM_MOUSEWHEEL`, egal wie gebunden wird.** Der Nutzer hat ein Dell-Notebook-Touchpad, keine
+  Maus. Die Zwei-Finger-Scroll-Geste scrollt in jeder anderen Anwendung, aber `bridge_gui.py`
+  reagierte auf keine Bindungsvariante — drei Anläufe (direkte Bindung je Kind-Widget,
+  Enter/Leave rekursiv, ein globaler `bind_all`-Handler mit `winfo_containing`) blieben wirkungslos.
+  Ein isoliertes Testfenster (nur ein Canvas, sonst nichts) klärte es: Hunderte `Enter`/`Motion`-
+  Ereignisse beim Scrollen, **kein einziges** `MouseWheel`. Das Ereignis kommt auf diesem Geraet
+  nie an — keine Bindungsfrage, keine im Code loesbare Sache. **Merksatz: `widget.event_generate("<MouseWheel>", …)`
+  beweist nur, dass eine vorhandene Bindung feuert, nicht ob das Betriebssystem das Ereignis je
+  zustellen würde** — genau das hat mich zu den ersten beiden falschen "Fixes" verleitet, die im
+  synthetischen Test bestanden und real nichts taten. **Lösung:** `Page Up`/`Page Down` als
+  Tastatur-Fallback, unabhängig von der fraglichen Zustellung — scrollt das gerade sichtbare Canvas,
+  nachgeführt über `<<NotebookTabChanged>>` auf Haupt- und Register-Untertab-Notebook. Auf einer
+  kompakten Dell-Tastatur ohne eigene PgUp/PgDn-Tasten: **Fn + Pfeil hoch/runter**.
+- **2026-08-26 — `<<NotebookTabChanged>>` feuert nicht synchron, sondern erst beim nächsten
+  Event-Loop-Durchlauf — eine explizite Zuweisung danach kann trotzdem zu spät sein.** Ein
+  `ttk.Notebook` wählt beim Aufbau seinen ersten Tab automatisch aus und löst dabei sein eigenes
+  `<<NotebookTabChanged>>` aus, verarbeitet wird es aber erst beim ersten `mainloop()`/`update()`
+  — also nachdem der ganze Tab-Aufbau längst durchgelaufen ist. Eine explizite Zuweisung
+  `self._active_scroll_canvas = self._bridge_scroll_canvas` am Ende von `setup_ui()` sah beim
+  Debuggen korrekt aus, wurde aber vom nachgeholten Ereignis lautlos überschrieben, sobald die
+  Event-Loop das erste Mal lief. Verschärft dadurch, dass **auch das Register-Untertab-Notebook**
+  beim eigenen Aufbau seinen ersten MMS-Tab wählt und sein `<<NotebookTabChanged>>` feuert —
+  **unabhängig davon, ob „LAN8651 Registers" überhaupt der sichtbare Haupttab ist.** Ohne Prüfung
+  überschrieb dieses interne Ereignis das korrekte Canvas des Bridge-Parameter-Tabs. **Lösung:**
+  die Handler sind die einzige Quelle der Wahrheit (früh binden, nicht am Ende zuweisen), und
+  `_on_reg_tab_changed` prüft zuerst, ob sein Haupttab überhaupt sichtbar ist, bevor er etwas
+  überschreibt.
 - **PLCA liegt auf MMS 4, nicht MMS 2.** Der eigene Code schreibt PLCA_CTRL1 nach `0x0004CA02`
   (Bits 15:8 = NODE_CNT, 7:0 = NODE_ID). Älterer Dokumentationsstand aus dem AN1847-Umfeld nennt
   `0x0200004A` — für dieses Projekt nachweislich falsch.
