@@ -305,3 +305,20 @@ Regel: siehe `CLAUDE.md` Abschnitt 7 „Erkenntnisse festhalten". Neue Einträge
   (DS80001075F) dazu gefunden. Nicht raten, welcher Wert stimmt: im Modell auf `reset: null` mit
   Erklärung belassen, nicht den einen oder anderen Wert erfinden. Ausführliche Prüfung und
   Korrekturanweisung dazu: `LAN8651_Register_Model_Review.md`.
+- **2026-08-26 — sv-ttk (`bridge_gui_modern.py`) ist viel aggressiver als ein normales ttk-Theme,
+  zwei Punkte, beide durch Ausprobieren gefunden, nicht aus der Doku:** (1) Es rekoloriert beim
+  Aktivieren nicht nur ttk-Widgets, sondern auch **einfache tk-Widgets** (`tk.Canvas`, `tk.Text`)
+  und das Root-Fenster selbst — vermutlich über Tks Options-Datenbank, nicht über `ttk.Style`. Ein
+  manueller Farb-Patch für Connection-Dot, Scroll-Canvases, Command-Output und Terminal war deshalb
+  **nicht** nötig; erst angenommen, dann mit einem Dreizeiler widerlegt. (2) Es wendet seine Palette
+  **rückwirkend über einen Idle-Task** an, der beim ersten Event-Loop-Durchlauf feuert — und der
+  überschreibt **jede** zur Erzeugungszeit gesetzte `ttk.Label`-`foreground=`, auch die, die in
+  `bridge_gui.py` echte Bedeutung tragen (rote Errata-Warnungen, rote „AFTER RESET"/„NEXT BOOT"-
+  Hinweise, grüne dekodierte Bitfeld-Werte). Ein Farbe-nach-Konstruktion-Patch, der **vor** dem ersten
+  `root.update()`/`update_idletasks()` läuft, wird von diesem Idle-Task also sofort wieder
+  überschrieben — mit einem Dreizeiler verifiziert (Patch vor vs. nach `root.update()`, nur Letzteres
+  hält). **Lösung:** `update_idletasks()` einmal erzwingen, danach patchen. Da die ursprüngliche Farbe
+  zu diesem Zeitpunkt bereits weg ist, lässt sie sich nur noch über den **Text-Inhalt** der Labels
+  rekonstruieren (`_restore_semantic_colors()` in `bridge_gui_modern.py`) — fragil gegenüber
+  Wortlautänderungen in `bridge_gui.py`, aber die einzige Option ohne die Tab-Aufbaumethoden
+  komplett zu duplizieren.

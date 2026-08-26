@@ -18,6 +18,7 @@ from pathlib import Path
 DEFAULT_FILES = [
     Path(__file__).parent / "bridge_gui.py",
     Path(__file__).parent / "gui_term.py",
+    Path(__file__).parent / "bridge_gui_modern.py",
 ]
 
 # Function words first, as in the model checkers - "die" stays out, a data sheet says "die".
