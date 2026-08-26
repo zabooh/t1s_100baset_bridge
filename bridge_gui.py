@@ -620,12 +620,13 @@ class BridgeGUI:
             row = ttk.Frame(scrollable_frame)
             row.pack(fill=tk.X, padx=5, pady=(4, 0))
 
+            # Kein Read/Write je Feld: das Environment wird als Ganzes gelesen ("Read All",
+            # ein showenv) und als Ganzes geschrieben ("Write Environment", ein saveenv).
+            # Ein einzelnes Feld isoliert zu schreiben ergibt hier keinen Sinn, den die
+            # Register-Tabelle nebenan hat - dort ist jedes Register ein eigenständiger
+            # Zugriff, hier ist es ein gemeinsamer Datensatz.
             ttk.Label(row, text=fld.get("label", key) + ":", width=22).pack(side=tk.LEFT)
-            ttk.Entry(row, textvariable=self.bridge_fields[key], width=24).pack(side=tk.LEFT, padx=5)
-            ttk.Button(row, text="Read", width=5,
-                       command=lambda k=key: self.read_bridge_field(k)).pack(side=tk.LEFT, padx=1)
-            ttk.Button(row, text="Write", width=5,
-                       command=lambda k=key: self.write_bridge_field(k)).pack(side=tk.LEFT, padx=1)
+            ttk.Entry(row, textvariable=self.bridge_fields[key], width=30).pack(side=tk.LEFT, padx=5)
 
             # Wann der Wert wirkt -- aber NUR, wenn es vom Normalfall abweicht. Fuer elf
             # der dreizehn Felder ist das saveenv, und eine Zeile "mask0 -> saveenv" unter
@@ -1656,42 +1657,6 @@ Example commands:
         if not m:
             return None
         return dict(zip(ident.get("groups", []), m.groups()))
-
-    def read_bridge_field(self, key: str):
-        """Einen Bridge-Parameter über den offenen Link lesen."""
-        if not self.port_link:
-            self.set_error_status("Not connected")
-            return
-
-        def worker():
-            output = self.send_command_via_link("showenv", timeout_ms=1500)
-            value = self.parse_showenv(output, key)
-            self.result_queue.put(("bridge_read", key, value is not None, value or ""))
-
-        threading.Thread(target=worker, daemon=True).start()
-
-    def write_bridge_field(self, key: str):
-        """Einen einzelnen Parameter schreiben -- mit dem Kommando aus dem Modell.
-
-        Frueher stand hier eine eigene Zwei-Zeilen-Tabelle, und die schrieb plca_id mit
-        'plca_node': das aendert die LAUFENDE PLCA-Konfiguration und nicht das Environment.
-        Nach einem Reset war der Wert wieder weg, obwohl die GUI "geschrieben" gemeldet
-        hatte. Jetzt kommt jedes Kommando aus env_model.json, fuer alle Felder gleich.
-        """
-        value = self.bridge_fields.get(key, tk.StringVar()).get().strip()
-        if not value:
-            messagebox.showwarning("Warning", f"No value for {key}")
-            return
-
-        cmd = self.bridge_write_command(key, value)
-        if not cmd:
-            messagebox.showinfo("Info", f"The model has no write command for {key}.")
-            return
-
-        fld = self.env_entry().get("fields", {}).get(key, {})
-        self.run_async_cmd(cmd)
-        applies = fld.get("applies", "")
-        self.set_status(f"{cmd}  ({applies})" if applies else cmd, duration=4000)
 
     def save_bridge_json(self):
         """Save bridge parameters to JSON"""
