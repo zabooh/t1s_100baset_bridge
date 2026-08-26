@@ -405,3 +405,52 @@ Regel: siehe `CLAUDE.md` Abschnitt 7 „Erkenntnisse festhalten". Neue Einträge
   „PMA-Loopback" in `CLAUDE.md` zur selben Vorbedingung). **Noch offen:** ob die verbliebenen
   ~35 Kbps während des Aussetzers echter CSMA/CD-Fallback-Verkehr sind oder etwas anderes — dafür
   fehlt noch ein `PLCA_STS`-Log mit exakter Zeitkorrelation zum iperf-Verlauf.
+- **2026-08-27 — Fortsetzung des TXD/PLCA-Befunds, jetzt mit `test_txd_impact.py` automatisiert
+  und über 21 s statt nur wenige Sekunden beobachtet — zwei neue Erkenntnisse, eine davon
+  widerspricht der ersten Vermutung.** Aufbau: Bridge = Coordinator, `TXD` von vor dem
+  iperf-Start bis 21 s **nach** Verbindungsaufbau durchgehend aus, `STATS6`/`STATS7`
+  (`0x0001020E`/`0x0001020F`) einmal pro Sekunde mitgeloggt. (1) **Der ~35-Kbps-Zustand ist ein
+  stabiler Dauerzustand, kein Übergangs-Blip** — 21 s am Stück exakt `0/3 (0%) 35 Kbps` auf beiden
+  Followern, ohne jede Tendenz zur Erholung, solange `TXD=1` bleibt. (2) **Die Bridge empfängt
+  während des Stalls weiter fehlerfrei, nur seltener** — `TFRX` und `FRX` laufen fast durchgehend
+  gleichauf (z. B. 9/9, 9/10, 12/9), kein Auseinanderlaufen wie man es bei CRC-Müll aus
+  Kollisionen erwarten würde. Erstes Indiz (kein Beweis) für einen sauberen Fallback-Mechanismus
+  statt Chaos — für den Beweis fehlt weiterhin die `PLCA_STS`-Korrelation. (3) **Widerspruch zur
+  ersten Messung: die Erholungszeit nach `TXD=0` ist nicht fest.** Hier war der Durchsatz binnen
+  **unter 2 s** wieder bei ~5840 Kbps (t=34,86s Reset, t=36,42s schon 4679 Kbps, t=37,43s voll);
+  beim ersten, manuellen Lauf (Eintrag oben) brauchte die erste Erholung ~13 s. Zwei unabhängige
+  Messungen mit deutlich unterschiedlicher Erholungsdauer bei ansonsten gleichem Handgriff —
+  spricht für eine timing-abhängige Re-Synchronisation (Position im PLCA-Zyklus beim Umschalten),
+  nicht für eine feste Reconnect-Verzögerung. **Nicht überinterpretieren:** die allererste
+  Zählerzeile eines Laufs (hier `TFRX=711 FRX=712`) ist der aufgelaufene Reststand seit dem
+  letzten Lesen vor Testbeginn, kein echter Burst — erst ab der zweiten Zeile ist der Wert
+  aussagekräftig.
+- **2026-08-27 — Gegenprobe zu den beiden Einträgen oben: ein unbeteiligter Nicht-Coordinator
+  abzuschalten stört niemanden — jetzt gemessen, nicht nur aus dem PLCA-Modell angenommen.**
+  Aufbau mit `test_follower_txd_impact.py`: iperf-Server auf der Bridge (Coordinator), iperf-Client
+  auf Follower A, `TXD` wird stattdessen auf **Follower B** getoggelt — der an diesem Transfer gar
+  nicht beteiligt ist. Ergebnis über den vollen 60-s-Transfer (30000 Pakete): **0 % Paketverlust**,
+  von iperf selbst gemeldet auf beiden Seiten (`0/30000 (0%) 5839 Kbps` Server, `0/29998 (0%)
+  5840 Kbps` Client) — kein aus eigenen Zählern abgeleiteter Wert, sondern iperfs eigene
+  Verlustbilanz. Während der ~12 s, die Follower B's `TXD` aus war, blieb die Sekundenrate auf
+  beiden Seiten ohne jede Auffälligkeit bei den üblichen ~5840 Kbps; Follower B's eigener Empfang
+  (`TFRX`/`FRX`) blieb ebenfalls unverändert bei ~1065–1080/s vor, während und nach dem Toggle —
+  das eigene RX ist vom eigenen TX unabhängig, wie erwartet. **Damit ist die Asymmetrie aus den
+  beiden Einträgen oben empirisch geschlossen:** der Coordinator abzuschalten legt das ganze
+  Segment lahm (Werkzeug `test_txd_impact.py`), ein unbeteiligter Mitgliedsknoten abzuschalten hat
+  keinerlei messbaren Effekt (Werkzeug `test_follower_txd_impact.py`) — ein Knoten ohne eigene
+  Sendeabsicht musste PLCA-seitig nie aktiv "an die Reihe" kommen, also fehlt seine Abwesenheit
+  auch niemandem.
+- **2026-08-27 — `PLCA_STS.PST` (`0x0004CA03`, Bit 15) ist die Selbstdiagnose eines
+  Nicht-Coordinator-Knotens für "gibt es gerade einen aktiven Coordinator auf dem Bus".**
+  Datenblattdefinition (DS60001734F, §11.5.60, S. 283): "This field indicates that the PLCA
+  reconciliation sublayer is active and a BEACON is being regularly transmitted or received." —
+  `1` = Beacon wird regelmäßig empfangen (bzw. auf dem Coordinator selbst: gesendet), `0` = nicht.
+  An echter Hardware bestätigt (Eintrag oben, 2026-08-26): `PST` auf Node 1 folgte dem
+  Sendezustand des Coordinators exakt und ohne im Log erkennbaren Verzug. **Einschränkung:**
+  `PST=0` sagt nur "ich empfange gerade kein regelmäßiges Beacon", nicht wieso — aus Sicht eines
+  einzelnen Knotens sehen "kein Coordinator vorhanden", "Coordinator vorhanden, aber sein Sender
+  ist aus" und "nur meine eigene Verbindung zum Bus ist gestört" identisch aus. Für die praktische
+  Frage "kann ich mich gerade auf einen aktiven Coordinator verlassen?" ist das unerheblich — in
+  allen drei Fällen ist die richtige Antwort "nein, gerade nicht", und genau die liefert `PST`
+  zuverlässig.
