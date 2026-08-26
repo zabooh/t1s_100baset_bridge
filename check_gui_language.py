@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Check that everything bridge_gui.py puts on screen is English.
+"""Check that everything the Tkinter tools put on screen is English.
 
 Scans string literals through the syntax tree rather than the file text, so source
 comments are not part of the check - they explain the code to whoever edits it, while
@@ -15,7 +15,10 @@ import re
 import sys
 from pathlib import Path
 
-DEFAULT_FILES = [Path(__file__).parent / "bridge_gui.py"]
+DEFAULT_FILES = [
+    Path(__file__).parent / "bridge_gui.py",
+    Path(__file__).parent / "gui_term.py",
+]
 
 # Function words first, as in the model checkers - "die" stays out, a data sheet says "die".
 #

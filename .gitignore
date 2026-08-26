@@ -30,3 +30,7 @@ __pycache__/
 # probe selection is per-machine: install.bat writes it, the serial means
 # nothing on another bench (and a wrong -u makes flash.bat fail outright).
 bench.json
+
+# gui_term.py's COM-port-to-name assignment - per-machine, written by its own
+# "Setup > Configure Ports" dialog, not something to carry across a clone.
+term_ports.json
