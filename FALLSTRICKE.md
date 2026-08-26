@@ -386,3 +386,22 @@ Regel: siehe `CLAUDE.md` Abschnitt 7 „Erkenntnisse festhalten". Neue Einträge
   laufenden Prozess: ein bereits fehlgeschlagener `import serial` auf Modulebene ist zu dem
   Zeitpunkt schon ausgewertet und als fehlgeschlagen im Modul verankert (`serial = None`), ein
   `pip install` danach ändert daran im selben Prozess nichts mehr.
+- **2026-08-26 — `T1SPMACTL.TXD` auf dem PLCA-Coordinator wirkt netzweit, nicht nur lokal —
+  jetzt an drei echten Knoten gemessen, vorher nur aus der Spezifikation vermutet.** Testaufbau:
+  Node 0 = Coordinator, langer TCP-`iperf` zwischen Node 1 und Node 2 (Node 0 selbst nicht am
+  Transfer beteiligt), auf Node 0 zweimal `lan_rmw 0x000308F9 0x4000 0x4000` (Sender aus) gefolgt
+  von `lan_rmw 0x000308F9 0x4000 0x0000` (Sender an). Ergebnis in zwei unabhängigen Belegen:
+  (1) **`PLCA_STS.PST`** (`0x0004CA03`, Bit 15) auf Node 1 folgte dem Sendezustand von Node 0
+  exakt und ohne im Log erkennbare Verzögerung — `TXD=1` → `PST` fällt von `0x8000` auf `0x0000`,
+  `TXD=0` → `PST` zurück auf `0x8000`. (2) Der `iperf`-Durchsatz zwischen Node 1 und Node 2 brach
+  in beiden Toggle-Durchläufen auf ~35 Kbps (≈0,6 % der Nennrate ~5840 Kbps) ein und erholte sich
+  erst 4–15 s **nach** dem Zurücksetzen von `TXD` wieder vollständig — keine sofortige Erholung,
+  echte Resync-Latenz. TCP überstand beide Aussetzer ohne Verbindungsabbruch (Gesamtdurchschnitt
+  4782 statt ~5840 Kbps über 100 s); bei UDP wären das schlicht verlorene Pakete ohne
+  Wiederholung. **Schlussfolgerung:** der Coordinator (Node-ID 0) abzuschalten legt die
+  PLCA-Koordination für **das ganze Segment** lahm, nicht nur die eigene Verbindung — ein reiner
+  Listening-Modus über `TXD` ist für den Coordinator selbst also nur dann praxistauglich, wenn
+  vorher die Coordinator-Rolle an einen anderen Knoten übergeben wurde (siehe Abschnitt 4
+  „PMA-Loopback" in `CLAUDE.md` zur selben Vorbedingung). **Noch offen:** ob die verbliebenen
+  ~35 Kbps während des Aussetzers echter CSMA/CD-Fallback-Verkehr sind oder etwas anderes — dafür
+  fehlt noch ein `PLCA_STS`-Log mit exakter Zeitkorrelation zum iperf-Verlauf.

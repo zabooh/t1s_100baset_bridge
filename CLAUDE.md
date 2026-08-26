@@ -169,7 +169,15 @@ Pegel-, Jitter-, Droop- und Spektrumsmessungen braucht. Es sind reine Registersc
 auf, Verkehr kommt nach dem Revert wieder (19 Prüfungen, `test_lan8651.py`, Exitcode 0). Der
 **Readback** ist der Beweis, nicht die Write-Bestätigung. **Nicht** belegt: Signalform, Pegel,
 Jitter, Spektrum — das entscheidet das Messgerät. Ebenfalls offen: die Wirkung von `LBE`
-(PMA-Loopback) und `TXD`.
+(PMA-Loopback).
+
+**`TXD` ist seit 2026-08-26 auf PLCA-Ebene verifiziert** (3 Knoten, kein Oszilloskop nötig):
+`TXD=1` auf dem Coordinator (Node 0) lässt `PLCA_STS.PST` (`0x0004CA03`, Bit 15) auf **jedem
+anderen Knoten** von `1` auf `0` fallen — unmittelbar, im Log kein wahrnehmbarer Verzug — und
+`TXD=0` setzt es ebenso zurück auf `1`. Ein parallel laufender TCP-iperf zwischen zwei
+Nicht-Coordinator-Knoten (node1↔node2, node0 nicht beteiligt) brach dabei auf ~0,6 % der
+Nennrate ein und erholte sich erst 4–15 s nach dem Revert — TXD auf dem Coordinator wirkt also
+netzweit, nicht nur lokal. Details: `FALLSTRICKE.md`, 2026-08-26.
 
 ### T1STSTCTL — `0x000308FB`, Bits 15:13, Reset `0x0000`
 
