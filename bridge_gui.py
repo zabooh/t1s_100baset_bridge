@@ -298,6 +298,12 @@ class BridgeGUI:
         self.cmd_pending = threading.Event()
         self.cmd_lock = threading.Lock()
 
+        # Scrollbare Canvases (Register-Tab je MMS-Gruppe, Bridge-Parameter-Tab), fuer den
+        # EINEN globalen Mausrad-Handler in _register_wheel_canvas/_on_global_wheel.
+        self._wheel_canvases: list = []
+        self.root.bind_all("<MouseWheel>", self._on_global_wheel)
+        self._bind_page_scroll_keys()
+
         # Validate saved COM port is still available
         available = get_available_com_ports()
         saved_port = self.config.get("comport", "COM8")
@@ -319,6 +325,95 @@ class BridgeGUI:
         self.root.after(BLINK_MS, self._blink_loop)
 
         self.process_queue()
+
+    def _register_wheel_canvas(self, canvas: tk.Canvas) -> None:
+        """Ein scrollbares Canvas fuer den globalen Mausrad-Handler eintragen."""
+        self._wheel_canvases.append(canvas)
+
+    def _bind_page_scroll_keys(self) -> None:
+        """Bild-hoch/-runter scrollt den sichtbaren Tab -- unabhaengig vom Mausrad.
+
+        Reine Tastatur-Ereignisse sind von der Frage "welches Ereignis liefert das
+        Eingabegeraet ueberhaupt" ganz unabhaengig (siehe _on_global_wheel) und
+        funktionieren deshalb auch dort, wo MouseWheel nie ankommt -- etwa bei einem
+        Windows-Precision-Touchpad. Bewusst nur Prior/Next (Bild hoch/runter), nicht
+        Pfeiltasten oder Pos1/Ende: die wuerden in einem fokussierten Entry-Feld oder
+        einer Combobox mitlaufen (Cursor bewegen, Dropdown oeffnen) und die Ansicht dabei
+        ungefragt mitscrollen. Prior/Next sind dort standardmaessig unbelegt.
+
+        Welches Canvas gerade "sichtbar" ist, wird ueber <<NotebookTabChanged>> auf
+        beiden Notebooks (Haupt-Tabs, Register-Untertabs) nachgefuehrt; die Terminal-
+        eigene Prior/Next-Bindung auf terminal_text hat dort weiterhin Vorrang, weil eine
+        Bindung auf der Widget-Instanz vor "all" (bind_all) ausgewertet wird.
+        """
+        self._active_scroll_canvas: Optional[tk.Canvas] = None
+
+        def _scroll_active(direction):
+            if self._active_scroll_canvas is not None:
+                self._active_scroll_canvas.yview_scroll(direction, "pages")
+
+        self.root.bind_all("<Prior>", lambda e: _scroll_active(-1))
+        self.root.bind_all("<Next>", lambda e: _scroll_active(1))
+
+    def _on_main_tab_changed(self, event=None):
+        """Haupt-Tab gewechselt: das dort scrollbare Canvas fuer Bild-hoch/-runter setzen.
+
+        Bei "LAN8651 Registers" gilt der aktuell gewaehlte MMS-Untertab, nicht dieser Tab
+        selbst -- dafuer ist reg_notebook.select() bereits gueltig, weil das Untertab-
+        Notebook beim Anlegen des Haupt-Tabs mit aufgebaut wird.
+        """
+        current = self.notebook.tab(self.notebook.select(), "text")
+        if current == "Bridge Parameters":
+            self._active_scroll_canvas = getattr(self, "_bridge_scroll_canvas", None)
+        elif current == "LAN8651 Registers":
+            reg_nb = getattr(self, "_reg_notebook", None)
+            self._active_scroll_canvas = (
+                self._reg_tab_canvases.get(reg_nb.select()) if reg_nb else None)
+        else:
+            # Test Modes/Terminal/Help scrollen nicht ueber ein registriertes Canvas.
+            self._active_scroll_canvas = None
+
+    def _on_reg_tab_changed(self, event=None):
+        """MMS-Untertab gewechselt: dessen Canvas fuer Bild-hoch/-runter uebernehmen.
+
+        Das Register-Untertab-Notebook waehlt beim Aufbau intern seinen ersten Tab aus
+        und feuert dabei sein EIGENES <<NotebookTabChanged>> -- unabhaengig davon, ob
+        "LAN8651 Registers" ueberhaupt der sichtbare Haupttab ist. Ohne diese Pruefung
+        ueberschreibt dieses interne Ereignis das richtige Canvas des Bridge-Parameter-
+        Tabs, sobald der Nutzer die Register-Untertabs auch nur EINMAL beim Programmstart
+        intern durchlaeuft (was Tk beim Aufbau selbst tut).
+        """
+        if self.notebook.tab(self.notebook.select(), "text") != "LAN8651 Registers":
+            return
+        self._active_scroll_canvas = self._reg_tab_canvases.get(self._reg_notebook.select())
+
+    def _on_global_wheel(self, event):
+        """EIN Handler fuers ganze Fenster statt Enter/Leave je Canvas.
+
+        Bleibt fuer eine echte Maus stehen: EIN Handler haengt global (`bind_all`) und
+        feuert bei jedem MouseWheel-Ereignis, egal welches Widget es technisch zugestellt
+        bekam -- er entscheidet selbst, was gescrollt wird, ueber die tatsaechliche
+        Zeigerposition (`event.x_root/y_root`) und `winfo_containing`.
+
+        Auf DIESEM Rechner reicht das allein nicht: ein isolierter Test (nur ein Canvas,
+        sonst nichts) zeigte hunderte Enter/Motion-Ereignisse, aber KEIN einziges
+        MouseWheel, obwohl real gescrollt wurde -- das Geraet ist ein Windows-Precision-
+        Touchpad, dessen Zwei-Finger-Geste bei Tk-Fenstern gar kein WM_MOUSEWHEEL
+        ausloest. Kein Bindungsproblem, das Ereignis kommt nie an. Deshalb zusaetzlich
+        die Tastatur-Bindungen unten (_bind_page_scroll_keys) als Weg, der nicht von der
+        Zustellung dieses Ereignisses abhaengt.
+        """
+        try:
+            target = self.root.winfo_containing(event.x_root, event.y_root)
+        except KeyError:
+            # winfo_containing kann das werfen, wenn der Zeiger gerade ueber einem
+            # Widget eines fremden Toplevels/Prozesses steht.
+            return
+        while target is not None:
+            if target in self._wheel_canvases:
+                target.yview_scroll(int(-event.delta / 120), "units")
+                return
+            target = target.master
 
     def _fitting_geometry(self, width: int, height: int) -> str:
         """Geometry string for a window of this size, clamped onto the visible screen.
@@ -564,12 +659,24 @@ class BridgeGUI:
         # Notebook (tabs)
         self.notebook = ttk.Notebook(self.root)
         self.notebook.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
+        # Binding VOR den add()-Aufrufen: <<NotebookTabChanged>> wird von Tk nicht
+        # synchron ausgeloest, sondern erst beim naechsten Event-Loop-Durchlauf (also
+        # fruehestens beim ersten mainloop()/update()) verarbeitet. Zu dem Zeitpunkt ist
+        # der Tab-Aufbau laengst fertig, die Zielattribute existieren also -- der Handler
+        # ist damit die einzige Quelle der Wahrheit, kein Wettlauf mit einer expliziten
+        # Zuweisung am Ende, die dieses nachgeholte Ereignis sonst stillschweigend
+        # ueberschreibt.
+        self.notebook.bind("<<NotebookTabChanged>>", self._on_main_tab_changed)
 
         self.create_bridge_tab()
         self.create_registers_tab()
         self.create_testmodes_tab()
         self.create_terminal_tab()
         self.create_about_tab()
+
+        # Sofortiger Startwert, falls aus irgendeinem Grund kein <<NotebookTabChanged>>
+        # nachgeholt wird -- "Bridge Parameters" ist der initial sichtbare Tab.
+        self._active_scroll_canvas = self._bridge_scroll_canvas
 
     def create_bridge_tab(self):
         """Create Bridge Parameters tab"""
@@ -638,6 +745,13 @@ class BridgeGUI:
                 ttk.Label(row, text=f"  {applies}", font=("Courier", 8),
                           foreground="#b00").pack(side=tk.LEFT)
 
+        # Mausrad: dieses Canvas nur in die zentrale Liste eintragen. Die eigentliche
+        # Zustellung erledigt EIN globaler Handler (siehe _register_wheel_canvas) - siehe
+        # dort, warum weder Enter/Leave am Canvas noch eine direkte Bindung auf die
+        # Kind-Widgets zuverlaessig war.
+        self._register_wheel_canvas(canvas)
+        self._bridge_scroll_canvas = canvas  # fuer den Bild-hoch/-runter-Fallback
+
         canvas.pack(side="left", fill="both", expand=True)
         scrollbar.pack(side="right", fill="y")
 
@@ -704,6 +818,9 @@ class BridgeGUI:
         # Create sub-notebook for register categories
         reg_notebook = ttk.Notebook(frame)
         reg_notebook.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
+        self._reg_notebook = reg_notebook            # fuer den Bild-hoch/-runter-Fallback
+        self._reg_tab_canvases: Dict[str, tk.Canvas] = {}  # Tab-Name (Widgetpfad) -> Canvas
+        reg_notebook.bind("<<NotebookTabChanged>>", self._on_reg_tab_changed)
 
         # Die Karte kommt aus dem Modell, die zuletzt gelesenen Werte aus der Config.
         registers = {name: g.get("registers", {})
@@ -736,17 +853,12 @@ class BridgeGUI:
                 cv.itemconfigure(wid, width=event.width)
                 cv.configure(scrollregion=cv.bbox("all"))
 
-            def _on_wheel(event, cv=canvas):
-                cv.yview_scroll(int(-event.delta / 120), "units")
-
             scrollable_frame.bind("<Configure>", _on_content)
             canvas.bind("<Configure>", _on_canvas)
-            # Mausrad gilt nur, solange der Zeiger über diesem Tab steht.
-            # `fn=_on_wheel` ist Pflicht, sonst zeigt der Name nach der Schleife
-            # auf die zuletzt erzeugte Funktion -- dieselbe Falle wie oben.
-            canvas.bind("<Enter>",
-                        lambda e, cv=canvas, fn=_on_wheel: cv.bind_all("<MouseWheel>", fn))
-            canvas.bind("<Leave>", lambda e, cv=canvas: cv.unbind_all("<MouseWheel>"))
+            # Mausrad: dieses Canvas nur in die zentrale Liste eintragen, siehe
+            # _register_wheel_canvas fuer den eigentlichen (globalen) Handler.
+            self._register_wheel_canvas(canvas)
+            self._reg_tab_canvases[str(category_frame)] = canvas
 
             # Create fields for each register in this category
             for addr, info in regs.items():
