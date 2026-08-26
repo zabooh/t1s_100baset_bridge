@@ -279,6 +279,11 @@ class BridgeGUI:
         # off the edge - the buttons were there, just not reachable.
         self.root.geometry(self._fitting_geometry(1220, 700))
         self.root.minsize(1180, 500)
+        # Maximized from the first frame, not a later resize - the fixed geometry above
+        # still matters as what "restore down" returns to and as the size on a platform
+        # where 'zoomed' were ever unavailable. Windows-only tool (see winreg import), so
+        # no cross-platform fallback for the state name.
+        self.root.state("zoomed")
 
         self.config = self.load_config()
         self.model = self.load_model()
@@ -534,7 +539,7 @@ class BridgeGUI:
             return "no environment model loaded"
         if not self.env_identity:
             envs = ", ".join(self.env_model.get("environments", {}))
-            return f"Environment: not read yet - the model knows {envs}. 'Read All' asks the device."
+            return f"Environment: not read yet - the model knows {envs}. 'Read Environment' asks the device."
         ident = self.env_identity
         ee = f"{ident.get('eeprom_id')} v{ident.get('eeprom_version')}"
         fw = f"{ident.get('firmware_id')} v{ident.get('firmware_version')}"
@@ -678,6 +683,35 @@ class BridgeGUI:
         # nachgeholt wird -- "Bridge Parameters" ist der initial sichtbare Tab.
         self._active_scroll_canvas = self._bridge_scroll_canvas
 
+    # Columns per quick-command group. Fixed rather than computed from the pane width:
+    # the pane is resizable (it's one side of a PanedWindow), so a width-driven column
+    # count would reflow every drag - a stable grid is easier to scan as more commands
+    # are added.
+    QUICK_COMMAND_COLUMNS = 3
+
+    def _build_quick_command_groups(self, parent, groups: List[tuple]) -> None:
+        """Lay out Quick Commands as one grid of buttons per group.
+
+        `groups` is [(title, [(label, command), ...]), ...]. Every button in every
+        group shares one width, computed from the longest label across ALL groups -
+        so the panel reads as one aligned grid instead of each LabelFrame picking its
+        own width, and a longer label added later (more quick commands are coming)
+        widens the whole panel instead of getting clipped. Replaces the old fixed
+        width=15 (sized for "Write Environment", wasteful for "Save to JSON") and the old
+        single-column pack() layout, which is what ate the vertical space this was
+        meant to free up.
+        """
+        button_width = max(len(label) for _, buttons in groups for label, _ in buttons) + 2
+        for title, buttons in groups:
+            grp = ttk.LabelFrame(parent, text=title, padding=5)
+            grp.pack(fill=tk.X, padx=5, pady=5)
+            for col in range(self.QUICK_COMMAND_COLUMNS):
+                grp.columnconfigure(col, weight=1)
+            for i, (label, command) in enumerate(buttons):
+                row, col = divmod(i, self.QUICK_COMMAND_COLUMNS)
+                ttk.Button(grp, text=label, command=command, width=button_width).grid(
+                    row=row, column=col, sticky="ew", padx=2, pady=2)
+
     def create_bridge_tab(self):
         """Create Bridge Parameters tab"""
         frame = ttk.Frame(self.notebook)
@@ -727,8 +761,8 @@ class BridgeGUI:
             row = ttk.Frame(scrollable_frame)
             row.pack(fill=tk.X, padx=5, pady=(4, 0))
 
-            # Kein Read/Write je Feld: das Environment wird als Ganzes gelesen ("Read All",
-            # ein showenv) und als Ganzes geschrieben ("Write Environment", ein saveenv).
+            # Kein Read/Write je Feld: das Environment wird als Ganzes gelesen ("Read
+            # Environment", ein showenv) und als Ganzes geschrieben ("Write Environment", ein saveenv).
             # Ein einzelnes Feld isoliert zu schreiben ergibt hier keinen Sinn, den die
             # Register-Tabelle nebenan hat - dort ist jedes Register ein eigenständiger
             # Zugriff, hier ist es ein gemeinsamer Datensatz.
@@ -759,27 +793,26 @@ class BridgeGUI:
         right_frame = ttk.LabelFrame(paned, text="Quick Commands", padding=5)
         paned.add(right_frame, weight=1)
 
-        # Parameter buttons
-        param_btn_frame = ttk.LabelFrame(right_frame, text="Parameters", padding=5)
-        param_btn_frame.pack(fill=tk.X, padx=5, pady=5)
-
-        ttk.Button(param_btn_frame, text="Read All", command=self.read_all_bridge, width=15).pack(fill=tk.X, padx=2, pady=2)
-        # "Write Environment" statt "Write All": es schreibt nicht nur die Felder (setenv
-        # trifft nur die RAM-Kopie), sondern legt sie mit saveenv auch ins EEPROM. Der
-        # Name soll sagen, dass danach etwas Bleibendes im Geraet steht.
-        ttk.Button(param_btn_frame, text="Write Environment",
-                   command=self.write_environment, width=15).pack(fill=tk.X, padx=2, pady=2)
-        ttk.Button(param_btn_frame, text="Save to JSON", command=self.save_bridge_json, width=15).pack(fill=tk.X, padx=2, pady=2)
-        ttk.Button(param_btn_frame, text="Open from JSON", command=self.load_bridge_json, width=15).pack(fill=tk.X, padx=2, pady=2)
-
-        # Device commands
-        device_btn_frame = ttk.LabelFrame(right_frame, text="Device", padding=5)
-        device_btn_frame.pack(fill=tk.X, padx=5, pady=5)
-
-        ttk.Button(device_btn_frame, text="Mirror: Enable", command=lambda: self.run_async_cmd("mirror 1"), width=15).pack(fill=tk.X, padx=2, pady=2)
-        ttk.Button(device_btn_frame, text="Mirror: Disable", command=lambda: self.run_async_cmd("mirror 0"), width=15).pack(fill=tk.X, padx=2, pady=2)
-        ttk.Button(device_btn_frame, text="Read Stats", command=lambda: self.run_async_cmd("stats"), width=15).pack(fill=tk.X, padx=2, pady=2)
-        ttk.Button(device_btn_frame, text="Memory Info", command=lambda: self.run_async_cmd("meminfo"), width=15).pack(fill=tk.X, padx=2, pady=2)
+        # Data, not one pack() call per button: a group is just its title and its
+        # (label, command) pairs, so a new quick command later is one appended tuple,
+        # not a copy-pasted Button line. "Write Environment" (not "Write All"): it does
+        # not just set the fields (setenv only touches the RAM copy), saveenv also puts
+        # them in the EEPROM - the name says something durable landed in the device.
+        quick_command_groups = [
+            ("Environment", [
+                ("Read Environment", self.read_all_bridge),
+                ("Write Environment", self.write_environment),
+                ("Save to JSON", self.save_bridge_json),
+                ("Open from JSON", self.load_bridge_json),
+            ]),
+            ("Device", [
+                ("Mirror: Enable", lambda: self.run_async_cmd("mirror 1")),
+                ("Mirror: Disable", lambda: self.run_async_cmd("mirror 0")),
+                ("Read Stats", lambda: self.run_async_cmd("stats")),
+                ("Memory Info", lambda: self.run_async_cmd("meminfo")),
+            ]),
+        ]
+        self._build_quick_command_groups(right_frame, quick_command_groups)
 
         # Output frame
         output_frame = ttk.LabelFrame(right_frame, text="Command Output", padding=5)
@@ -1272,7 +1305,7 @@ FEATURES:
 
 WORKFLOW:
 1. Select the correct COM port (e.g., COM8)
-2. Use Read All to fetch current state from bridge
+2. Use Read Environment to fetch current state from bridge
 3. Edit values as needed
 4. Use Write All to apply changes to bridge
 5. Use Save to JSON to persist configuration

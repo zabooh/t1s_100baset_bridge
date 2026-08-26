@@ -53,7 +53,7 @@ Click **🔴 Disconnect** button to close connection (indicator changes to 🔴 
 
 **Left Pane - Configuration Parameters:**
 - **Individual Read/Write**: Read or write single parameters
-- **Read All**: Fetch all bridge configuration from device
+- **Read Environment**: Fetch all bridge configuration from device
 - **Write All**: Apply all parameter changes to device
 - **Save to JSON**: Persist current configuration
 - **Open from JSON**: Reload configuration from file
@@ -64,7 +64,7 @@ Managed parameters:
 - PLCA settings (`plca_id`, `plca_cnt`)
 
 **Right Pane - Quick Commands:**
-- **Parameters Section**: Read All, Write All, Save/Open JSON
+- **Environment Section**: Read Environment, Write Environment, Save/Open JSON
 - **Device Section**: Mirror Enable/Disable, Read Stats, Memory Info
 - **Command Output**: Real-time output with timestamps, Clear button to reset
 
@@ -206,7 +206,7 @@ Settings are stored in `bridge_config.json` in the same directory as the script.
 1. Select correct COM port (e.g., COM8) at top
 2. Go to **Bridge Parameters** tab
 3. In right pane, click **Read Stats** → output appears in "Command Output" window
-4. Click **Read All** (Parameters section) to fetch configuration
+4. Click **Read Environment** (Environment section) to fetch configuration
 5. View current state in left pane fields
 
 ### Apply and Test a Test Mode
@@ -288,7 +288,7 @@ All long-running operations (register reads, test scripts) run in background thr
 
 - **COM port not responding**: Check connection, verify correct port selected
 - **"cli.py not found"**: GUI must be in same directory as cli.py
-- **Timeout errors**: Device may be in different app state, try "Read All" first
+- **Timeout errors**: Device may be in different app state, try "Read Environment" first
 - **Register readback failed**: Device may not support register, verify address
 
 ## Troubleshooting
