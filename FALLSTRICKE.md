@@ -368,3 +368,21 @@ Regel: siehe `CLAUDE.md` Abschnitt 7 „Erkenntnisse festhalten". Neue Einträge
   `python.exe` und nimmt das. Bei uns lösen `run_gui.bat`/`run_gui_modern.bat` aktuell **beide**
   mit normalem `python`, nicht `pythonw` — der Fehler tritt hier also (noch) nicht auf, aber
   die Absicherung bleibt drin, falls das mal über einen anderen Weg gestartet wird.
+- **2026-08-26 — Analyse „würde ein frischer Checkout die GUI voll funktionsfähig starten" fand
+  eine echte stille Lücke, `dep_check.py` behebt sie.** `bridge_gui.py`/`gui_term.py` degradieren
+  ohne `pyserial` sauber (Try/Except bzw. lazy Import), aber `bridge_gui_modern.py`/
+  `gui_term_modern.py` hatten ein **hartes** `import sv_ttk` auf Modulebene. `run_gui_modern.bat`
+  prüft das vorher ab und zeigt eine klare Meldung — `term_modern.bat` **nicht**, und startet
+  zusätzlich per `pythonw` über ein losgelöstes `start`, dessen Exitcode nie ausgewertet wird.
+  Ergebnis: ein frischer Checkout ohne vorheriges `pip install -r requirements.txt` ließ
+  `term_modern.bat` beim Doppelklick **komplett lautlos** scheitern — kein Fenster, keine Meldung,
+  nichts. Behoben durch `dep_check.py`: prüft mit `importlib.util.find_spec` (kein echter Import,
+  kann selbst nicht abstürzen), zeigt bei fehlenden Paketen einen Tk-Dialog mit „Install now"
+  (führt `install_dependencies.bat` aus, Ausgabe wird live gestreamt — gleiches
+  Thread+Queue+`after()`-Polling-Muster wie `_run_pyocd_op` beim Flash/Erase). Dafür musste
+  `import sv_ttk` aus dem Modulkopf von `bridge_gui_modern.py`/`gui_term_modern.py` **in**
+  `main()` wandern, hinter den Dependency-Check — sonst wäre der Absturz schon vor dem Check
+  passiert. Nach einem erfolgreichen Install immer „bitte neu starten" statt Weitermachen im
+  laufenden Prozess: ein bereits fehlgeschlagener `import serial` auf Modulebene ist zu dem
+  Zeitpunkt schon ausgewertet und als fehlgeschlagen im Modul verankert (`serial = None`), ein
+  `pip install` danach ändert daran im selben Prozess nichts mehr.

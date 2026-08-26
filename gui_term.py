@@ -956,6 +956,10 @@ def main():
         print("Tkinter is missing from this Python.")
         return 2
 
+    import dep_check
+    if not dep_check.ensure_dependencies(optional=[("serial", "pyserial")]):
+        return 0
+
     slot_list, font_size, text_color = load_config(args.config)
     if args.font_size is not None:
         font_size = args.font_size

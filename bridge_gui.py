@@ -2301,6 +2301,10 @@ Example commands:
 
 
 def main():
+    import dep_check
+    if not dep_check.ensure_dependencies(optional=[("serial", "pyserial")]):
+        sys.exit(0)
+
     root = tk.Tk()
     gui = BridgeGUI(root)
     root.mainloop()

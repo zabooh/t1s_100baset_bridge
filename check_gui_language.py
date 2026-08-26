@@ -20,6 +20,7 @@ DEFAULT_FILES = [
     Path(__file__).parent / "gui_term.py",
     Path(__file__).parent / "bridge_gui_modern.py",
     Path(__file__).parent / "gui_term_modern.py",
+    Path(__file__).parent / "dep_check.py",
 ]
 
 # Function words first, as in the model checkers - "die" stays out, a data sheet says "die".

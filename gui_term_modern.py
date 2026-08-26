@@ -49,8 +49,7 @@ import ctypes
 import tkinter as tk
 from tkinter import ttk
 
-import sv_ttk
-
+import dep_check
 import gui_term
 
 
@@ -193,6 +192,11 @@ def main():
     if gui_term.tk is None:
         print("Tkinter is missing from this Python.")
         return 2
+
+    if not dep_check.ensure_dependencies(
+            hard=[("sv_ttk", "sv-ttk")], optional=[("serial", "pyserial")]):
+        return 0
+    import sv_ttk
 
     slot_list, font_size, text_color = gui_term.load_config(args.config)
     if args.font_size is not None:

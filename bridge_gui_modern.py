@@ -40,12 +40,12 @@ testing rather than assumed - see FALLSTRICKE.md for the dated write-up:
 
 import argparse
 import ctypes
+import sys
 import tkinter as tk
 from tkinter import ttk
 
-import sv_ttk
-
 import bridge_gui
+import dep_check
 
 # Chosen for legibility on sv-ttk's dark background (#1c1c1c); the light
 # variant reuses bridge_gui.py's own original colors, which were already
@@ -175,6 +175,11 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--light", action="store_true", help="use the light variant instead of dark")
     args = ap.parse_args()
+
+    if not dep_check.ensure_dependencies(
+            hard=[("sv_ttk", "sv-ttk")], optional=[("serial", "pyserial")]):
+        sys.exit(0)
+    import sv_ttk
 
     root = tk.Tk()
     sv_ttk.set_theme("light" if args.light else "dark")
