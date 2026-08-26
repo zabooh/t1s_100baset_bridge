@@ -290,3 +290,18 @@ Regel: siehe `CLAUDE.md` Abschnitt 7 „Erkenntnisse festhalten". Neue Einträge
   war eine Datei mit vollständiger Karte und lauter leeren Werten. Für Adressen als Schlüssel
   `int(a, 16)` vergleichen oder `"0x%08X" % int(a, 16)` formatieren, nie `.upper()` auf den ganzen
   String.
+- **2026-08-26 — Access/Reset für alle 183 Register aus dem Datenblatt extrahiert, dabei zwei
+  Fallstricke:** (1) `pdftotext -layout` zerlegt die Bit-Diagramm-Tabellen in Zeilen, die nur noch
+  über die Spaltenposition der Zahlen zueinander passen — bei sehr schmalen Spalten (z. B. Register
+  mit vielen 1-Bit-Feldern wie `OA_STATUS1`, `CFGPRTCTL`) verrutscht das leicht, und ein LLM, das nur
+  den Text sieht, hält eine korrekte Spalte schnell für „uncertain, alignment garbled". Gegenmittel:
+  bei jedem als unsicher gemeldeten Feld die Rohseite (`pdftotext`-Ausgabe der Einzelseite, kein
+  ganzes Kapitel) selbst gegenlesen, bevor der Wert als `null` stehen bleibt — meist ist die Spalte
+  doch eindeutig, nur ungewohnt eng gesetzt. (2) **Ein echter Widerspruch *innerhalb* des Datenblatts
+  selbst**, nicht nur ein Extraktionsartefakt: `PPSCTL.PPSPW[4:0]` (§11.6.48, Adresse `0x0239`,
+  MMS10) zeigt in der Bit-Diagramm-Reset-Zeile `0,0,0,0,1` (= Feldwert `0x1`), zwei Zeilen darunter
+  behauptet die Prosa „The default value of 0 corresponds a pulse width of 640ns." Beide Aussagen
+  stehen im selben Absatz derselben Revision F — keine Tippfehler-Korrektur in der Errata
+  (DS80001075F) dazu gefunden. Nicht raten, welcher Wert stimmt: im Modell auf `reset: null` mit
+  Erklärung belassen, nicht den einen oder anderen Wert erfinden. Ausführliche Prüfung und
+  Korrekturanweisung dazu: `LAN8651_Register_Model_Review.md`.
