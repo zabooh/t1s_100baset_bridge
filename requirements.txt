@@ -19,7 +19,7 @@ pyserial==3.5
 # install it that way; this line only makes the plain pip route complete.
 pyocd==0.43.0
 
-# Modern-theme (sv-ttk) build of the bridge GUI: bridge_gui_modern.py (used by: 1)
-# bridge_gui.py itself needs only tkinter (stdlib) - this is only for the
-# side-by-side modern-theme build.
+# Modern-theme (sv-ttk) builds: bridge_gui_modern.py, gui_term_modern.py (used by: 2)
+# bridge_gui.py and gui_term.py themselves need only tkinter (stdlib) - this is
+# only for the side-by-side modern-theme builds.
 sv-ttk==2.6.1

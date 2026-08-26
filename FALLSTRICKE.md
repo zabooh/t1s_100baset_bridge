@@ -322,3 +322,35 @@ Regel: siehe `CLAUDE.md` Abschnitt 7 „Erkenntnisse festhalten". Neue Einträge
   rekonstruieren (`_restore_semantic_colors()` in `bridge_gui_modern.py`) — fragil gegenüber
   Wortlautänderungen in `bridge_gui.py`, aber die einzige Option ohne die Tab-Aufbaumethoden
   komplett zu duplizieren.
+- **2026-08-26 — Zwei Nachträge zu sv-ttk, beim Bau von `gui_term_modern.py` gefunden:**
+  (1) Der Idle-Task aus dem Eintrag oben feuert genau **einmal**, beim ersten `root.update()` nach
+  `sv_ttk.set_theme(...)`. Ein Fenster/Dialog, der **danach** neu entsteht (z. B. der
+  Setup-„Configure Ports"-Dialog, erst durch einen Klick zur Laufzeit geöffnet), ist **nicht**
+  betroffen — seine zur Erzeugungszeit gesetzten Farben (z. B. das Farbmuster-Label im Dialog)
+  bleiben unangetastet, mit einem Dreizeiler geprüft statt angenommen. Patchen muss man deshalb nur
+  die Widgets, die schon vor dem ersten `update()` existieren — bei `gui_term_modern.py` sind das
+  genau die drei Panes aus `App.__init__`, nicht der später geöffnete Dialog.
+  (2) **Der native Windows-Titelbalken lässt sich per DWM dunkel färben** (`ctypes`,
+  `DwmSetWindowAttribute` mit Attribut 20, unter `GetParent(root.winfo_id())`, nicht
+  `root.winfo_id()` direkt — das liefert nur das eingebettete Kind-Fenster, nicht das echte HWND).
+  Der Aufruf allein reicht aber nicht: Rückgabewert 0 (Erfolg) und sogar ein Rücklesen per
+  `DwmGetWindowAttribute` bestätigten den gesetzten Wert, sichtbar dunkel wurde der Balken trotzdem
+  erst nach einem erzwungenen Neuzeichnen (`SetWindowPos` mit `SWP_FRAMECHANGED`) — DWM zeichnet den
+  Nicht-Client-Bereich sonst erst beim nächsten eigenen Anlass (Resize, Fokuswechsel) neu.
+- **2026-08-26 — Zwei weitere Windows-native Elemente, die sv-ttk und auch direkte Tk-Farboptionen
+  NICHT erreichen, beide erst am laufenden Screenshot entdeckt, nicht vorher vermutet:**
+  (1) Der Scrollbalken von `scrolledtext.ScrolledText` ist ein eingebautes, schlichtes
+  `tk.Scrollbar` (`self.vbar` in cpython `tkinter/scrolledtext.py`) — rendert als native Windows-
+  Bildlaufleiste und ignoriert jede Tk-Farboption, anders als `tk.Canvas`/`tk.Text`, die sv-ttk
+  automatisch mitfärbt. **Lösung:** das alte `vbar` zerstören, ein `ttk.Scrollbar` an dieselbe
+  `yview`-Kommando-Funktion binden, `yscrollcommand` neu verdrahten — dabei unbedingt erst
+  `pack_forget()` auf dem Text-Widget, dann Scrollbar mit `side=right`, dann Text mit `side=left`
+  neu packen, sonst beansprucht das (bereits mit `expand=True` gepackte) Text-Widget den ganzen
+  Platz und für die neue Scrollbar bleibt nichts übrig. (2) Der native Windows-Menübalken
+  (`tk.Menu` + `root.config(menu=...)`) ignoriert `background`/`foreground` auf dem Menu-Objekt
+  **komplett** — gesetzt, per Screenshot geprüft, keinerlei sichtbare Wirkung. Keine bekannte
+  Tk-Option behebt das; der native Menüstreifen wird vom Windows-eigenen Renderer gezeichnet, den
+  Tk nicht kontrolliert. **Lösung:** den Menübalken durch einen `ttk.Menubutton` in einer eigenen
+  Leiste ersetzen (`root.config(menu="")`, dann eigene Leiste bauen) — das Dropdown selbst bleibt
+  ein natives `tk.Menu`-Popup (kein ttk-Äquivalent dafür vorhanden), aber die durchgehend
+  sichtbare Leiste ist jetzt korrekt themed, und genau die war das gemeldete Problem.
