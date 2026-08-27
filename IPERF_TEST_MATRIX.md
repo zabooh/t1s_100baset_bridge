@@ -50,11 +50,26 @@ exact trust rule used to pick which side's numbers count).
   segment (`Bridge <-> Follower`, `Follower <-> Follower`, `Follower -> PC`)
   comfortably reaches ~9.4 Mbit/s, close to the 10BASE-T1S physical limit.**
   Only the PC as the UDP *source* is affected - PC as destination reaches the
-  same ~9.4 Mbit/s as everything else. Likely explanation: the real PC-side
-  `iperf.exe` client paces its sends less evenly (burstier) than the embedded
-  iperf clients at the same nominal bitrate, overloading the bridge's T1S-side
-  forwarding sooner. Not investigated further - worth a closer look if PC-to-
-  Follower UDP throughput matters for real use.
+  same ~9.4 Mbit/s as everything else, and TCP PC->Follower reaches ~5 Mbit/s
+  cleanly, so the T1S segment itself is not the bottleneck.
+  **Confirmed root cause (packet-level capture, not just a guess):** at a
+  nominal 5 Mbit/s target, the real Windows `iperf.exe` client does not send
+  evenly spaced packets (~2.4 ms apart, as the rate would suggest) - it sends
+  bursts of 4-7 packets within under a millisecond, then an uneven pause,
+  repeatedly. Example from a capture (`frame.time_relative`, ms):
+  `0.00/0.36/0.54/0.68/0.72/0.96` (6 packets < 1 ms), then a gap to `4.99`,
+  then another burst of 4 packets within 90 us at `24.67-24.76`, etc. The
+  long-run average matches the requested rate, but the instantaneous rate
+  spikes far above it. This is a known iperf 1.x/2.x-on-Windows limitation:
+  Windows' coarse default timer/sleep resolution (~15.6 ms) makes iperf's
+  internal pacing loop fall behind and catch up in bursts. A single such run
+  showed the server-side reality plainly: `75/1277 (5.9%)` lost at a 5 Mbit/s
+  target. TCP is unaffected because it self-paces via ACK feedback instead of
+  a sleep-timer loop, and the embedded (Bridge/Follower) iperf clients
+  apparently pace evenly enough not to trigger this. Not a bridge/firmware
+  bug - a PC-tooling limitation. If PC-to-Follower UDP throughput matters for
+  real use, a different Windows-side UDP traffic generator (or one that uses
+  a high-resolution timer) would be needed to get a meaningful number here.
 - All `<direction> -> PC` TCP numbers use `-B 192.168.0.100` for the PC's
   iperf client/server (see FALLSTRICKE.md - this PC has more than one NIC in
   the 192.168.0.0/24 range and picks the wrong one without it).

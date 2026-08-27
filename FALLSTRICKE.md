@@ -837,3 +837,21 @@ Regel: siehe `CLAUDE.md` Abschnitt 7 „Erkenntnisse festhalten". Neue Einträge
   der Treiber später doch korrigiert wird (Header+FCS beim RX korrekt abziehen, wie
   `tcpip_mac.h` es vorschreibt), müssen alle drei Patches hier wieder rückgebaut werden, sonst
   zieht `fwdDcpt.pktLen` dann fälschlich nochmal 18 Byte zu viel ab.
+- **2026-08-28 — `PC -> Follower` UDP mit dem echten `iperf.exe` unter Windows bricht schon
+  bei 5 Mbit/s Zielrate spürbar ein (3-9 % Verlust je nach Lauf), obwohl dieselbe T1S-Strecke
+  in jeder anderen Richtung (`Bridge <-> Follower`, `Follower <-> Follower`, sogar
+  `Follower -> PC`) sauber ~9,4 Mbit/s schafft — kein Bridge-/Firmware-Bug, sondern eine
+  Windows-Eigenheit des PC-seitigen `iperf.exe`.** Per `tshark`-Mitschnitt (Feld
+  `frame.time_relative`) belegt: bei nominell 5 Mbit/s (erwarteter Abstand ~2,4 ms/Paket)
+  schickt der Windows-Client tatsächlich Schübe von 4-7 Paketen in **unter 1 ms**, dann eine
+  ungleichmäßige Pause, immer wieder — der Mittelwert stimmt, die Momentanlast schießt aber
+  weit über die Zielrate hinaus. Bekannte Ursache: iperf 1.x/2.x pacet über eine
+  Sleep-Schleife, und Windows' grobe Standard-Timer-Auflösung (~15,6 ms) lässt diese Schleife
+  hinterherhinken und in Bursts aufholen. Ein Einzeltest zeigte serverseitig real
+  `75/1277 (5,9 %)` Verlust bei 5 Mbit/s Ziel. TCP ist davon nicht betroffen, weil es sich
+  über ACK-Rückkopplung selbst gleichmäßig taktet statt über eine Sleep-Schleife — die
+  eingebauten iperf-Clients (Bridge/Follower) pacen offenbar ebenfalls sauber genug, um das
+  Problem nicht auszulösen. **Praktische Konsequenz:** Für belastbare PC→T1S-UDP-Zahlen ein
+  anderes Windows-Tool mit hochauflösendem Timer verwenden — mit `jperf-2.0.2/bin/iperf.exe`
+  als Quelle sind PC→Follower-UDP-Ergebnisse mit Vorsicht zu genießen, alle anderen
+  Richtungen sind davon nicht betroffen. Details/Mitschnitt-Beleg: `IPERF_TEST_MATRIX.md`.
