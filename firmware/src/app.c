@@ -29,6 +29,7 @@
 
 #include "app.h"
 #include <string.h>
+#include <stdio.h>             /* snprintf - DumpMem() line formatting */
 #include <stdlib.h>           /* malloc/free - C-heap largest-free-block probe */
 #include "config/default/system/console/sys_console.h"
 #include "config/default/library/tcpip/tcpip.h"
@@ -528,40 +529,44 @@ bool pktEth1Handler(TCPIP_NET_HANDLE hNet, struct _tag_TCPIP_MAC_PACKET* rxPkt, 
     return false;
 }
 
+/* One SYS_CONSOLE_PRINT() call per line instead of one per byte, and a wait
+ * for free ring-buffer space before each line: SYS_CONSOLE_PRINT() is
+ * fire-and-forget (its write_t() return value - the bytes actually queued -
+ * is discarded, see sys_console.c), so a tight burst of small prints (the
+ * old per-byte version) silently loses data once the 2 KB SERCOM TX ring
+ * buffer (plib_sercom1_usart.c) fills faster than 115200 baud can drain it -
+ * exactly what happens dumping anything beyond a few hundred bytes. */
 void DumpMem(uint32_t addr, uint32_t count) {
-    uint32_t ix, jx, kx;
-    uint8_t *puc;
-    char str[64];
-    int flag = 0;
+    uint8_t *puc = (uint8_t *) addr;
+    uint32_t ix;
 
-    puc = (uint8_t *) addr;
+    for (ix = 0; ix < count; ix += 16u) {
+        uint32_t lineBytes = (count - ix > 16u) ? 16u : (count - ix);
+        char line[96];
+        char ascii[17];
+        int pos;
+        uint32_t j;
 
-    jx = kx = 0;
-    for (ix = 0; ix < count; ix++) {
-        if ((ix % 16) == 0) {
-            if (flag == 1) {
-                str[16] = 0;
-                kx = 0;
-                SYS_CONSOLE_PRINT("   %s\n\r", str);
+        pos = snprintf(line, sizeof(line), "%08x: ", (unsigned int)(addr + ix));
+        for (j = 0; j < 16u; j++) {
+            if (j < lineBytes) {
+                uint8_t b = puc[ix + j];
+                pos += snprintf(line + pos, sizeof(line) - (size_t)pos, " %02x", b);
+                ascii[j] = ((b > 31u) && (b < 127u)) ? (char)b : '.';
+            } else {
+                pos += snprintf(line + pos, sizeof(line) - (size_t)pos, "   ");
             }
-            SYS_CONSOLE_PRINT("%08x: ", puc);
-            flag = 1;
-            jx = 0;
         }
-        SYS_CONSOLE_PRINT(" %02x", *puc);
-        kx++;
-        if ((*puc > 31) && (*puc < 127))
-            str[jx++] = *puc;
-        else
-            str[jx++] = '.';
-        puc++;
+        ascii[lineBytes] = '\0';
+        pos += snprintf(line + pos, sizeof(line) - (size_t)pos, "   %s\n\r", ascii);
+
+        /* block until the ring buffer can take the whole line - the SERCOM
+         * TX interrupt keeps draining it in the background while we poll */
+        while (SYS_CONSOLE_WriteFreeBufferCountGet(SYS_CONSOLE_DEFAULT_INSTANCE) < (ssize_t)pos) {
+            /* wait */
+        }
+        SYS_CONSOLE_PRINT("%s", line);
     }
-    for (; kx < 16; kx++) {
-        SYS_CONSOLE_PRINT("   ");
-    }
-    str[jx] = 0;
-    SYS_CONSOLE_PRINT("   %s", str);
-    SYS_CONSOLE_PRINT("\n\r");
 }
 
 static void cmd_logclear(SYS_CMD_DEVICE_NODE *pCmdIO, int argc, char **argv) {

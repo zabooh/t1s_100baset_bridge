@@ -690,3 +690,28 @@ Regel: siehe `CLAUDE.md` Abschnitt 7 „Erkenntnisse festhalten". Neue Einträge
   ein sehr deutlicher Gewinn (Alltagslast bricht das nicht mehr aus), aber kein
   beweisbar vollständiger Fix. Beide Patches sind Hand-Patches an generiertem
   Harmony-Code (wie der LAN865x-TX-Hook) — gehen bei MCC-Neugenerierung verloren.
+- **2026-08-27 — Echter Follower→PC-TCP-Transfer (JPerf/`iperf.exe` als Server auf dem PC,
+  Follower als Client, normaler Netzwerkstack, kein Mirror/Sniffer) verlor bei
+  Standard-MSS 1460 mitten im Transfer ganze Segmente spurlos — `-M 1400` (JPerf: Checkbox
+  „Max Segment Size" unter TCP, Wert 1400) behebt es.** Per `tshark`-Mitschnitt auf dem PC
+  belegt: bei MSS 1460 blieb die Verbindung nach dem ersten Burst (1460 Byte, sauber
+  ge-ACKt) **35 s** stehen, danach tauchte beim PC ein Segment ab `Seq=4381` auf, markiert
+  `[TCP Previous segment not captured]` — die dazwischenliegenden **2920 Byte (exakt
+  2×1460)** sind nie angekommen, der PC quittiert bis zum Schluss nur `Ack=1461`; der
+  Follower gibt nach einem erfolglosen Retransmit-Versuch mit `RST` auf. `stats` auf der
+  Bridge zeigte zeitgleich **`eth1 TX err=7`** (nicht 0) — dieser Zähler wird laut
+  `drv_gmac.c:667-671`/`DRV_PIC32CGMAC_LibTxClearUnAckPacket()` (`drv_gmac_lib_samE5x.c:753`)
+  **ausschließlich** erhöht, wenn der GMAC-Treiber einen Link-Down auf `eth1` erkennt und
+  daraufhin **alle gerade wartenden TX-Pakete kommentarlos verwirft** (kein Retry, keine
+  Fehlermeldung an den TCP/IP-Stack außer dem stillen `ACK_LINK_DOWN`-Callback) — passt
+  exakt zum Bild im Mitschnitt. Mit `-M 1400` (Frame ~1454 statt ~1514 Byte) lief derselbe
+  Testaufbau danach fehlerfrei durch: **4.620.001 Byte in 10,0 s, keine Retransmits, keine
+  Dup-ACKs, sauberer beidseitiger FIN/ACK-Abschluss** (verifiziert per erneutem
+  `tshark`-Mitschnitt). **Nicht root-caused, warum ausgerechnet Frames nahe 1514 Byte den
+  Link-Down-Trigger auf `eth1` auslösen** (passt aber zur selben ~1514-Byte-Grenze wie beim
+  Mirror-Bug und bei `TC6_SendRawEthernetPacket()` oben) — offener Punkt für eine
+  Folge-Session, insbesondere ob es dieselbe Ursache wie die GMAC-RX-Race-Condition
+  (`drv_gmac_lib_samE5x.c`, siehe oben) im TX-Pfad ist. **Praktische Konsequenz für alle
+  künftigen iperf-TCP-Tests über die Bridge: `-M 1400` (JPerf-Feld „Max Segment Size")
+  routinemäßig setzen**, sonst können Transfers ohne erkennbaren Grund minutenlang hängen
+  bleiben.
