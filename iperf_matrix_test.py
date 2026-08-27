@@ -43,8 +43,21 @@ Output:
     - This script does NOT write the final Markdown report - hand the
       log file to Claude afterward to have the table filled in
       (IPERF_TEST_MATRIX.md carries the empty table).
+
+Windows timer resolution (see FALLSTRICKE.md 2026-08-28): the real
+iperf.exe's UDP client paces packets via a sleep loop, and Windows'
+default ~15.6 ms timer resolution makes it fall behind and catch up in
+bursts of several packets within under a millisecond - the long-run
+rate matches the target but the momentary overload causes real loss
+that has nothing to do with the bridge/T1S link (confirmed: PC->Follower
+UDP at a nominal 5 Mbit/s dropped ~6% with default timer resolution, 0%
+with 1 ms resolution, same everything else). This script therefore
+requests 1 ms system timer resolution via winmm.timeBeginPeriod(1) for
+its whole run (Windows applies this machine-wide while any process
+holds it, so it also smooths out the iperf.exe subprocess).
 """
 import argparse
+import ctypes
 import re
 import subprocess
 import sys
@@ -463,11 +476,22 @@ def main():
 
     pc_kill_stray_iperf()
 
-    for src, dst in pairs:
-        log(f"\n### {src} -> {dst} ###")
-        udp_result = test_udp_max(src, dst, args.udp_duration, args.iperf_exe, ip_cache)
-        tcp_result = test_tcp(src, dst, args.tcp_duration, args.iperf_exe, ip_cache)
-        results[(src, dst)] = {"udp": udp_result, "tcp": tcp_result}
+    # See the module docstring / FALLSTRICKE.md 2026-08-28: without this,
+    # the real iperf.exe's UDP client bursts packets (Windows' coarse timer
+    # makes its pacing sleep loop fall behind and catch up in bunches),
+    # causing real loss unrelated to the bridge/T1S link. This applies
+    # machine-wide for as long as we hold it, covering the iperf.exe
+    # subprocess too.
+    winmm = ctypes.WinDLL("winmm")
+    winmm.timeBeginPeriod(1)
+    try:
+        for src, dst in pairs:
+            log(f"\n### {src} -> {dst} ###")
+            udp_result = test_udp_max(src, dst, args.udp_duration, args.iperf_exe, ip_cache)
+            tcp_result = test_tcp(src, dst, args.tcp_duration, args.iperf_exe, ip_cache)
+            results[(src, dst)] = {"udp": udp_result, "tcp": tcp_result}
+    finally:
+        winmm.timeEndPeriod(1)
 
     log("\n\n===== SUMMARY =====")
     for (src, dst), r in results.items():

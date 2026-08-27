@@ -855,3 +855,11 @@ Regel: siehe `CLAUDE.md` Abschnitt 7 „Erkenntnisse festhalten". Neue Einträge
   anderes Windows-Tool mit hochauflösendem Timer verwenden — mit `jperf-2.0.2/bin/iperf.exe`
   als Quelle sind PC→Follower-UDP-Ergebnisse mit Vorsicht zu genießen, alle anderen
   Richtungen sind davon nicht betroffen. Details/Mitschnitt-Beleg: `IPERF_TEST_MATRIX.md`.
+  **Nachtrag — Fix gefunden und verifiziert, kein anderes Tool nötig:**
+  `winmm.timeBeginPeriod(1)` (Windows-API, systemweit wirksam solange irgendein Prozess sie
+  hält) zwingt die System-Timer-Auflösung auf 1 ms. Per erneutem `tshark`-Mitschnitt bestätigt:
+  Pakete kommen danach gleichmäßig alle ~2-3 ms statt in Schüben, `0/1276 (0%)` Verlust bei
+  5 Mbit/s statt vorher 5,9 %. `iperf_matrix_test.py` ruft das jetzt für die komplette
+  Laufzeit auf (`ctypes.WinDLL("winmm").timeBeginPeriod(1)`/`timeEndPeriod(1)`) — betrifft
+  auch den `iperf.exe`-Subprozess, weil die Wirkung maschinenweit gilt. `PC -> Follower A/B`
+  UDP erreicht damit jetzt ebenfalls ~8 Mbit/s statt 2 Mbit/s, siehe `IPERF_TEST_MATRIX.md`.
