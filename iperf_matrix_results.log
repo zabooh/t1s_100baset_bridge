@@ -1,0 +1,767 @@
+
+
+===== run started 2026-08-28T00:25:38.799185 =====
+iperf matrix test - 2026-08-28T00:25:38.799300
+pairs: [('PC', 'Bridge'), ('PC', 'FollowerA'), ('PC', 'FollowerB'), ('Bridge', 'PC'), ('Bridge', 'FollowerA'), ('Bridge', 'FollowerB'), ('FollowerA', 'PC'), ('FollowerA', 'Bridge'), ('FollowerA', 'FollowerB'), ('FollowerB', 'PC'), ('FollowerB', 'Bridge'), ('FollowerB', 'FollowerA')]
+UDP rate steps: [1, 2, 5, 8, 10, 20, 50, 80] Mbit/s, loss threshold 2.0%, 3.0s/step, TCP 5.0s
+
+### PC -> Bridge ###
+  UDP max PC -> Bridge (steps: [1, 2, 5, 8, 10, 20, 50, 80] Mbit/s, 3.0s each) ...
+       1 Mbit/s -> 1.00 Mbit/s, 0.0% loss (0/257)
+       2 Mbit/s -> 2.00 Mbit/s, 0.0% loss (0/510)
+       5 Mbit/s -> 4.99 Mbit/s, 0.0% loss (0/1275)
+       8 Mbit/s -> 7.96 Mbit/s, 0.0% loss (0/2036)
+      10 Mbit/s -> 10.03 Mbit/s, 0.0% loss (0/2551)
+      20 Mbit/s -> 19.87 Mbit/s, 0.0% loss (8/5084)
+      50 Mbit/s -> 49.02 Mbit/s, 0.0% loss (1/12477)
+      80 Mbit/s -> 9.94 Mbit/s, 0.0% loss (8/1664)
+    => MAX clean rate: requested 80 Mbit/s, measured 9.94 Mbit/s, 0.0% loss
+  TCP PC -> Bridge (5.0s) ...
+    destination report:
+      iperf -s
+      iperf: Starting session instance 0
+      ---------------------------------------------------------
+      iperf: Server listening on TCP port 5001
+      >
+      >iperfk -i 0
+      iperf: trying to stop iperf instance 0...
+      >
+      >
+      iperf instance 0: Rx done. Socket closed.
+      iperf instance 0: completed.
+    => NO RESULT (parse failed or nothing received)
+
+### PC -> FollowerA ###
+  UDP max PC -> FollowerA (steps: [1, 2, 5, 8, 10, 20, 50, 80] Mbit/s, 3.0s each) ...
+       1 Mbit/s -> NO RESULT, stopping search
+    client output:
+      ------------------------------------------------------------
+      Client connecting to 192.168.0.202, UDP port 5001
+      Binding to local address 192.168.0.100
+      Sending 1470 byte datagrams
+      UDP buffer size: 64.0 KByte (default)
+      ------------------------------------------------------------
+      [580] local 192.168.0.100 port 59541 connected with 192.168.0.202 port 5001
+      [ ID] Interval       Transfer     Bandwidth
+      [580]  0.0- 3.0 sec   368 KBytes   999 Kbits/sec
+      [580] WARNING: did not receive ack of last datagram after 10 tries.
+      [580] Sent 256 datagrams
+    destination output:
+      iperf -s -u
+      iperf: Starting session instance 0
+      ---------------------------------------------------------
+      iperf: Server listening on UDP port 5001
+      >
+      >iperfk -i 0
+      iperf: trying to stop iperf instance 0...
+      >
+      >
+      iperf instance 0: Rx done. Socket closed.
+      iperf instance 0: completed.
+    => no rate came through cleanly (even the lowest step failed)
+  TCP PC -> FollowerA (5.0s) ...
+    destination report:
+      iperf -s
+      iperf: Starting session instance 0
+      ---------------------------------------------------------
+      iperf: Server listening on TCP port 5001
+      >
+      >iperfk -i 0
+      iperf: trying to stop iperf instance 0...
+      >
+      >
+      iperf instance 0: Rx done. Socket closed.
+      iperf instance 0: completed.
+    => NO RESULT (parse failed or nothing received)
+
+### PC -> FollowerB ###
+  UDP max PC -> FollowerB (steps: [1, 2, 5, 8, 10, 20, 50, 80] Mbit/s, 3.0s each) ...
+       1 Mbit/s -> NO RESULT, stopping search
+    client output:
+      ------------------------------------------------------------
+      Client connecting to 192.168.0.201, UDP port 5001
+      Binding to local address 192.168.0.100
+      Sending 1470 byte datagrams
+      UDP buffer size: 64.0 KByte (default)
+      ------------------------------------------------------------
+      [584] local 192.168.0.100 port 62932 connected with 192.168.0.201 port 5001
+      [ ID] Interval       Transfer     Bandwidth
+      [584]  0.0- 3.0 sec   369 KBytes  1000 Kbits/sec
+      [584] WARNING: did not receive ack of last datagram after 10 tries.
+      [584] Sent 257 datagrams
+    destination output:
+      iperf -s -u
+      iperf: Starting session instance 0
+      ---------------------------------------------------------
+      iperf: Server listening on UDP port 5001
+      >
+      >iperfk -i 0
+      iperf: trying to stop iperf instance 0...
+      >
+      >
+      iperf instance 0: Rx done. Socket closed.
+      iperf instance 0: completed.
+    => no rate came through cleanly (even the lowest step failed)
+  TCP PC -> FollowerB (5.0s) ...
+    destination report:
+      iperf -s
+      iperf: Starting session instance 0
+      ---------------------------------------------------------
+      iperf: Server listening on TCP port 5001
+      >
+      >iperfk -i 0
+      iperf: trying to stop iperf instance 0...
+      >
+      >
+      iperf instance 0: Rx done. Socket closed.
+      iperf instance 0: completed.
+    => NO RESULT (parse failed or nothing received)
+
+### Bridge -> PC ###
+  UDP max Bridge -> PC (steps: [1, 2, 5, 8, 10, 20, 50, 80] Mbit/s, 3.0s each) ...
+       1 Mbit/s -> NO RESULT, stopping search
+    client output:
+      iperf -c 192.168.0.100 -u -b 1000000 -t 3.0
+      iperf: Starting session instance 0
+      iperf: Using the default interface!
+      >
+      >
+    destination output:
+      ------------------------------------------------------------
+      Server listening on UDP port 5001
+      Binding to local address 192.168.0.100
+      Receiving 1470 byte datagrams
+      UDP buffer size: 64.0 KByte (default)
+      ------------------------------------------------------------
+    => no rate came through cleanly (even the lowest step failed)
+  TCP Bridge -> PC (5.0s) ...
+    destination report:
+      ------------------------------------------------------------
+      Server listening on TCP port 5001
+      Binding to local address 192.168.0.100
+      TCP window size: 64.0 KByte (default)
+      ------------------------------------------------------------
+    => NO RESULT (parse failed or nothing received)
+
+### Bridge -> FollowerA ###
+  UDP max Bridge -> FollowerA (steps: [1, 2, 5, 8, 10, 20, 50, 80] Mbit/s, 3.0s each) ...
+       1 Mbit/s -> NO RESULT, stopping search
+    client output:
+      iperf -c 192.168.0.202 -u -b 1000000 -t 3.0
+      iperf: All instances busy. Retry later!
+      >
+      >iperf: ARP unable to resolve the MAC address of remote side.
+    destination output:
+      iperf -s -u
+      iperf: Starting session instance 0
+      ---------------------------------------------------------
+      iperf: Server listening on UDP port 5001
+      >
+      >iperfk -i 0
+      iperf: trying to stop iperf instance 0...
+      >
+      >
+      iperf instance 0: Rx done. Socket closed.
+      iperf instance 0: completed.
+    => no rate came through cleanly (even the lowest step failed)
+  TCP Bridge -> FollowerA (5.0s) ...
+
+
+===== run started 2026-08-28T00:45:40.405570 =====
+iperf matrix test - 2026-08-28T00:45:40.405805
+pairs: [('PC', 'Bridge'), ('PC', 'FollowerA'), ('PC', 'FollowerB'), ('Bridge', 'PC'), ('Bridge', 'FollowerA'), ('Bridge', 'FollowerB'), ('FollowerA', 'PC'), ('FollowerA', 'Bridge'), ('FollowerA', 'FollowerB'), ('FollowerB', 'PC'), ('FollowerB', 'Bridge'), ('FollowerB', 'FollowerA')]
+UDP rate steps: [1, 2, 5, 8, 10, 20, 50, 80] Mbit/s, loss threshold 2.0%, 3.0s/step, TCP 5.0s
+
+### PC -> Bridge ###
+  UDP max PC -> Bridge (steps: [1, 2, 5, 8, 10, 20, 50, 80] Mbit/s, 3.0s each) ...
+       1 Mbit/s -> 0.99 Mbit/s, 0.0% loss (1/256)
+       2 Mbit/s -> 2.00 Mbit/s, 0.0% loss (0/511)
+       5 Mbit/s -> 5.00 Mbit/s, 0.0% loss (0/1275)
+       8 Mbit/s -> 7.96 Mbit/s, 0.0% loss (0/2036)
+      10 Mbit/s -> 9.96 Mbit/s, 0.0% loss (0/2545)
+      20 Mbit/s -> 19.98 Mbit/s, 0.0% loss (0/5101)
+      50 Mbit/s -> 16.25 Mbit/s, 0.0% loss (19/4090)
+      80 Mbit/s -> NO RESULT, stopping search
+    client output:
+      ------------------------------------------------------------
+      Client connecting to 192.168.0.210, UDP port 5001
+      Binding to local address 192.168.0.100
+      Sending 1470 byte datagrams
+      UDP buffer size: 64.0 KByte (default)
+      ------------------------------------------------------------
+      [580] local 192.168.0.100 port 60577 connected with 192.168.0.210 port 5001
+      [ ID] Interval       Transfer     Bandwidth
+      [580]  0.0- 3.0 sec  25.1 MBytes  70.1 Mbits/sec
+      [580] WARNING: did not receive ack of last datagram after 10 tries.
+      [580] Sent 17893 datagrams
+    destination output:
+      iperf -s -u
+      iperf: Starting session instance 0
+      ---------------------------------------------------------
+      iperf: Server listening on UDP port 5001
+      >
+      >iperfk -i 0
+      iperf: trying to stop iperf instance 0...
+      >
+      >
+      iperf instance 0: Rx done. Socket closed.
+      iperf instance 0: completed.
+    => MAX clean rate: requested 50 Mbit/s, measured 16.25 Mbit/s, 0.0% loss
+  TCP PC -> Bridge (5.0s) ...
+    client output:
+      <client timeout: Command '['C:\\work\\t1s_bridge\\jperf-2.0.2\\bin\\iperf.exe', '-c', '192.168.0.210', '-B', '192.168.0.100', '-p', '5001', '-t', '5.0']' timed out after 10.0 seconds>
+    destination report:
+      iperf -s
+      iperf: Starting session instance 0
+      ---------------------------------------------------------
+      iperf: Server listening on TCP port 5001
+      >
+      >iperfk -i 0
+      iperf: trying to stop iperf instance 0...
+      >
+      >
+      iperf instance 0: Rx done. Socket closed.
+      iperf instance 0: completed.
+    => NO RESULT (parse failed or nothing received)
+
+### PC -> FollowerA ###
+  UDP max PC -> FollowerA (steps: [1, 2, 5, 8, 10, 20, 50, 80] Mbit/s, 3.0s each) ...
+       1 Mbit/s -> NO RESULT, stopping search
+    client output:
+      ------------------------------------------------------------
+      Client connecting to 192.168.0.202, UDP port 5001
+      Binding to local address 192.168.0.100
+      Sending 1470 byte datagrams
+      UDP buffer size: 64.0 KByte (default)
+      ------------------------------------------------------------
+      [580] local 192.168.0.100 port 49818 connected with 192.168.0.202 port 5001
+      [ ID] Interval       Transfer     Bandwidth
+      [580]  0.0- 3.0 sec   368 KBytes   997 Kbits/sec
+      [580] WARNING: did not receive ack of last datagram after 10 tries.
+      [580] Sent 256 datagrams
+    destination output:
+      iperf -s -u
+      iperf: Starting session instance 0
+      ---------------------------------------------------------
+      iperf: Server listening on UDP port 5001
+      >
+      >iperfk -i 0
+      iperf: trying to stop iperf instance 0...
+      >
+      >
+      iperf instance 0: Rx done. Socket closed.
+      iperf instance 0: completed.
+    => no rate came through cleanly (even the lowest step failed)
+  TCP PC -> FollowerA (5.0s) ...
+    client output:
+      <client timeout: Command '['C:\\work\\t1s_bridge\\jperf-2.0.2\\bin\\iperf.exe', '-c', '192.168.0.202', '-B', '192.168.0.100', '-p', '5001', '-t', '5.0']' timed out after 10.0 seconds>
+    destination report:
+      iperf -s
+      iperf: Starting session instance 0
+      ---------------------------------------------------------
+      iperf: Server listening on TCP port 5001
+      >
+      >iperfk -i 0
+      iperf: trying to stop iperf instance 0...
+      >
+      >
+      iperf instance 0: Rx done. Socket closed.
+      iperf instance 0: completed.
+    => NO RESULT (parse failed or nothing received)
+
+### PC -> FollowerB ###
+  UDP max PC -> FollowerB (steps: [1, 2, 5, 8, 10, 20, 50, 80] Mbit/s, 3.0s each) ...
+       1 Mbit/s -> NO RESULT, stopping search
+    client output:
+      ------------------------------------------------------------
+      Client connecting to 192.168.0.201, UDP port 5001
+      Binding to local address 192.168.0.100
+      Sending 1470 byte datagrams
+      UDP buffer size: 64.0 KByte (default)
+      ------------------------------------------------------------
+      [580] local 192.168.0.100 port 51819 connected with 192.168.0.201 port 5001
+      [ ID] Interval       Transfer     Bandwidth
+      [580]  0.0- 3.0 sec   368 KBytes  1000 Kbits/sec
+      [580] WARNING: did not receive ack of last datagram after 10 tries.
+      [580] Sent 256 datagrams
+    destination output:
+      iperf -s -u
+      iperf: Starting session instance 0
+      ---------------------------------------------------------
+      iperf: Server listening on UDP port 5001
+      >
+      >iperfk -i 0
+      iperf: trying to stop iperf instance 0...
+      >
+      >
+      iperf instance 0: Rx done. Socket closed.
+      iperf instance 0: completed.
+    => no rate came through cleanly (even the lowest step failed)
+  TCP PC -> FollowerB (5.0s) ...
+    client output:
+      <client timeout: Command '['C:\\work\\t1s_bridge\\jperf-2.0.2\\bin\\iperf.exe', '-c', '192.168.0.201', '-B', '192.168.0.100', '-p', '5001', '-t', '5.0']' timed out after 10.0 seconds>
+    destination report:
+      iperf -s
+      iperf: Starting session instance 0
+      ---------------------------------------------------------
+      iperf: Server listening on TCP port 5001
+      >
+      >iperfk -i 0
+      iperf: trying to stop iperf instance 0...
+      >
+      >
+      iperf instance 0: Rx done. Socket closed.
+      iperf instance 0: completed.
+    => NO RESULT (parse failed or nothing received)
+
+### Bridge -> PC ###
+  UDP max Bridge -> PC (steps: [1, 2, 5, 8, 10, 20, 50, 80] Mbit/s, 3.0s each) ...
+
+
+===== run started 2026-08-28T00:48:25.888164 =====
+iperf matrix test - 2026-08-28T00:48:25.888273
+pairs: [('PC', 'Bridge'), ('PC', 'FollowerA'), ('PC', 'FollowerB'), ('Bridge', 'PC'), ('Bridge', 'FollowerA'), ('Bridge', 'FollowerB'), ('FollowerA', 'PC'), ('FollowerA', 'Bridge'), ('FollowerA', 'FollowerB'), ('FollowerB', 'PC'), ('FollowerB', 'Bridge'), ('FollowerB', 'FollowerA')]
+UDP rate steps: [1, 2, 5, 8, 10, 20, 50, 80] Mbit/s, loss threshold 2.0%, 3.0s/step, TCP 5.0s
+
+### PC -> Bridge ###
+  UDP max PC -> Bridge (steps: [1, 2, 5, 8, 10, 20, 50, 80] Mbit/s, 3.0s each) ...
+       1 Mbit/s -> 1.00 Mbit/s, 0.0% loss (0/257)
+       2 Mbit/s -> 2.00 Mbit/s, 0.0% loss (0/512)
+       5 Mbit/s -> 4.99 Mbit/s, 0.0% loss (0/1275)
+       8 Mbit/s -> 8.00 Mbit/s, 0.0% loss (0/2042)
+      10 Mbit/s -> 10.00 Mbit/s, 0.0% loss (0/2551)
+      20 Mbit/s -> 19.96 Mbit/s, 0.0% loss (0/5098)
+      50 Mbit/s -> 47.74 Mbit/s, 0.0% loss (4/12163)
+      80 Mbit/s -> 70.94 Mbit/s, 0.0% loss (17/18047)
+    => MAX clean rate: requested 80 Mbit/s, measured 70.94 Mbit/s, 0.0% loss
+  TCP PC -> Bridge (5.0s) ...
+    destination report:
+      iperf -s
+      iperf: Starting session instance 0
+      ---------------------------------------------------------
+      iperf: Server listening on TCP port 5001
+      >
+      >
+      iperf: instance 0 session started ...
+          - Local  192.168.0.210 port 5001 connected with
+          - Remote 192.168.0.100 port 65280
+          - [ 0-  1 sec]   0/ 1950 ( 0%)    25380 Kbps
+          - [ 1-  2 sec]   0/ 1682 ( 0%)    21964 Kbps
+          - [ 2-  3 sec]   0/ 1935 ( 0%)    25302 Kbps
+          - [ 3-  4 sec]   0/ 1674 ( 0%)    21936 Kbps
+          - [ 4-  5 sec]   0/ 1477 ( 0%)    19286 Kbps
+          - [0.0- 5.0 sec]   0/ 8737 ( 0%)    22800 Kbps
+      iperf: instance 0 completed ...
+      iperf instance 0: Rx done. Socket closed.
+      iperf instance 0: Ready for the next session.
+      iperfk -i 0
+      iperf: trying to stop iperf instance 0...
+      >
+      >
+      iperf instance 0: Rx done. Socket closed.
+      iperf instance 0: completed.
+    => 22.80 Mbit/s
+
+### PC -> FollowerA ###
+  UDP max PC -> FollowerA (steps: [1, 2, 5, 8, 10, 20, 50, 80] Mbit/s, 3.0s each) ...
+       1 Mbit/s -> 1.00 Mbit/s, 0.0% loss (0/257)
+       2 Mbit/s -> 2.00 Mbit/s, 0.0% loss (0/512)
+       5 Mbit/s -> 4.80 Mbit/s, 4.0% loss (53/1276)
+    -> loss above 2.0% threshold, stopping search
+    => MAX clean rate: requested 2 Mbit/s, measured 2.00 Mbit/s, 0.0% loss
+  TCP PC -> FollowerA (5.0s) ...
+    destination report:
+      iperf -s
+      iperf: Starting session instance 0
+      ---------------------------------------------------------
+      iperf: Server listening on TCP port 5001
+      >
+      >
+      iperf: instance 0 session started ...
+          - Local  192.168.0.202 port 5001 connected with
+          - Remote 192.168.0.100 port 54946
+          - [ 0-  1 sec]   0/ 480 ( 0%)    5446 Kbps
+          - [ 1-  2 sec]   0/ 437 ( 0%)    4967 Kbps
+          - [ 2-  3 sec]   0/ 480 ( 0%)    5458 Kbps
+          - [ 3-  4 sec]   0/ 457 ( 0%)    5196 Kbps
+          - [ 4-  5 sec]   0/ 415 ( 0%)    4718 Kbps
+          - [0.0- 5.1 sec]   0/ 2322 ( 0%)    5164 Kbps
+      iperf: instance 0 completed ...
+      iperf instance 0: Rx done. Socket closed.
+      iperf instance 0: Ready for the next session.
+      iperfk -i 0
+      iperf: trying to stop iperf instance 0...
+      >
+      >
+      iperf instance 0: Rx done. Socket closed.
+      iperf instance 0: completed.
+    => 5.16 Mbit/s
+
+### PC -> FollowerB ###
+  UDP max PC -> FollowerB (steps: [1, 2, 5, 8, 10, 20, 50, 80] Mbit/s, 3.0s each) ...
+       1 Mbit/s -> 1.00 Mbit/s, 0.0% loss (0/256)
+       2 Mbit/s -> 2.00 Mbit/s, 0.0% loss (0/511)
+       5 Mbit/s -> 4.83 Mbit/s, 3.0% loss (45/1276)
+    -> loss above 2.0% threshold, stopping search
+    => MAX clean rate: requested 2 Mbit/s, measured 2.00 Mbit/s, 0.0% loss
+  TCP PC -> FollowerB (5.0s) ...
+    destination report:
+      iperf -s
+      iperf: Starting session instance 0
+      ---------------------------------------------------------
+      iperf: Server listening on TCP port 5001
+      >
+      >
+      iperf: instance 0 session started ...
+          - Local  192.168.0.201 port 5001 connected with
+          - Remote 192.168.0.100 port 54960
+          - [ 0-  1 sec]   0/ 486 ( 0%)    5514 Kbps
+          - [ 1-  2 sec]   0/ 276 ( 0%)    3155 Kbps
+          - [ 2-  3 sec]   0/ 476 ( 0%)    5411 Kbps
+          - [ 3-  4 sec]   0/ 493 ( 0%)    5605 Kbps
+          - [ 4-  5 sec]   0/ 481 ( 0%)    5469 Kbps
+          - [0.0- 5.1 sec]   0/ 2263 ( 0%)    5043 Kbps
+      iperf: instance 0 completed ...
+      iperf instance 0: Rx done. Socket closed.
+      iperf instance 0: Ready for the next session.
+      iperfk -i 0
+      iperf: trying to stop iperf instance 0...
+      >
+      >
+      iperf instance 0: Rx done. Socket closed.
+      iperf instance 0: completed.
+    => 5.04 Mbit/s
+
+### Bridge -> PC ###
+  UDP max Bridge -> PC (steps: [1, 2, 5, 8, 10, 20, 50, 80] Mbit/s, 3.0s each) ...
+       1 Mbit/s -> 1.07 Mbit/s, 0.0% loss (0/273)
+       2 Mbit/s -> 2.35 Mbit/s, 0.0% loss (0/601)
+       5 Mbit/s -> 5.89 Mbit/s, 0.0% loss (0/1501)
+       8 Mbit/s -> 11.80 Mbit/s, 0.0% loss (0/3001)
+      10 Mbit/s -> 11.80 Mbit/s, 0.0% loss (0/3001)
+      20 Mbit/s -> 69.80 Mbit/s, 0.0% loss (0/17746)
+      50 Mbit/s -> 69.90 Mbit/s, 0.0% loss (0/17748)
+      80 Mbit/s -> 69.70 Mbit/s, 0.0% loss (0/17749)
+    => MAX clean rate: requested 80 Mbit/s, measured 69.70 Mbit/s, 0.0% loss
+  TCP Bridge -> PC (5.0s) ...
+    destination report:
+      ------------------------------------------------------------
+      Server listening on TCP port 5001
+      Binding to local address 192.168.0.100
+      TCP window size: 64.0 KByte (default)
+      ------------------------------------------------------------
+      OpenSCManager failed - Access is denied. (0x5)
+      [624] local 192.168.0.100 port 5001 connected with 192.168.0.210 port 5001
+      [ ID] Interval       Transfer     Bandwidth
+      [624]  0.0- 1.0 sec  1.33 MBytes  11.2 Mbits/sec
+      [624]  1.0- 2.0 sec  1.40 MBytes  11.7 Mbits/sec
+      [624]  2.0- 3.0 sec  1.40 MBytes  11.7 Mbits/sec
+      [624]  3.0- 4.0 sec  1.40 MBytes  11.7 Mbits/sec
+      [624]  0.0- 5.0 sec  6.90 MBytes  11.6 Mbits/sec
+    => 11.60 Mbit/s
+
+### Bridge -> FollowerA ###
+  UDP max Bridge -> FollowerA (steps: [1, 2, 5, 8, 10, 20, 50, 80] Mbit/s, 3.0s each) ...
+       1 Mbit/s -> 1.07 Mbit/s, 0.0% loss (0/273)
+       2 Mbit/s -> 2.35 Mbit/s, 0.0% loss (0/601)
+       5 Mbit/s -> 5.89 Mbit/s, 0.0% loss (0/1501)
+       8 Mbit/s -> 9.43 Mbit/s, 0.0% loss (0/2406)
+      10 Mbit/s -> 9.43 Mbit/s, 0.0% loss (0/2406)
+      20 Mbit/s -> 9.43 Mbit/s, 0.0% loss (0/2406)
+      50 Mbit/s -> 9.43 Mbit/s, 0.0% loss (0/2406)
+      80 Mbit/s -> 9.43 Mbit/s, 0.0% loss (0/2406)
+    => MAX clean rate: requested 80 Mbit/s, measured 9.43 Mbit/s, 0.0% loss
+  TCP Bridge -> FollowerA (5.0s) ...
+    destination report:
+      iperf -s
+      iperf: Starting session instance 0
+      ---------------------------------------------------------
+      iperf: Server listening on TCP port 5001
+      >
+      >
+      iperf: instance 0 session started ...
+          - Local  192.168.0.202 port 5001 connected with
+          - Remote 192.168.0.200 port 5001
+          - [ 0-  1 sec]   0/ 501 ( 0%)    5834 Kbps
+          - [ 1-  2 sec]   0/ 502 ( 0%)    5858 Kbps
+          - [ 2-  3 sec]   0/ 501 ( 0%)    5846 Kbps
+          - [ 3-  4 sec]   0/ 501 ( 0%)    5846 Kbps
+          - [0.0- 4.9 sec]   0/ 2503 ( 0%)    5847 Kbps
+      iperf: instance 0 completed ...
+      iperf instance 0: Rx done. Socket closed.
+      iperf instance 0: Ready for the next session.
+      iperfk -i 0
+      iperf: trying to stop iperf instance 0...
+      >
+      >
+      iperf instance 0: Rx done. Socket closed.
+      iperf instance 0: completed.
+    => 5.85 Mbit/s
+
+### Bridge -> FollowerB ###
+  UDP max Bridge -> FollowerB (steps: [1, 2, 5, 8, 10, 20, 50, 80] Mbit/s, 3.0s each) ...
+       1 Mbit/s -> 1.07 Mbit/s, 0.0% loss (0/273)
+       2 Mbit/s -> 2.35 Mbit/s, 0.0% loss (0/601)
+       5 Mbit/s -> 5.89 Mbit/s, 0.0% loss (0/1501)
+       8 Mbit/s -> 9.43 Mbit/s, 0.0% loss (0/2406)
+      10 Mbit/s -> 9.43 Mbit/s, 0.0% loss (0/2406)
+      20 Mbit/s -> 9.43 Mbit/s, 0.0% loss (0/2406)
+      50 Mbit/s -> 9.43 Mbit/s, 0.0% loss (0/2406)
+      80 Mbit/s -> 9.43 Mbit/s, 0.0% loss (0/2406)
+    => MAX clean rate: requested 80 Mbit/s, measured 9.43 Mbit/s, 0.0% loss
+  TCP Bridge -> FollowerB (5.0s) ...
+    destination report:
+      iperf -s
+      iperf: Starting session instance 0
+      ---------------------------------------------------------
+      iperf: Server listening on TCP port 5001
+      >
+      >
+      iperf: instance 0 session started ...
+          - Local  192.168.0.201 port 5001 connected with
+          - Remote 192.168.0.200 port 5001
+          - [ 0-  1 sec]   0/ 502 ( 0%)    5846 Kbps
+          - [ 1-  2 sec]   0/ 501 ( 0%)    5846 Kbps
+          - [ 2-  3 sec]   0/ 501 ( 0%)    5846 Kbps
+          - [ 3-  4 sec]   0/ 501 ( 0%)    5846 Kbps
+          - [0.0- 4.9 sec]   0/ 2503 ( 0%)    5847 Kbps
+      iperf: instance 0 completed ...
+      iperf instance 0: Rx done. Socket closed.
+      iperf instance 0: Ready for the next session.
+      iperfk -i 0
+      iperf: trying to stop iperf instance 0...
+      >
+      >
+      iperf instance 0: Rx done. Socket closed.
+      iperf instance 0: completed.
+    => 5.85 Mbit/s
+
+### FollowerA -> PC ###
+  UDP max FollowerA -> PC (steps: [1, 2, 5, 8, 10, 20, 50, 80] Mbit/s, 3.0s each) ...
+       1 Mbit/s -> 1.07 Mbit/s, 0.0% loss (0/273)
+       2 Mbit/s -> 2.35 Mbit/s, 0.0% loss (0/601)
+       5 Mbit/s -> 5.88 Mbit/s, 0.0% loss (0/1501)
+       8 Mbit/s -> 9.43 Mbit/s, 0.0% loss (0/2409)
+      10 Mbit/s -> 9.45 Mbit/s, 0.0% loss (0/2409)
+      20 Mbit/s -> 9.43 Mbit/s, 0.0% loss (0/2409)
+      50 Mbit/s -> 9.42 Mbit/s, 0.0% loss (0/2409)
+      80 Mbit/s -> 9.42 Mbit/s, 0.0% loss (0/2409)
+    => MAX clean rate: requested 80 Mbit/s, measured 9.42 Mbit/s, 0.0% loss
+  TCP FollowerA -> PC (5.0s) ...
+    destination report:
+      ------------------------------------------------------------
+      Server listening on TCP port 5001
+      Binding to local address 192.168.0.100
+      TCP window size: 64.0 KByte (default)
+      ------------------------------------------------------------
+      OpenSCManager failed - Access is denied. (0x5)
+      [612] local 192.168.0.100 port 5001 connected with 192.168.0.202 port 49969
+      [ ID] Interval       Transfer     Bandwidth
+      [612]  0.0- 1.0 sec   482 KBytes  3.95 Mbits/sec
+      [612]  1.0- 2.0 sec   466 KBytes  3.82 Mbits/sec
+      [612]  2.0- 3.0 sec   472 KBytes  3.87 Mbits/sec
+      [612]  3.0- 4.0 sec   473 KBytes  3.88 Mbits/sec
+      [612]  4.0- 5.0 sec   472 KBytes  3.87 Mbits/sec
+      [612]  0.0- 5.0 sec  2.31 MBytes  3.88 Mbits/sec
+    => 3.88 Mbit/s
+
+### FollowerA -> Bridge ###
+  UDP max FollowerA -> Bridge (steps: [1, 2, 5, 8, 10, 20, 50, 80] Mbit/s, 3.0s each) ...
+       1 Mbit/s -> 1.07 Mbit/s, 0.0% loss (0/273)
+       2 Mbit/s -> 2.35 Mbit/s, 0.0% loss (0/601)
+       5 Mbit/s -> 5.87 Mbit/s, 0.0% loss (0/1501)
+       8 Mbit/s -> 9.41 Mbit/s, 0.0% loss (0/2409)
+      10 Mbit/s -> 9.42 Mbit/s, 0.0% loss (0/2409)
+      20 Mbit/s -> 9.42 Mbit/s, 0.0% loss (0/2409)
+      50 Mbit/s -> 9.41 Mbit/s, 0.0% loss (0/2409)
+      80 Mbit/s -> 9.41 Mbit/s, 0.0% loss (0/2409)
+    => MAX clean rate: requested 80 Mbit/s, measured 9.41 Mbit/s, 0.0% loss
+  TCP FollowerA -> Bridge (5.0s) ...
+    destination report:
+      iperf -s
+      iperf: Starting session instance 0
+      ---------------------------------------------------------
+      iperf: Server listening on TCP port 5001
+      >
+      >
+      iperf: instance 0 session started ...
+          - Local  192.168.0.200 port 5001 connected with
+          - Remote 192.168.0.202 port 49255
+          - [ 0-  1 sec]   0/ 500 ( 0%)    5822 Kbps
+          - [ 1-  2 sec]   0/ 500 ( 0%)    5834 Kbps
+          - [ 2-  3 sec]   0/ 500 ( 0%)    5834 Kbps
+          - [ 3-  4 sec]   0/ 499 ( 0%)    5822 Kbps
+          - [ 4-  5 sec]   0/ 500 ( 0%)    5834 Kbps
+          - [0.0- 5.0 sec]   0/ 2503 ( 0%)    5831 Kbps
+      iperf: instance 0 completed ...
+      iperf instance 0: Rx done. Socket closed.
+      iperf instance 0: Ready for the next session.
+      iperfk -i 0
+      iperf: trying to stop iperf instance 0...
+      >
+      >
+      iperf instance 0: Rx done. Socket closed.
+      iperf instance 0: completed.
+    => 5.83 Mbit/s
+
+### FollowerA -> FollowerB ###
+  UDP max FollowerA -> FollowerB (steps: [1, 2, 5, 8, 10, 20, 50, 80] Mbit/s, 3.0s each) ...
+       1 Mbit/s -> 1.07 Mbit/s, 0.0% loss (0/273)
+       2 Mbit/s -> 2.35 Mbit/s, 0.0% loss (0/601)
+       5 Mbit/s -> 5.88 Mbit/s, 0.0% loss (0/1501)
+       8 Mbit/s -> 9.43 Mbit/s, 0.0% loss (0/2409)
+      10 Mbit/s -> 9.43 Mbit/s, 0.0% loss (0/2409)
+      20 Mbit/s -> 9.43 Mbit/s, 0.0% loss (0/2410)
+      50 Mbit/s -> 9.43 Mbit/s, 0.0% loss (0/2410)
+      80 Mbit/s -> 9.43 Mbit/s, 0.0% loss (0/2409)
+    => MAX clean rate: requested 80 Mbit/s, measured 9.43 Mbit/s, 0.0% loss
+  TCP FollowerA -> FollowerB (5.0s) ...
+    destination report:
+      iperf -s
+      iperf: Starting session instance 0
+      ---------------------------------------------------------
+      iperf: Server listening on TCP port 5001
+      >
+      >
+      iperf: instance 0 session started ...
+          - Local  192.168.0.201 port 5001 connected with
+          - Remote 192.168.0.202 port 51503
+          - [ 0-  1 sec]   0/ 501 ( 0%)    5834 Kbps
+          - [ 1-  2 sec]   0/ 500 ( 0%)    5834 Kbps
+          - [ 2-  3 sec]   0/ 501 ( 0%)    5846 Kbps
+          - [ 3-  4 sec]   0/ 499 ( 0%)    5822 Kbps
+          - [ 4-  5 sec]   0/ 500 ( 0%)    5834 Kbps
+          - [0.0- 5.0 sec]   0/ 2501 ( 0%)    5834 Kbps
+      iperf: instance 0 completed ...
+      iperf instance 0: Rx done. Socket closed.
+      iperf instance 0: Ready for the next session.
+      iperfk -i 0
+      iperf: trying to stop iperf instance 0...
+      >
+      >
+      iperf instance 0: Rx done. Socket closed.
+      iperf instance 0: completed.
+    => 5.83 Mbit/s
+
+### FollowerB -> PC ###
+  UDP max FollowerB -> PC (steps: [1, 2, 5, 8, 10, 20, 50, 80] Mbit/s, 3.0s each) ...
+       1 Mbit/s -> 1.07 Mbit/s, 0.0% loss (0/273)
+       2 Mbit/s -> 2.35 Mbit/s, 0.0% loss (0/601)
+       5 Mbit/s -> 5.87 Mbit/s, 0.0% loss (0/1501)
+       8 Mbit/s -> 9.42 Mbit/s, 0.0% loss (0/2409)
+      10 Mbit/s -> 9.46 Mbit/s, 0.0% loss (0/2409)
+      20 Mbit/s -> 9.43 Mbit/s, 0.0% loss (0/2409)
+      50 Mbit/s -> 9.45 Mbit/s, 0.0% loss (0/2409)
+      80 Mbit/s -> 9.44 Mbit/s, 0.0% loss (0/2409)
+    => MAX clean rate: requested 80 Mbit/s, measured 9.44 Mbit/s, 0.0% loss
+  TCP FollowerB -> PC (5.0s) ...
+    destination report:
+      ------------------------------------------------------------
+      Server listening on TCP port 5001
+      Binding to local address 192.168.0.100
+      TCP window size: 64.0 KByte (default)
+      ------------------------------------------------------------
+      OpenSCManager failed - Access is denied. (0x5)
+      [632] local 192.168.0.100 port 5001 connected with 192.168.0.201 port 63438
+      [ ID] Interval       Transfer     Bandwidth
+      [632]  0.0- 1.0 sec   470 KBytes  3.85 Mbits/sec
+      [632]  1.0- 2.0 sec   449 KBytes  3.68 Mbits/sec
+      [632]  2.0- 3.0 sec   459 KBytes  3.76 Mbits/sec
+      [632]  3.0- 4.0 sec   468 KBytes  3.83 Mbits/sec
+      [632]  4.0- 5.0 sec   463 KBytes  3.80 Mbits/sec
+      [632]  0.0- 5.0 sec  2.26 MBytes  3.79 Mbits/sec
+    => 3.79 Mbit/s
+
+### FollowerB -> Bridge ###
+  UDP max FollowerB -> Bridge (steps: [1, 2, 5, 8, 10, 20, 50, 80] Mbit/s, 3.0s each) ...
+       1 Mbit/s -> 1.07 Mbit/s, 0.0% loss (0/273)
+       2 Mbit/s -> 2.35 Mbit/s, 0.0% loss (0/601)
+       5 Mbit/s -> 5.87 Mbit/s, 0.0% loss (0/1501)
+       8 Mbit/s -> 9.42 Mbit/s, 0.0% loss (0/2409)
+      10 Mbit/s -> 9.42 Mbit/s, 0.0% loss (0/2409)
+      20 Mbit/s -> 9.41 Mbit/s, 0.0% loss (0/2409)
+      50 Mbit/s -> 9.42 Mbit/s, 0.0% loss (0/2409)
+      80 Mbit/s -> 9.42 Mbit/s, 0.0% loss (0/2409)
+    => MAX clean rate: requested 80 Mbit/s, measured 9.42 Mbit/s, 0.0% loss
+  TCP FollowerB -> Bridge (5.0s) ...
+    destination report:
+      iperf -s
+      iperf: Starting session instance 0
+      ---------------------------------------------------------
+      iperf: Server listening on TCP port 5001
+      >
+      >
+      iperf: instance 0 session started ...
+          - Local  192.168.0.200 port 5001 connected with
+          - Remote 192.168.0.201 port 61907
+          - [ 0-  1 sec]   0/ 500 ( 0%)    5822 Kbps
+          - [ 1-  2 sec]   0/ 500 ( 0%)    5834 Kbps
+          - [ 2-  3 sec]   0/ 500 ( 0%)    5834 Kbps
+          - [ 3-  4 sec]   0/ 500 ( 0%)    5834 Kbps
+          - [ 4-  5 sec]   0/ 500 ( 0%)    5834 Kbps
+          - [0.0- 5.0 sec]   0/ 2503 ( 0%)    5833 Kbps
+      iperf: instance 0 completed ...
+      iperf instance 0: Rx done. Socket closed.
+      iperf instance 0: Ready for the next session.
+      iperfk -i 0
+      iperf: trying to stop iperf instance 0...
+      >
+      >
+      iperf instance 0: Rx done. Socket closed.
+      iperf instance 0: completed.
+    => 5.83 Mbit/s
+
+### FollowerB -> FollowerA ###
+  UDP max FollowerB -> FollowerA (steps: [1, 2, 5, 8, 10, 20, 50, 80] Mbit/s, 3.0s each) ...
+       1 Mbit/s -> 1.07 Mbit/s, 0.0% loss (0/273)
+       2 Mbit/s -> 2.35 Mbit/s, 0.0% loss (0/601)
+       5 Mbit/s -> 5.88 Mbit/s, 0.0% loss (0/1501)
+       8 Mbit/s -> 9.43 Mbit/s, 0.0% loss (0/2409)
+      10 Mbit/s -> 9.43 Mbit/s, 0.0% loss (0/2409)
+      20 Mbit/s -> 9.43 Mbit/s, 0.0% loss (0/2409)
+      50 Mbit/s -> 9.43 Mbit/s, 0.0% loss (0/2409)
+      80 Mbit/s -> 9.43 Mbit/s, 0.0% loss (0/2409)
+    => MAX clean rate: requested 80 Mbit/s, measured 9.43 Mbit/s, 0.0% loss
+  TCP FollowerB -> FollowerA (5.0s) ...
+    destination report:
+      iperf -s
+      iperf: Starting session instance 0
+      ---------------------------------------------------------
+      iperf: Server listening on TCP port 5001
+      >
+      >
+      iperf: instance 0 session started ...
+          - Local  192.168.0.202 port 5001 connected with
+          - Remote 192.168.0.201 port 65049
+          - [ 0-  1 sec]   0/ 501 ( 0%)    5834 Kbps
+          - [ 1-  2 sec]   0/ 500 ( 0%)    5834 Kbps
+          - [ 2-  3 sec]   0/ 501 ( 0%)    5846 Kbps
+          - [ 3-  4 sec]   0/ 500 ( 0%)    5834 Kbps
+          - [0.0- 5.0 sec]   0/ 2503 ( 0%)    5840 Kbps
+      iperf: instance 0 completed ...
+      iperf instance 0: Rx done. Socket closed.
+      iperf instance 0: Ready for the next session.
+      iperfk -i 0
+      iperf: trying to stop iperf instance 0...
+      >
+      >
+      iperf instance 0: Rx done. Socket closed.
+      iperf instance 0: completed.
+    => 5.84 Mbit/s
+
+
+===== SUMMARY =====
+        PC -> Bridge      UDP max: 70.94 Mbit/s, 0.0% loss       TCP: 22.80 Mbit/s
+        PC -> FollowerA   UDP max: 2.00 Mbit/s, 0.0% loss        TCP: 5.16 Mbit/s
+        PC -> FollowerB   UDP max: 2.00 Mbit/s, 0.0% loss        TCP: 5.04 Mbit/s
+    Bridge -> PC          UDP max: 69.70 Mbit/s, 0.0% loss       TCP: 11.60 Mbit/s
+    Bridge -> FollowerA   UDP max: 9.43 Mbit/s, 0.0% loss        TCP: 5.85 Mbit/s
+    Bridge -> FollowerB   UDP max: 9.43 Mbit/s, 0.0% loss        TCP: 5.85 Mbit/s
+ FollowerA -> PC          UDP max: 9.42 Mbit/s, 0.0% loss        TCP: 3.88 Mbit/s
+ FollowerA -> Bridge      UDP max: 9.41 Mbit/s, 0.0% loss        TCP: 5.83 Mbit/s
+ FollowerA -> FollowerB   UDP max: 9.43 Mbit/s, 0.0% loss        TCP: 5.83 Mbit/s
+ FollowerB -> PC          UDP max: 9.44 Mbit/s, 0.0% loss        TCP: 3.79 Mbit/s
+ FollowerB -> Bridge      UDP max: 9.42 Mbit/s, 0.0% loss        TCP: 5.83 Mbit/s
+ FollowerB -> FollowerA   UDP max: 9.43 Mbit/s, 0.0% loss        TCP: 5.84 Mbit/s
+
+Full log written to iperf_matrix_results.log
