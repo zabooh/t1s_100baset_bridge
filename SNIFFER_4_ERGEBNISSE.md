@@ -145,3 +145,62 @@ Größe — und `-l 1470`, iperf-Standard):
 
 **Damit ist bestätigt: die Kürzung verhindert das PC-seitige Symptom
 zuverlässig**, ohne den eigentlichen (externen) Fehler zu beheben.
+
+## Abschließender Langzeit-Zuverlässigkeitstest (~3,5 Minuten, echter T1S-Verkehr)
+
+2026-08-27, nach beiden GMAC-RX-Fixes (siehe `FALLSTRICKE.md`). Ziel: nicht
+mehr der künstliche PC-Flood-Grenzfall, sondern realistischer Dauerbetrieb
+als Sniffer — Follower A ↔ Follower B über echtes UDP/iperf (Standardgröße
+1470 Byte), Bridge nur als passiver `sniffer`-Tap dazwischen, alle drei
+Boards frisch resettet, PC-Mitschnitt parallel über den ganzen Lauf.
+
+**Bridge-Zähler nach 271 s Laufzeit (180 s aktiver Datenstrom):**
+
+```
+rx_hook=60506 passed_filter=60506 tx_submitted=60506
+ack_ok=60506  ack_fail=0
+truncated=60010  max_len_submitted=1514  max_len_ok=1514
+eth0 RX: ok=60555 err=5 nobufs=5
+eth1 TX: ok=61042 err=6
+main loop: 86857 cycles/s (nahe am Leerlaufwert, keine Überlastung)
+```
+
+**PC-Mitschnitt, gleiches Zeitfenster:** 60.015 UDP-Frames angekommen
+(60.010 davon exakt auf 1514 Byte gekürzt — praktisch deckungsgleich mit
+`truncated`), **keine einzige Lücke über 2 Sekunden** in den knapp
+193 Sekunden Aufzeichnung. `uptime` durchgehend, alle 20 s per Monitor
+gegengeprüft, kein Reset, keine Unterbrechung.
+
+**Ergebnis: Für realistischen Dauerbetrieb (Standardgröße, sustained
+Verkehr über mehrere Minuten) arbeitet der Sniffer jetzt zuverlässig** —
+0 Ack-Fehler, 0 Pool-Erschöpfungen, keine PC-seitigen Aussetzer. Die 5
+`nobufs` auf `eth0 RX` sind der separate, altbekannte LAN865x-eigene
+Zähler (nicht die GMAC-RX-Race) und bei >60.000 Frames verschwindend
+gering (0,008 %).
+
+## Bandbreiten-Grenzen ausgelotet (UDP, eskalierende Zielraten)
+
+2026-08-27, direkt im Anschluss. Follower B → Follower A, `iperf -u -b
+<ziel> -t 15`, Sniffer auf der Bridge an, Zielraten 8/20/50/100 Mbit/s
+nacheinander, ein durchgehender PC-Mitschnitt über alle vier Stufen.
+
+| Zielrate | Tatsächlich erreicht | Verlust laut iperf | `ack_fail` danach |
+|---|---|---|---|
+| 8 Mbit/s | 9,43 Mbit/s | 0 % (0/12.040) | 0 |
+| 20 Mbit/s | 9,43 Mbit/s | 0 % (0/12.041) | 0 |
+| 50 Mbit/s | 9,43 Mbit/s | 0 % (0/12.041) | 0 |
+| 100 Mbit/s | 9,43 Mbit/s | 0 % (0/12.040) | 0 |
+
+**Die T1S-Bus-Selbstbegrenzung ist stabil bei ~9,43 Mbit/s** — unabhängig
+von der Zielrate, keine Verschlechterung unter stärkerem Druck. Das ist
+fast doppelt so hoch wie die ~4,3 Mbit/s aus den ursprünglichen Messungen
+(`BANDWIDTH_7_MATRIX.md`, Nachtrag 3) — vermutlich ein Nebeneffekt der
+TC6-Segment-/RX-Deskriptor-Erhöhungen von heute Nacht, nicht Teil dieser
+Untersuchung, aber bemerkenswert.
+
+**PC-Mitschnitt über alle vier Stufen:** 48.149 Frames exakt auf 1514 Byte
+gekürzt angekommen, deckungsgleich mit der Bridge (`truncated=48149`).
+Einzige gefundene Lücken lagen exakt zwischen den vier Testrunden (Pausen
+zwischen den Kommandos) — **keine Lücke innerhalb einer aktiven
+Übertragung.** `tshark` zeichnet bei der tatsächlich erreichbaren Rate
+(~9,43 Mbit/s) lückenlos auf, auch bei zunehmendem Druck von iperf.
