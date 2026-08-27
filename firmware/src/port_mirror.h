@@ -30,11 +30,34 @@
     including traffic between two OTHER nodes on the bus that never involves
     the bridge at all (only possible because the LAN865x driver already runs
     promiscuous - see DRV_LAN865X_PROMISCUOUS_IDX0 in configuration.h - so the
-    frames reach this module's RX hook in the first place). The TX side is
-    unchanged in sniffer mode: it still only mirrors what the bridge itself
-    sends, since traffic between two other nodes never touches the bridge's
-    own TX path to begin with. Mirror and sniffer are independent toggles and
-    may be on at the same time; sniffer's filter is the strict superset.
+    frames reach this module's RX hook in the first place). The mirror's TX
+    side (what this module copies to eth1) is unchanged in sniffer mode: it
+    still only mirrors what the bridge itself sends. Mirror and sniffer are
+    independent toggles and may be on at the same time; sniffer's RX filter
+    is the strict superset.
+
+    Sniffer ALSO disables the LAN8651's own transmitter (T1SPMACTL.TXD, see
+    SNIFFER_Set()) for as long as it is on: a passive bus tap should not put
+    anything of its own on the wire, including the bridge's own ARP/ping and
+    - the whole reason this exists - normal PC<->T1S forwarding. That stops
+    working while sniffer is on; turn it back off to resume forwarding.
+
+    Frames above MIRROR_SAFE_FRAME_LEN (1514, standard max Ethernet frame
+    without FCS) are TRUNCATED before mirroring, not passed through whole -
+    see the constant's comment in port_mirror.c and SNIFFER_4_ERGEBNISSE.md.
+    Root-caused there: full-size (>1514) frames mirrored to eth1 reliably
+    wedge the PC's own USB-Ethernet adapter/Npcap capture for several
+    seconds, confirmed to be outside this firmware (the GMAC driver reports
+    every one of those transmissions as completed successfully - ackRes,
+    tracked in ack_ok/ack_fail - and no Windows PnP/link event is ever
+    logged) - so the fix has to live here, capping what reaches eth1, since
+    nothing in this codebase can fix the PC side. The real T1S traffic
+    between the actual endpoints is completely unaffected; only what the
+    mirror copies to Wireshark is capped - the mirrored frame itself shows
+    up there as exactly MIRROR_SAFE_FRAME_LEN bytes long, not its original
+    length, with the tail of the payload simply missing (and, for TCP,
+    its checksum consequently invalid - expected and harmless, since this
+    copy is never actually processed by anything, only displayed).
 
   Dependencies:
     Unlike lan865x_diag.c, this module is NOT free-standing. It needs:

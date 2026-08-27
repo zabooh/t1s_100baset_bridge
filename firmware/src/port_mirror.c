@@ -36,12 +36,28 @@
 #include "tcpip_manager_control.h"                           /* TCPIP_NET_IF */
 #include "port_mirror.h"
 #include "env.h"                                             /* env_mirror(): persisted start state */
+#include "lan865x_diag.h"                                    /* LAN865X_DIAG_Rmw(): T1SPMACTL.TXD    */
 
 /* Interface indices: source of the mirrored traffic, and where the copies go. */
 #define MIRROR_SRC_IF   0u    /* eth0, the 10BASE-T1S MAC-PHY */
 #define MIRROR_DST_IF   1u    /* eth1, the 100BASE-T GMAC     */
 
 #define MIRROR_MAX_FRAME  1518u
+
+/* Mitigation, not a bridge-side bug fix (SNIFFER_4_ERGEBNISSE.md,
+ * 2026-08-27): frames mirrored to eth1 above this length made the PC's own
+ * USB-Ethernet adapter/Npcap capture silently stop receiving anything for a
+ * while (no Windows PnP/link event, no error anywhere on the bridge itself -
+ * ack_ok/ack_fail proved the GMAC always completed the TX). 1514 = the
+ * standard max Ethernet frame without FCS (14-byte header + 1500 payload) -
+ * confirmed by bisection as the exact still-good TOTAL FRAME length (not
+ * payload: iperf -u -l 1468 -> 1514-byte frame passes, -l 1469 -> 1515-byte
+ * frame fails; the raw noip_send path bisects to the identical 1514/1515
+ * boundary directly in total frame length). Since the mirror is a
+ * diagnostic tap, not part of the real data path, truncating is safe: the
+ * real T1S traffic between the actual endpoints is untouched, only what
+ * reaches Wireshark is capped. */
+#define MIRROR_SAFE_FRAME_LEN  1514u
 
 /* Own small, fixed-size packet pool instead of TCPIP_PKT_PacketAlloc()'ing
  * straight from the general TCPIP heap on every frame. Root-caused
@@ -79,18 +95,59 @@ static uint32_t s_dbg_rx_passed_filter = 0u; /* survived the dest-MAC filter (or
 static uint32_t s_dbg_pool_empty = 0u;       /* s_mirror_free_pkts was empty */
 static uint32_t s_dbg_no_eth1 = 0u;          /* TCPIP_STACK_IndexToNet(MIRROR_DST_IF) was NULL */
 static uint32_t s_dbg_tx_submitted = 0u;     /* handed to DRV_GMAC_PacketTx */
+/* Added 2026-08-27 (SNIFFER_4_ERGEBNISSE.md): tx_submitted only proves the
+ * frame was HANDED to DRV_GMAC_PacketTx(), not that the GMAC actually
+ * finished sending it - the whole point of this investigation is that the
+ * firmware side looks "fine" while the PC never receives large frames.
+ * pkt->ackRes is what the MAC driver itself sets before calling ackFunc on
+ * TX completion (TCPIP_MAC_PKT_ACK_TX_OK vs anything else, see
+ * tcpip_mac.h) - a real, driver-reported completion status instead of just
+ * "we called the API". Tracked separately from the mirror's normal
+ * best-effort drop counters above. */
+static uint32_t s_dbg_ack_ok = 0u;           /* ackFunc fired with TCPIP_MAC_PKT_ACK_TX_OK */
+static uint32_t s_dbg_ack_fail = 0u;         /* ackFunc fired with anything else (real TX attempted) */
+static int8_t   s_dbg_last_ack_res = 0;      /* last non-OK ackRes seen, for diagnosis */
+static uint16_t s_dbg_max_len_submitted = 0u;/* largest frame length ever handed to DRV_GMAC_PacketTx */
+static uint16_t s_dbg_max_len_ok = 0u;       /* largest frame length that got TCPIP_MAC_PKT_ACK_TX_OK */
+static uint32_t s_dbg_truncated = 0u;        /* frames cut down to MIRROR_SAFE_FRAME_LEN before mirroring */
 
 bool MIRROR_IsEnabled(void)   { return s_mirror_on; }
 void MIRROR_Set(bool enable)  { s_mirror_on = enable; }
 
 bool SNIFFER_IsEnabled(void)  { return s_sniffer_on; }
-void SNIFFER_Set(bool enable) { s_sniffer_on = enable; }
+
+/* Passive tap: sniffer also disables the LAN8651's own transmitter
+ * (T1SPMACTL.TXD) while it is on, so the bridge never talks on the bus
+ * itself - invisible to the other nodes, listen-only. TXD needs no PMA
+ * reset to toggle back (unlike LBE/loopback, see CLAUDE.md section 4), so a
+ * plain RMW both ways is enough. Side effect the caller must know: normal
+ * PC<->T1S forwarding (and the bridge's own ARP/ping/iperf) stops working
+ * for as long as sniffer is on, since eth0 TX is physically disabled.
+ * Fire-and-forget: LAN865X_DIAG_Rmw() is async (see lan865x_diag.h) and
+ * reports its own result on the console; a rejection ("previous operation
+ * still in progress") just leaves TXD as it was, same as any other
+ * lan865x_diag command. */
+void SNIFFER_Set(bool enable) {
+    s_sniffer_on = enable;
+    (void) LAN865X_DIAG_Rmw(LAN865X_T1SPMACTL, LAN865X_PMACTL_TXD, enable ? LAN865X_PMACTL_TXD : 0u);
+}
 
 /* Recycle a sent (or never-submitted) pool packet - never TCPIP_PKT_PacketFree()
- * it, see the pool comment above. */
+ * it, see the pool comment above. Also the one place that can tell a real
+ * driver-confirmed TX success from "we called the API" - see the counter
+ * comments above. TCPIP_MAC_PKT_ACK_NONE (0) means this packet never
+ * actually went through DRV_GMAC_PacketTx() (the "no eth1" fallback in
+ * mirror_ethpkt_to_eth1() recycles it directly) - not counted either way. */
 static void mirror_pkt_ack(TCPIP_MAC_PACKET *pkt, const void *param)
 {
     (void)param;
+    if (pkt->ackRes == TCPIP_MAC_PKT_ACK_TX_OK) {
+        s_dbg_ack_ok++;
+        if (pkt->pDSeg->segLen > s_dbg_max_len_ok) { s_dbg_max_len_ok = pkt->pDSeg->segLen; }
+    } else if (pkt->ackRes != TCPIP_MAC_PKT_ACK_NONE) {
+        s_dbg_ack_fail++;
+        s_dbg_last_ack_res = pkt->ackRes;
+    }
     TCPIP_Helper_ProtectedSingleListTailAdd(&s_mirror_free_pkts, (SGL_LIST_NODE*) pkt);
 }
 
@@ -126,13 +183,24 @@ static const uint8_t *eth0_own_mac(void)
 
 /* Clone a complete Ethernet frame onto eth1 for the PC-side capture. The caller
  * has already applied the own-MAC filter. Single-segment copy (bridge/stack
- * frames are single-segment); empty/oversize frames are dropped. */
+ * frames are single-segment); empty frames are dropped, oversize ones
+ * (> MIRROR_MAX_FRAME, should not happen on a real Ethernet segment) too.
+ * Frames above MIRROR_SAFE_FRAME_LEN but still <= MIRROR_MAX_FRAME are
+ * TRUNCATED, not dropped - see the constant's comment: full-size frames
+ * reliably wedge the PC-side USB-Ethernet capture, a snaplen-style cut
+ * (header + start of payload still visible in Wireshark) avoids that while
+ * leaving the real T1S traffic between the actual endpoints untouched -
+ * this is a diagnostic tap, not part of the data path. */
 static void mirror_ethpkt_to_eth1(const uint8_t *frame, uint16_t flen)
 {
     TCPIP_MAC_PACKET *pTx;
     TCPIP_NET_HANDLE  eth1;
 
     if (frame == NULL || flen == 0u || flen > MIRROR_MAX_FRAME) return;
+    if (flen > MIRROR_SAFE_FRAME_LEN) {
+        flen = MIRROR_SAFE_FRAME_LEN;
+        s_dbg_truncated++;
+    }
     pTx = (TCPIP_MAC_PACKET*) TCPIP_Helper_ProtectedSingleListHeadRemove(&s_mirror_free_pkts);
     if (pTx == NULL) { s_dbg_pool_empty++; return; }  /* pool empty right now: drop the mirror copy */
 
@@ -142,10 +210,14 @@ static void mirror_ethpkt_to_eth1(const uint8_t *frame, uint16_t flen)
     pTx->pNetLayer = pTx->pMacLayer + sizeof(TCPIP_MAC_ETHERNET_HEADER);
     pTx->ackFunc   = mirror_pkt_ack;                 /* recycled back onto the pool after TX, never freed */
     pTx->ackParam  = NULL;
+    pTx->ackRes    = TCPIP_MAC_PKT_ACK_NONE;         /* cleared so a stale value from this slot's
+                                                       * previous use can't be misread as a real
+                                                       * completion by mirror_pkt_ack() */
 
     eth1 = TCPIP_STACK_IndexToNet(MIRROR_DST_IF);
     if (eth1 != NULL) {
         s_dbg_tx_submitted++;
+        if (flen > s_dbg_max_len_submitted) { s_dbg_max_len_submitted = flen; }
         (void)DRV_GMAC_PacketTx(((TCPIP_NET_IF*)eth1)->hIfMac, pTx);
     } else {
         /* No eth1 right now - DRV_GMAC_PacketTx() never got it, so its ackFunc
@@ -209,6 +281,12 @@ static void mirror_print_dbg_counters(void) {
                        (unsigned long)s_dbg_rx_hook_calls, (unsigned long)s_dbg_rx_passed_filter,
                        (unsigned long)s_dbg_pool_empty, (unsigned long)s_dbg_no_eth1,
                        (unsigned long)s_dbg_tx_submitted);
+    SYS_CONSOLE_PRINT("  dbg: ack_ok=%lu ack_fail=%lu last_ack_res=%d max_len_submitted=%u max_len_ok=%u\n\r",
+                       (unsigned long)s_dbg_ack_ok, (unsigned long)s_dbg_ack_fail,
+                       (int)s_dbg_last_ack_res, (unsigned)s_dbg_max_len_submitted,
+                       (unsigned)s_dbg_max_len_ok);
+    SYS_CONSOLE_PRINT("  dbg: truncated=%lu (frames cut to %u bytes before mirroring, see SNIFFER_4_ERGEBNISSE.md)\n\r",
+                       (unsigned long)s_dbg_truncated, (unsigned)MIRROR_SAFE_FRAME_LEN);
 }
 
 /* mirror [0|1] - copy every eth0 (T1S) RX frame out eth1 so a PC on eth1 can
@@ -228,23 +306,107 @@ static void cmd_mirror(SYS_CMD_DEVICE_NODE* pCmdIO, int argc, char** argv) {
 
 /* sniffer [0|1] - like 'mirror', but without the destination-MAC filter on RX:
  * every frame eth0 receives is copied to eth1, including traffic between two
- * OTHER nodes on the bus that never involves this bridge. No argument shows
- * the current state. */
+ * OTHER nodes on the bus that never involves this bridge. Also disables the
+ * LAN8651's own transmitter for as long as it is on (see SNIFFER_Set()) -
+ * a passive tap, invisible on the bus, but normal PC<->T1S forwarding stops
+ * working meanwhile. No argument shows the current state. */
 static void cmd_sniffer(SYS_CMD_DEVICE_NODE* pCmdIO, int argc, char** argv) {
     if (argc >= 2) {
-        s_sniffer_on = (strtoul(argv[1], NULL, 0) != 0u);
+        SNIFFER_Set(strtoul(argv[1], NULL, 0) != 0u);
     }
     SYS_CONSOLE_PRINT("eth0(T1S)->eth1 sniffer: %s\n\r", s_sniffer_on ? "ON" : "OFF");
     if (s_sniffer_on) {
         SYS_CONSOLE_PRINT("  Capture on the PC (eth1) in Wireshark to see ALL T1S bus traffic,\n\r");
         SYS_CONSOLE_PRINT("  including frames between other nodes that do not involve this bridge.\n\r");
+        SYS_CONSOLE_PRINT("  T1S transmitter disabled (passive tap) - forwarding is paused meanwhile.\n\r");
     }
     mirror_print_dbg_counters();
+}
+
+/* bigframe <total_frame_len> - diagnostic only, unrelated to mirror/sniffer
+ * as such: builds and sends ONE raw Ethernet frame of the given total length
+ * (header+payload, no FCS - matches Wireshark's frame.len minus 4) straight
+ * out eth1 via DRV_GMAC_PacketTx(), bypassing the TCPIP stack, T1S, mirror
+ * and sniffer entirely. Sole purpose: isolate whether an oversized frame on
+ * eth1 alone reproduces the PC-side USB-NIC "adapter no longer attached"
+ * glitch found in this investigation (BANDWIDTH/sniffer sessions,
+ * 2026-08-27) - independent of anything happening on the T1S side, so a
+ * repro here rules T1S/mirror/iperf out entirely.
+ * dst = broadcast, src = eth1's own MAC, EtherType 0xFEED (a deliberately
+ * unregistered value, so the frame is unambiguous in a capture), payload =
+ * an incrementing byte pattern so length/content are easy to verify. */
+#define BIGFRAME_ETHERTYPE   0xFEEDu
+#define BIGFRAME_MIN_LEN     60u
+#define BIGFRAME_MAX_LEN     9000u
+
+/* TCPIP_PKT_PacketAlloc() does NOT set ackFunc (verified in tcpip_packet.c -
+ * both the debug and non-debug _TCPIP_PKT_PacketAllocInt() just memset the
+ * packet to 0) - a NULL ackFunc means DRV_GMAC_PacketTx() never frees the
+ * packet once it's done with it. Every bigframe call without this leaked
+ * one packet permanently, which is why repeated calls eventually hit
+ * "packet alloc failed" once the TCPIP heap ran dry. */
+static void bigframe_pkt_ack(TCPIP_MAC_PACKET *pkt, const void *param) {
+    (void) param;
+    TCPIP_PKT_PacketFree(pkt);
+}
+
+static void cmd_bigframe(SYS_CMD_DEVICE_NODE* pCmdIO, int argc, char** argv) {
+    uint32_t len;
+    uint32_t i;
+    uint8_t *frame;
+    const uint8_t *srcMac;
+    TCPIP_MAC_PACKET *pTx;
+    TCPIP_NET_HANDLE  eth1;
+
+    if (argc < 2) {
+        SYS_CONSOLE_PRINT("usage: bigframe <total_frame_len_bytes>  (%u..%u)\n\r",
+            (unsigned)BIGFRAME_MIN_LEN, (unsigned)BIGFRAME_MAX_LEN);
+        return;
+    }
+    len = strtoul(argv[1], NULL, 0);
+    if (len < BIGFRAME_MIN_LEN || len > BIGFRAME_MAX_LEN) {
+        SYS_CONSOLE_PRINT("bigframe: length must be %u..%u\n\r",
+            (unsigned)BIGFRAME_MIN_LEN, (unsigned)BIGFRAME_MAX_LEN);
+        return;
+    }
+
+    eth1 = TCPIP_STACK_IndexToNet(MIRROR_DST_IF);
+    if (eth1 == NULL) {
+        SYS_CONSOLE_PRINT("bigframe: eth1 not up\n\r");
+        return;
+    }
+
+    pTx = TCPIP_PKT_PacketAlloc(sizeof(TCPIP_MAC_PACKET), (uint16_t)len, 0);
+    if (pTx == NULL) {
+        SYS_CONSOLE_PRINT("bigframe: packet alloc failed\n\r");
+        return;
+    }
+
+    pTx->pMacLayer = pTx->pDSeg->segLoad;
+    frame = pTx->pMacLayer;
+    memset(frame, 0xFFu, 6u);                        /* dst = broadcast */
+    srcMac = TCPIP_STACK_NetAddressMac(eth1);
+    if (srcMac != NULL) {
+        memcpy(frame + 6, srcMac, 6u);
+    }
+    frame[12] = (uint8_t)(BIGFRAME_ETHERTYPE >> 8);
+    frame[13] = (uint8_t)(BIGFRAME_ETHERTYPE & 0xFFu);
+    for (i = 14u; i < len; i++) {
+        frame[i] = (uint8_t)(i & 0xFFu);
+    }
+    pTx->pDSeg->segLen = (uint16_t)len;
+    pTx->ackFunc  = bigframe_pkt_ack;
+    pTx->ackParam = NULL;
+
+    SYS_CONSOLE_PRINT("bigframe: sending %u-byte raw frame on eth1 (dst=broadcast, ethertype=0x%04X)\n\r",
+        (unsigned)len, (unsigned)BIGFRAME_ETHERTYPE);
+    (void) DRV_GMAC_PacketTx(((TCPIP_NET_IF*)eth1)->hIfMac, pTx);
 }
 
 static const SYS_CMD_DESCRIPTOR mirror_cmd_tbl[] = {
     {"mirror", (SYS_CMD_FNC) cmd_mirror, ": mirror eth0(T1S) RX+TX to eth1 for Wireshark (mirror [0|1])"},
     {"sniffer", (SYS_CMD_FNC) cmd_sniffer, ": mirror ALL eth0(T1S) RX to eth1, not just this bridge's own traffic (sniffer [0|1])"},
+    {"bigframe", (SYS_CMD_FNC) cmd_bigframe, ": send one raw oversized frame straight out eth1 (bigframe <total_len>)"},
 };
 
 void MIRROR_Initialize(void) {

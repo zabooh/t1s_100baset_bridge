@@ -543,11 +543,28 @@ static __inline__ void __attribute__((always_inline)) _DRV_GMAC_RxDelete(DRV_GMA
 {
 }
 
+/* Hand-patch, not generated (FALLSTRICKE.md, 2026-08-27 "PC-UDP-Flood legt eth1-RX lahm"):
+ * with no RTOS, _synchF is never set on this project, so the two branches below were a
+ * COMPLETE NO-OP - _RxQueue (the pool of freed RX packet buffers, singly-linked,
+ * manipulated by both this driver's own refill code and _MacRxPacketAck() when the
+ * TCPIP stack acknowledges a received packet) had no actual mutual exclusion at all.
+ * Confirmed by live memory read during a reproduced hang: _RxQueue.head == NULL while
+ * .tail and .nNodes still showed real content - impossible from
+ * DRV_PIC32CGMAC_SingleListTailAdd()/HeadRemove()'s own (correct) logic alone, so this
+ * must be a torn update from an unprotected concurrent modification. Falls back to a
+ * real global critical section (SYS_INT_Disable()/Restore(), already used elsewhere in
+ * this SDK, e.g. plib_nvic.c) whenever _synchF is unset, instead of doing nothing. */
+static bool _DRV_GMAC_RxCritState;
+
 static __inline__ void __attribute__((always_inline)) _DRV_GMAC_RxLock(DRV_GMAC_DRIVER * pMACDrv)
 {
     if(pMACDrv->sGmacData._synchF != 0)
     {
         (*pMACDrv->sGmacData._synchF)(&pMACDrv->sGmacData._syncRxH, TCPIP_MAC_SYNCH_REQUEST_CRIT_ENTER);
+    }
+    else
+    {
+        _DRV_GMAC_RxCritState = SYS_INT_Disable();
     }
 }
 
@@ -556,6 +573,10 @@ static __inline__ void __attribute__((always_inline)) _DRV_GMAC_RxUnlock(DRV_GMA
     if(pMACDrv->sGmacData._synchF != 0)
     {
         (*pMACDrv->sGmacData._synchF)(&pMACDrv->sGmacData._syncRxH, TCPIP_MAC_SYNCH_REQUEST_CRIT_LEAVE);
+    }
+    else
+    {
+        SYS_INT_Restore(_DRV_GMAC_RxCritState);
     }
 }
 #endif  // defined(DRV_GMAC_USE_RX_SEMAPHORE_LOCK)

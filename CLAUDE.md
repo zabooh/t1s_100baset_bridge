@@ -9,10 +9,10 @@
 
 | Datei | Zweck |
 |---|---|
-| `firmware\src\app.c` | App-Zustandsmaschine, Packet-Handler, Packet-Log (Ringpuffer + Drain), `stats`/`meminfo`/`dump`/`ipdump`/`logstat` |
+| `firmware\src\app.c` | App-Zustandsmaschine, Packet-Handler, Packet-Log (Ringpuffer + Drain), `stats`/`meminfo`/`dump`/`ipdump`/`logstat`/`uptime`/`history` |
 | `firmware\src\lan865x_diag.c` `.h` | **Registerzugriff, Testmodi, PLCA** — `lan_read`/`lan_write`/`lan_rmw`/`testmode`/`plca_node`. Eigenständig und in andere Projekte kopierbar: hängt nur am LAN865x-Treiber und an SYS_CMD/SYS_TIME/SYS_CONSOLE |
-| `firmware\src\port_mirror.c` `.h` | **Port-Mirror/SPAN** `eth0` → `eth1` — Kommando `mirror` (nur an die Bridge adressierte Frames) und `sniffer` (**alle** eth0-RX-Frames, auch zwischen zwei anderen Knoten — dieselbe RX-Hook ohne den Ziel-MAC-Filter, möglich weil der LAN865x-Treiber ohnehin promiscuous läuft). **Nicht** frei portierbar: braucht den TCP/IP-Stack, `DRV_GMAC_PacketTx` und den gepatchten LAN865x-Treiber (siehe `FALLSTRICKE.md`) |
-| `firmware\src\noip_test.c` `.h` | **Rohframe-Test** EtherType `0x88B5` ohne IP-Stack — `noip_send`/`noip_stat`. Besitzt EtherType, Frameaufbau, Zähler und Ausgabetexte. **Teilweise gekoppelt:** der Ringpuffer des Packet-Logs bleibt in `app.c` (teilt ihn mit `ipdump`), deshalb ruft `pktEth0Handler()` beim Empfang `NOIP_IsNoIpFrame`/`NOIP_CountRx`/`NOIP_SeqFromFrame` und die Drain-Schleife `NOIP_PrintRxLine()` |
+| `firmware\src\port_mirror.c` `.h` | **Port-Mirror/SPAN** `eth0` → `eth1` — Kommando `mirror` (nur an die Bridge adressierte Frames) und `sniffer` (**alle** eth0-RX-Frames, auch zwischen zwei anderen Knoten — dieselbe RX-Hook ohne den Ziel-MAC-Filter, möglich weil der LAN865x-Treiber ohnehin promiscuous läuft; schaltet zusätzlich den T1S-Transmitter ab, passiver Tap), dazu `bigframe` (Einzelframe direkt auf `eth1`, Diagnose). Gespiegelte Frames > 1514 Byte werden gekürzt, nicht durchgereicht (PC-seitiger USB-Adapter/Npcap-Aussetzer sonst, siehe `FALLSTRICKE.md` 2026-08-27 und `SNIFFER_1…4_*.md`). **Nicht** frei portierbar: braucht den TCP/IP-Stack, `DRV_GMAC_PacketTx` und den gepatchten LAN865x-Treiber (siehe `FALLSTRICKE.md`) |
+| `firmware\src\noip_test.c` `.h` | **Rohframe-Test** EtherType `0x88B5` ohne IP-Stack — `noip_send <n> [gap_ms] [size]`/`noip_stat`. Besitzt EtherType, Frameaufbau, Zähler und Ausgabetexte. **Teilweise gekoppelt:** der Ringpuffer des Packet-Logs bleibt in `app.c` (teilt ihn mit `ipdump`), deshalb ruft `pktEth0Handler()` beim Empfang `NOIP_IsNoIpFrame`/`NOIP_CountRx`/`NOIP_SeqFromFrame` und die Drain-Schleife `NOIP_PrintRxLine()` |
 | `firmware\src\env.c` | Persistente Konfiguration (IP/MAC/PLCA) im Emulated EEPROM |
 | `firmware\T1S_100BaseT_Bridge.X\` | MPLAB-X-Projekt (Makefiles, `dist\`) |
 | `README.md` | Ausführliche Projektdoku (**englisch**): Hardware-BOM, Architektur, CLI, Mirror, iperf, `env` |
@@ -276,16 +276,20 @@ vorher abklemmt, generischer Registerweg gegenüber den Komfort-Kommandos, Messp
 | Einzelne Bits setzen | `lan_rmw <addr> <mask> <val>` | `neu = (alt & ~mask) \| val`, danach maskierter Verify |
 | Test-Modi automatisch prüfen | `python test_lan8651.py --port COM8` | Readback + Verkehr-stoppt + Verkehr-kommt-wieder, Exitcode ≠ 0 bei Abweichung |
 | Endpoint-Verkehr zählen | `tshark` auf dem `eth1`-Adapter | der Endpoint sendet SOME/IP-SD mit 1 Hz von selbst — bestes Oracle ohne Messgerät |
-| Rohe Ethernet-Frames | `noip_send <n> [gap_ms]` / `noip_stat` | EtherType `0x88B5`, umgeht den TCP/IP-Stack — **bestes Mittel für reproduzierbare Scope-Bilder** |
-| SPAN nach `eth1` | `mirror [0\|1]` | T1S-Verkehr in Wireshark mitlesen |
+| Rohe Ethernet-Frames | `noip_send <n> [gap_ms] [size]` / `noip_stat` | EtherType `0x88B5`, umgeht den TCP/IP-Stack, `size` (Gesamtlänge, 60..1518, Default 60) seit 2026-08-27 — **bestes Mittel für reproduzierbare Scope-Bilder**. Bei `count > 1` teilen sich alle Frames einen Puffer (nur ein Zeiger wird eingereiht) — für saubere Wiederholung `noip_send 1 0 <size>` einzeln aufrufen, nicht auf die eingebaute Schleife verlassen (siehe `FALLSTRICKE.md`) |
+| Einzelner Rohframe direkt auf `eth1` | `bigframe <total_len>` (Bridge, 60..9000) | Diagnose, umgeht T1S/Mirror-Pool komplett — Ziel Broadcast, EtherType `0xFEED` |
+| SPAN nach `eth1` | `mirror [0\|1]` | Bridge-eigener T1S-Verkehr (RX+TX) in Wireshark mitlesen |
+| Passiver Bus-Tap | `sniffer [0\|1]` | wie `mirror`, aber ALLER `eth0`-Verkehr inkl. fremder Knoten; schaltet zusätzlich den T1S-Transmitter ab (`T1SPMACTL.TXD`) — Bridge sendet währenddessen selbst nichts, auch kein Forwarding. Frames > 1514 Byte werden vor dem Spiegeln auf 1514 gekürzt (PC-seitiger USB-Adapter/Npcap-Aussetzer bei größeren Frames, siehe `FALLSTRICKE.md` 2026-08-27) |
 | Zähler | `stats` | belastet den SPI-Pfad nicht |
 | Durchsatz | `iperf …` / `iperfk` | Dauerlast |
+| Laufzeit seit Boot | `uptime` | erkennt einen stillen Neustart (Watchdog/Assert-Loop/`pyocd reset`), den sonst nichts anzeigt |
+| Bisherige Kommandos | `history` | letzte 20 eingegebene CLI-Kommandos |
 | PLCA-Node-ID | `plca_node [id]` | 0 = Coordinator (volatil) |
 | Persistente Config | `showenv` / `setenv` / `saveenv` / `readenv` / `resetenv` | IP, MAC, `plca_id`, `plca_cnt` |
 | Speicher | `dump <addr> <count>`, `meminfo` | |
 
-`mirror` und `noip_send` sind während eines aktiven Test-Modus sinnlos — der Link ist unterbrochen.
-Erst zurückstellen, dann Verkehr messen.
+`mirror`/`sniffer` und `noip_send` sind während eines aktiven Test-Modus sinnlos — der Link ist
+unterbrochen. Erst zurückstellen, dann Verkehr messen.
 
 ---
 

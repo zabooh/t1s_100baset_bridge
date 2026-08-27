@@ -477,6 +477,14 @@ Regel: siehe `CLAUDE.md` Abschnitt 7 „Erkenntnisse festhalten". Neue Einträge
   (`tcpip_packet.c`). Der einzige Schutz ist Disziplin im eigenen Code: nie `PacketFree`
   aufrufen, nur über die eigene Ack-Funktion ins eigene Pool zurücklegen — exakt das Muster, das
   `drv_lan865x_api.c`s `_RxPacketAck()` für die eigenen RX-Puffer schon vorlebt.
+- **2026-08-27 — Fixed-Pool-Fix für `sniffer` an echter Hardware nachgetestet: 0 Drops.**
+  PC↔Follower-Dauerlast über die Bridge erzeugt (`bandwidth_ramp_client.exe`, ~2 Mbit/s,
+  ~13 s, bis die Verbindung am bekannten PC↔Follower-Ceiling mit `WSAECONNRESET` abbrach —
+  ein separater, bereits dokumentierter Bug, hier irrelevant), `sniffer 1` auf der Bridge
+  parallel an. Debug-Zähler vor/nach: `rx_hook=477 passed_filter=477 pool_empty=0 no_eth1=0
+  tx_submitted=477` — jeder einzelne Frame, der den Filter passierte, wurde auch tatsächlich
+  an eth1 übergeben, kein einziger Pool-Engpass. Bestätigt den Fix aus dem Eintrag direkt
+  darüber unter realer Bus-Last, nicht nur aus dem Code geschlossen.
 - **2026-08-27 — Neues, eigenes Modul `testserver.c` (TCP-Echo-Server für Bandbreitentests)
   hatte zwei unabhängige, schwerwiegende Bugs, beide erst durch einen bewusst
   thread-freien C-Referenzclient von einem unzuverlässigen Python-Client unterscheidbar.**
@@ -539,3 +547,146 @@ Regel: siehe `CLAUDE.md` Abschnitt 7 „Erkenntnisse festhalten". Neue Einträge
   Zähler einbauen und messen, bevor man den Code umbaut** — der Umbau hier kostete eine
   Baue-Flash-Test-Runde und brachte nichts, weil die Theorie falsch war; die Messung hätte das
   vorher gezeigt.
+- **2026-08-27 — `sniffer`/`mirror` an `eth1` gespiegelte Frames über ~1514 Byte legten
+  wiederholt die USB-Ethernet-Schnittstelle des PCs lahm (Npcap "adapter no longer
+  attached", Wireshark-Capture bricht ab) — Ursache liegt nachweislich AUSSERHALB dieser
+  Firmware.** Volle Untersuchung in `SNIFFER_1_HYPOTHESEN.md` bis `SNIFFER_4_ERGEBNISSE.md`.
+  Kernbeweis: neue Zähler in `port_mirror.c` (`ack_ok`/`ack_fail`, ausgewertet aus
+  `pkt->ackRes`, dem vom GMAC-Treiber selbst beim TX-Abschluss gesetzten Ergebniscode, nicht
+  nur "API aufgerufen" wie der alte `tx_submitted`) zeigten **100 % treiberbestätigten
+  Sendeerfolg für jeden einzelnen Frame, auch die größten** — während im PC-Mitschnitt im
+  selben Zeitfenster **0 von 985** derselben Frames ankamen. Kein Windows-Ereignisprotokoll-
+  Eintrag (`Kernel-PnP`) belegt eine echte USB-Trennung. Ein direkter PC→Bridge-iperf-Test
+  (realer `iperf2`-Client vom PC, **nicht** über den Mirror-Pfad, sondern normaler
+  Netzwerkstack) lief bei identischer Framegröße fehlerfrei (0/852). **Schlussfolgerung: die
+  Ursache ist eine Eigenheit von Npcap/dem USB-Ethernet-Adapter dieses PCs beim Rohpaket-
+  Mitschnitt großer Frames — kein Firmware-Bug.** **Umgesetzte Abmilderung** (kein echter
+  Fix, da extern): `mirror_ethpkt_to_eth1()` kürzt gespiegelte Frames jetzt auf
+  `MIRROR_SAFE_FRAME_LEN` (1514 Byte) statt sie unverändert durchzureichen — wirkt nur auf
+  die Diagnose-Kopie (beide Aufrufer von `mirror_ethpkt_to_eth1()` sind durch
+  `if (!s_mirror_on && !s_sniffer_on) return;` bzw. `if (!s_mirror_on) return;` abgesichert),
+  die eigentliche PC↔T1S-Weiterleitung läuft komplett getrennt über
+  `tcpip_mac_bridge.c` und ist strukturell unberührt. Verifiziert: 1840/1840 gekürzte Frames
+  kamen an, keine Adapter-Aussetzer mehr.
+  **Nebenbefund, separater Bug:** `TC6_SendRawEthernetPacket()` (genutzt von `noip_send`/
+  `bigframe`, der unsegmentierte Rohframe-Pfad) verliert Frames über ~1514 Byte spurlos — der
+  Sender meldet Erfolg (auch der eigene `eth0 TX`-Hardwarezähler zeigt `ok`, `err=0`), aber
+  niemand empfängt etwas, nicht mal als Fehler gezählt. Vermutlich unzureichendes Nachziehen
+  von `serviceData()` bei einem einzelnen, großen Chunk-Batch (`tc6.c:304`, nur ein Aufruf
+  direkt beim Einreihen). **Nicht behoben, nicht root-caused** — betrifft einen anderen
+  Sendepfad als der Mirror-Bug (segmentierter Stack-Pfad über `iperf`/TCP/UDP war die ganze
+  Zeit fehlerfrei bis 1468 Byte Nutzlast).
+  **Sackgasse, nicht weiter verfolgen:** `noip_send <n> <gap> <size>`s eigene Mehrfachschleife
+  reicht nur einen **Zeiger** auf einen einzigen, wiederverwendeten Puffer an
+  `TC6_SendRawEthernetPacket()` weiter (keine Kopie) — bei `count > 1` überschreibt der
+  nächste Aufruf den Puffer, bevor der vorherige Frame fertig übertragen ist. Für
+  Wiederholungstests stattdessen `noip_send 1 0 <size>` einzeln aus einem Skript aufrufen
+  (wie `NOIP_SendOne()` es für den PTP-Trigger-Pfad bereits vormacht), nicht die eingebaute
+  Schleife.
+- **2026-08-27 — Echter PC→Bridge-UDP-Flood (`iperf -b <bandbreite>` von einem realen
+  PC-Client, nicht die Bridge-eigene Test-Suite) legt `eth1`-RX ab irgendwo zwischen 20 und
+  30 Mbit/s dauerhaft lahm — kein Zählerartefakt, keine Selbstheilung, nur ein Reset hilft.**
+  Reproduziert mit `iperf.exe -c 192.168.0.210 -B 192.168.0.100 -b 10000000..100000000`
+  (`-b` schaltet automatisch auf UDP, kein `-u` nötig). Bis 20 Mbit/s (auch dreimal
+  hintereinander gegen dieselbe Server-Instanz) lief alles sauber (`stats` `err=0`,
+  `eth1 RX` zählt normal mit). Nach den Läufen bei 30/60/100 Mbit/s: `eth1 RX` **eingefroren**
+  auf dem letzten Wert vor der Eskalation, auch bei einem anschließenden Lauf mit nur
+  1 Mbit/s — keine Erholung. **Konsole bleibt die ganze Zeit voll erreichbar** (`uptime`/
+  `stats` antworten normal, kein Absturz) — nur der `eth1`-Datenempfang ist tot. Per
+  `tshark`-Mitschnitt bestätigt: ab ca. 4,5 s nach Beginn der Eskalation beantwortet die
+  Bridge **keine einzige ARP-Anfrage mehr**, für den Rest des 120-s-Mitschnitts — nicht nur
+  UDP-Port-5001-spezifisch, `eth1`-RX ist grundsätzlich tot (bestätigt auch per `ping`:
+  "Destination host unreachable" von der PC-eigenen Adresse, also keine ARP-Antwort). Nach
+  `pyocd reset` sofort wieder normal (`eth1 RX` zählt, `ping` antwortet mit `<1ms`). **Nicht
+  root-caused** — offener Punkt für eine Folge-Session: vermutlich eine echte
+  GMAC-Ressourcenerschöpfung oder ein Deskriptor-/Interrupt-Problem im
+  `drv_gmac.c`/`drv_gmac_lib_samE5x.c`-Pfad bei sehr hoher, ungebremster eingehender
+  Paketrate auf `eth1` — unabhängig vom Sniffer/Mirror-Thema (`SNIFFER_1…4_*.md`), da hier
+  gar kein Mirror/Sniffer aktiv war und die Bridge selbst der Zielport war, nicht T1S.
+  **Nachtrag — Root Cause per Live-Speicherauslesen gefunden (`dump <addr> <count>` über
+  die Konsole, während die Bridge im toten Zustand war; Adressen aus der `.map`-Datei und
+  den Struct-Definitionen berechnet, siehe unten):**
+  1. **Der RX-Deskriptor-Ring für `eth1` ist fest auf 8 Einträge hartkodiert**
+     (`initialization.c:454`, `.nRxDescCnt = 8`) — die in `configuration.h` konfigurierten
+     "dynamischen Zusatzpuffer"-Konstanten (`TCPIP_GMAC_RX_ADDL_BUFF_COUNT_QUE0`,
+     `RX_BUFF_COUNT_THRESHOLD_QUE0`, `RX_BUFF_ALLOC_COUNT_QUE0`) werden **nirgends im
+     Treiber (`drv_gmac.c`, `drv_gmac_lib_samE5x.c`) referenziert** — toter Code, keine
+     echte dynamische Nachlieferung existiert.
+  2. **`nRxBuffNotAvailable`** (das `stats` als `eth1 RX nobufs` anzeigt) **wird im
+     GMAC-Treiber nirgends beschrieben** (verifiziert: kein einziges Vorkommen in
+     `drv_gmac.c` außer der Nullinitialisierung) — dieser Zähler kann für `eth1` strukturell
+     nie etwas anderes als 0 zeigen, unabhängig vom tatsächlichen Zustand. Erklärt, warum
+     beim Hänger nirgends ein Fehler sichtbar war.
+  3. **Live-Speicherauslesen während des reproduzierten Hängers** (RX-Deskriptor-Array bei
+     `0x2000C5A8`, `gmac_queue[0]` bei `0x2000C810`, beide Adressen aus der `.map`-Datei +
+     Struct-Layout von Hand berechnet, per `dump` bestätigt): **alle 8 RX-Deskriptoren**
+     zeigen `rx_desc_buffaddr = 0x00000001` (bzw. `0x3` beim Wrap-Eintrag) — Ownership-Bit
+     software-eigen gesetzt, aber **Adressteil komplett gelöscht** (`& ~GMAC_RX_ADDRESS_MASK`,
+     passiert beim Extrahieren eines Pakets aus dem Ring, siehe
+     `drv_gmac_lib_samE5x.c:1298`) — alle 8 warten auf Neubefüllung, die nie kommt.
+  4. **Der Puffer-Rückgabepool `_RxQueue` selbst ist korrumpiert:** `head=0x00000000`
+     (NULL), aber `tail=0x20016100` und `nNodes=9` — für die (korrekte!)
+     Single-Linked-List-Logik in `DRV_PIC32CGMAC_SingleListTailAdd()`/`HeadRemove()`
+     eigentlich unmöglich ohne Nebenläufigkeitsfehler. **9 freigegebene Puffer sitzen
+     unerreichbar in der Liste** (`SingleListHeadRemove()` liest nur `head`, findet `NULL`,
+     gibt sofort auf), obwohl genug Material zum Nachfüllen da wäre.
+  5. **Vermuteter Mechanismus:** `_DRV_GMAC_RxLock()`/`_DRV_GMAC_RxUnlock()`
+     (`drv_gmac_local.h:519-533`) sind **komplette No-Ops**, wenn `_synchF == 0` — in diesem
+     RTOS-losen Bare-Metal-Projekt mit hoher Wahrscheinlichkeit nie gesetzt. Ohne echten
+     Lock kann ein Interrupt mitten in `SingleListTailAdd()`/`HeadRemove()` dazwischenfunken
+     und die Liste zerreißen — passt exakt zum beobachteten Muster (`head` verloren,
+     `tail`/`nNodes` noch intakt).
+  6. **Selbst wenn `_RxQueue` intakt wäre, gäbe es noch das strukturelle Problem:** das
+     Nachfüllen der Hardware-Deskriptoren aus `_RxQueue`
+     (`DRV_PIC32CGMAC_LibRxBuffersAppend()`) wird nur als **Nebeneffekt erfolgreicher
+     Paketverarbeitung** angestoßen (`DRV_PIC32CGMAC_LibRxGetPacket()`, Aufrufe bei
+     `drv_gmac_lib_samE5x.c:1305/1330/1450`). Ist der Ring einmal komplett leer, findet
+     `_SearchRxPacket()` nie wieder ein gültiges Paket — und damit wird auch das Nachfüllen
+     nie wieder ausgelöst, selbst wenn `_RxQueue` gesunde Puffer enthielte. Ein
+     struktureller Teufelskreis, unabhängig vom Race-Condition-Befund unter Punkt 4/5.
+  **Fazit:** mindestens zwei, vermutlich zusammenwirkende Treiberfehler (Race Condition in
+  der ungesicherten Liste + fehlender Retrigger-Mechanismus fürs Nachfüllen) — kein
+  Anwendungscode dieses Projekts beteiligt, Ursache sitzt tief im MPLAB-Harmony-eigenen
+  `drv_gmac`-Treiber. **Nicht behoben** — ein echter Fix bräuchte entweder einen
+  funktionierenden Lock (`_synchF` wirklich verdrahten) oder einen expliziten
+  Retrigger-Mechanismus fürs Nachfüllen unabhängig vom Paketverarbeitungspfad, oder beides.
+  **Nachtrag — zwei Fix-Versuche im Treiber selbst, Ergebnis: deutliche Verbesserung, kein
+  vollständiger Fix.**
+  1. **`_DRV_GMAC_RxLock()`/`_DRV_GMAC_RxUnlock()`** (`drv_gmac_local.h`) fallen jetzt auf
+     `SYS_INT_Disable()`/`SYS_INT_Restore()` zurück, wenn `_synchF==0` (No-RTOS-Fall dieses
+     Projekts) — echter globaler kritischer Abschnitt statt No-Op.
+  2. **`DRV_PIC32CGMAC_LibRxBuffersAppend()`** (`drv_gmac_lib_samE5x.c`) wird jetzt
+     zusätzlich **unconditional, einmal pro Ring-Index einzeln**, am Anfang von
+     `DRV_PIC32CGMAC_LibRxGetPacket()` aufgerufen — nicht mehr nur als Nebeneffekt
+     erfolgreicher Paketverarbeitung (bricht den unter Punkt 6 oben beschriebenen
+     Teufelskreis).
+  3. **Nachbesserung:** die ursprünglich **zwei getrennten** Lock/Unlock-Fenster in
+     `LibRxBuffersAppend()` (eines um `SingleListHeadRemove()`, eines um den
+     Deskriptor-Schreibzugriff, mit kurz wieder aktivierten Interrupts dazwischen) zu
+     **einem** durchgehenden kritischen Abschnitt zusammengefasst (Pufferentnahme +
+     Deskriptor-Schreiben + `pRxPckt[]`-Buchführung).
+
+  **Verifiziert mit demselben PC→Bridge-UDP-Flood-Test, mehrere Runden:**
+
+  | Zustand | Schwelle bis zum Hänger | Betroffene Deskriptoren |
+  |---|---|---|
+  | vor jedem Fix | ~20–30 Mbit/s | 8/8 |
+  | nach Fix 1+2 | 60 Mbit/s sauber, 100 Mbit/s bricht | 2/8 |
+  | nach Fix 3 (zusammengefasster Lock) | ~85–100 Mbit/s | 1/8 |
+
+  **Wichtiger Zusatzbefund, warum selbst 1/8 kaputte Deskriptoren die Bridge komplett
+  taub macht:** Datenblatt zu `GMAC_RSR.BNA` (§24.9.9): „The DMA will re-read the
+  **pointer** each time an end of frame is received until a valid pointer is found" —
+  die Hardware bleibt an der **aktuellen Ringposition** hängen und prüft nur genau
+  diesen einen Zeiger erneut, sie springt nicht zu den anderen, gesunden Deskriptoren
+  weiter. Ein einziger korrupter Slot genügt deshalb für einen kompletten
+  Empfangsausfall, unabhängig davon, wie viele der übrigen 7 noch frei wären.
+
+  **Fazit:** Die Race Condition wurde mit jedem Schritt kleiner (8/8 → 2/8 → 1/8
+  betroffene Deskriptoren, Schwelle 20–30 → 85–100 Mbit/s), aber **nicht vollständig
+  beseitigt** — es gibt offenbar noch mindestens eine weitere, nicht gefundene
+  ungesicherte Zugriffsstelle (vermutlich im GMAC-eigenen Interrupt-Handler, der in
+  diese Untersuchung noch nicht einbezogen wurde). Für den praktischen Betrieb bereits
+  ein sehr deutlicher Gewinn (Alltagslast bricht das nicht mehr aus), aber kein
+  beweisbar vollständiger Fix. Beide Patches sind Hand-Patches an generiertem
+  Harmony-Code (wie der LAN865x-TX-Hook) — gehen bei MCC-Neugenerierung verloren.

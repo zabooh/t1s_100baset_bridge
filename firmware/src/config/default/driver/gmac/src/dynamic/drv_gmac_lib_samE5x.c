@@ -297,39 +297,49 @@ DRV_PIC32CGMAC_RESULT DRV_PIC32CGMAC_LibRxBuffersAppend(DRV_GMAC_DRIVER* pMACDrv
         
         if(pMACDrv->sGmacData.gmac_queue[queueIdx].pRxPckt[desc_idx] == 0)
         {
+            /* Hand-patch, not generated (FALLSTRICKE.md, 2026-08-27 "PC-UDP-Flood legt
+             * eth1-RX lahm", follow-up after the first fix only raised the threshold
+             * instead of eliminating the race): this used to be TWO separate Lock/Unlock
+             * windows - one around SingleListHeadRemove(), one around the descriptor
+             * write - with interrupts briefly re-enabled in between. Individually correct,
+             * but the whole "take a buffer out of the pool, then wire it into this
+             * descriptor" sequence was not atomic AS A WHOLE, so a GMAC RX interrupt
+             * landing in that gap could still interleave with it. Re-verified live under
+             * a 100 Mbit/s flood after the first fix: still corrupted _RxQueue (head=0,
+             * tail=0, nNodes=3), just far less often (2/8 descriptors stuck instead of
+             * 8/8, and only above ~100 Mbit/s instead of ~20-30). Merged into one
+             * critical section covering the pool removal, the descriptor write, and the
+             * pRxPckt[] bookkeeping - nothing in between can be interrupted anymore. */
             _DRV_GMAC_RxLock(pMACDrv);
             pPacket = (TCPIP_MAC_PACKET *)DRV_PIC32CGMAC_SingleListHeadRemove(&pMACDrv->sGmacData.gmac_queue[queueIdx]._RxQueue);
-            _DRV_GMAC_RxUnlock(pMACDrv);
-            
+
             if(pPacket != NULL)
             {
-                uint32_t segBuffer = (uint32_t)(pPacket->pDSeg->segBuffer) & GMAC_RX_ADDRESS_MASK;   // should be 4-byte aligned                
-                _DRV_GMAC_RxLock(pMACDrv);          
+                uint32_t segBuffer = (uint32_t)(pPacket->pDSeg->segBuffer) & GMAC_RX_ADDRESS_MASK;   // should be 4-byte aligned
                 /* Reset status value. */
                 pMACDrv->sGmacData.gmac_queue[queueIdx].pRxDesc[desc_idx].rx_desc_status.val = 0;
-                
+
                 if (desc_idx == pMACDrv->sGmacData.gmacConfig.gmac_queue_config[queueIdx].nRxDescCnt - 1)
                 {
                     pMACDrv->sGmacData.gmac_queue[queueIdx].pRxDesc[desc_idx].rx_desc_buffaddr.val =  segBuffer | GMAC_RX_WRAP_BIT;
                 }
                 else
                 {
-                    pMACDrv->sGmacData.gmac_queue[queueIdx].pRxDesc[desc_idx].rx_desc_buffaddr.val =  segBuffer;  
-                }                    
-
-                _DRV_GMAC_RxUnlock(pMACDrv);            
+                    pMACDrv->sGmacData.gmac_queue[queueIdx].pRxDesc[desc_idx].rx_desc_buffaddr.val =  segBuffer;
+                }
 
                 // set the packet acknowledgment
                 pPacket->ackFunc = (TCPIP_MAC_PACKET_ACK_FUNC)_MacRxPacketAck;
                 pPacket->ackParam = pMACDrv;
                 //Clear the packet flags
-                pPacket->pktFlags = 0;        
+                pPacket->pktFlags = 0;
                 /* Save packet pointer */
                 pMACDrv->sGmacData.gmac_queue[queueIdx].pRxPckt[desc_idx] = pPacket;
                 pPacket->next = 0;
-                
+
                 GCIRC_INC(desc_idx,nRxDescCnt );
-            }   
+            }
+            _DRV_GMAC_RxUnlock(pMACDrv);
 
         }
 
@@ -776,6 +786,32 @@ DRV_PIC32CGMAC_RESULT DRV_PIC32CGMAC_LibRxGetPacket(DRV_GMAC_DRIVER * pMACDrv, T
     if(!pRxPkt)
     {
         return res;
+    }
+
+    /* Hand-patch, not generated (FALLSTRICKE.md, 2026-08-27 "PC-UDP-Flood legt eth1-RX
+     * lahm"): DRV_PIC32CGMAC_LibRxBuffersAppend() - the only place that refills an empty
+     * descriptor slot from the free _RxQueue pool - was previously called ONLY as a side
+     * effect further down in this function, after successfully finding+extracting a
+     * valid packet. Once every descriptor is empty (pRxPckt[i]==0, exhausted under a
+     * sustained high-rate flood faster than the upper layer could acknowledge received
+     * packets), _SearchRxPacket() below can never find a valid frame again - so the
+     * refill call was never reached again either, even though acknowledged buffers kept
+     * accumulating in _RxQueue. A structural deadlock, confirmed live (RX descriptors
+     * stuck at ownership=software/address=0 while _RxQueue had free nodes). Calling it
+     * unconditionally here, once per poll, breaks that dependency.
+     * One call per index, not one call covering the whole ring: LibRxBuffersAppend()'s
+     * own desc_idx only advances past a slot that WAS empty and got refilled (see its
+     * GCIRC_INC placement) - a single call across the whole range would get stuck
+     * re-checking index 0 forever whenever it already holds a packet (the normal case),
+     * never reaching 1..7. Calling with count=1 per index sidesteps that without having
+     * to touch that function's existing loop, which real call sites still rely on as-is. */
+    {
+        uint16_t refill_idx;
+        uint16_t nRxDescCntAll = pMACDrv->sGmacData.gmacConfig.gmac_queue_config[queueIdx].nRxDescCnt;
+        for (refill_idx = 0u; refill_idx < nRxDescCntAll; refill_idx++)
+        {
+            (void) DRV_PIC32CGMAC_LibRxBuffersAppend(pMACDrv, queueIdx, refill_idx, 1);
+        }
     }
 
     //Search all Rx descriptors for a valid rx packet

@@ -1023,6 +1023,16 @@ static void ParseCmdBuffer(SYS_CMD_IO_DCPT* pCmdIO)
             CmdAddHead(&pCmdIO->histList, pN);
             pCmdIO->currHistN = NULL;
 
+            /* Hand-patch, not generated: COMMAND_HISTORY_DEPTH above is only 4
+             * (sized for up/down-arrow recall), not enough for a 'history'
+             * command that lists everything typed. app.c keeps its own,
+             * deeper ring buffer and is the only reason for this line - same
+             * kind of patch, same risk, as the LAN865x driver's
+             * mirror_eth0_tx_hook() call (see port_mirror.h): re-running MCC
+             * code generation on this file removes it silently. */
+            extern void CmdHist_Log(const char* cmd);
+            CmdHist_Log(pCmdIO->cmdBuff);
+
             // try built-in commands first
             ix = 0;
             pDcpt = builtinCmdTbl;

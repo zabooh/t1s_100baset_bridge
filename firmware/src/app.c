@@ -264,6 +264,8 @@ static void test_help(SYS_CMD_DEVICE_NODE* pCmdIO, int argc, char** argv) {
     SYS_CONSOLE_PRINT("Test group commands:\n\r");
     SYS_CONSOLE_PRINT("  help                         - Show this help\n\r");
     SYS_CONSOLE_PRINT("  timestamp                    - Show build timestamp\n\r");
+    SYS_CONSOLE_PRINT("  uptime                       - Time since boot/last reset\n\r");
+    SYS_CONSOLE_PRINT("  history                      - Show all previously entered CLI commands\n\r");
     SYS_CONSOLE_PRINT("  ipdump <mode>                - Dump RX IP packets (0=off, 1=eth0, 2=eth1, 3=both)\n\r");
     SYS_CONSOLE_PRINT("  stats                        - Show TX/RX software counters for eth0 and eth1\n\r");
     SYS_CONSOLE_PRINT("  dump <addr> <count>          - Dump memory (hex addr, count)\n\r");
@@ -661,9 +663,62 @@ static void cmd_meminfo(SYS_CMD_DEVICE_NODE* pCmdIO, int argc, char** argv) {
     }
 }
 
+/* Deeper command history than the console's own (COMMAND_HISTORY_DEPTH=4,
+ * sized only for up/down-arrow recall) - CmdHist_Log() is called from a
+ * hand-patch in sys_command.c's ParseCmdBuffer(), see the comment there.
+ * Ring buffer, oldest entry silently overwritten once full. */
+#define CMD_HISTORY_DEPTH  20u
+static char    s_cmd_history[CMD_HISTORY_DEPTH][SYS_CMD_MAX_LENGTH + 1];
+static uint8_t s_cmd_history_head = 0u;      /* next slot to write */
+static bool    s_cmd_history_wrapped = false;
+
+void CmdHist_Log(const char* cmd) {
+    strncpy(s_cmd_history[s_cmd_history_head], cmd, sizeof(s_cmd_history[0]) - 1u);
+    s_cmd_history[s_cmd_history_head][sizeof(s_cmd_history[0]) - 1u] = '\0';
+    s_cmd_history_head++;
+    if (s_cmd_history_head >= CMD_HISTORY_DEPTH) {
+        s_cmd_history_head = 0u;
+        s_cmd_history_wrapped = true;
+    }
+}
+
+static void cmd_history(SYS_CMD_DEVICE_NODE* pCmdIO, int argc, char** argv) {
+    uint8_t count = s_cmd_history_wrapped ? CMD_HISTORY_DEPTH : s_cmd_history_head;
+    uint8_t start = s_cmd_history_wrapped ? s_cmd_history_head : 0u;
+    uint8_t i;
+    (void)pCmdIO; (void)argc; (void)argv;
+
+    SYS_CONSOLE_PRINT("command history: %u/%u, oldest first (this command included)\r\n",
+        (unsigned)count, (unsigned)CMD_HISTORY_DEPTH);
+    for (i = 0u; i < count; i++) {
+        uint8_t idx = (uint8_t)((start + i) % CMD_HISTORY_DEPTH);
+        SYS_CONSOLE_PRINT("  %2u: %s\r\n", (unsigned)(i + 1u), s_cmd_history[idx]);
+    }
+}
+
+/* Time since boot/last reset, human-readable - the fast way to tell "the
+ * board is still the same process that was running before" from "it silently
+ * rebooted (watchdog, assert loop, pyocd reset) and only looks the same". */
+static void cmd_uptime(SYS_CMD_DEVICE_NODE* pCmdIO, int argc, char** argv) {
+    uint64_t ticks = SYS_TIME_Counter64Get();
+    uint32_t freq = SYS_TIME_FrequencyGet();
+    uint64_t total_s = (freq != 0u) ? (ticks / freq) : 0u;
+    uint32_t days  = (uint32_t)(total_s / 86400ULL);
+    uint32_t hours = (uint32_t)((total_s % 86400ULL) / 3600ULL);
+    uint32_t mins  = (uint32_t)((total_s % 3600ULL) / 60ULL);
+    uint32_t secs  = (uint32_t)(total_s % 60ULL);
+    (void)pCmdIO; (void)argc; (void)argv;
+
+    SYS_CONSOLE_PRINT("uptime: %ud %02u:%02u:%02u  (%lu s since boot/last reset)\r\n",
+        (unsigned)days, (unsigned)hours, (unsigned)mins, (unsigned)secs,
+        (unsigned long)total_s);
+}
+
 const SYS_CMD_DESCRIPTOR msd_cmd_tbl[] = {
     {"help", (SYS_CMD_FNC) test_help, ": show Test group commands"},
     {"timestamp", (SYS_CMD_FNC) show_timestamp, ": show build timestamp"},
+    {"uptime", (SYS_CMD_FNC) cmd_uptime, ": time since boot/last reset (d hh:mm:ss)"},
+    {"history", (SYS_CMD_FNC) cmd_history, ": show all previously entered CLI commands"},
     {"ipdump", (SYS_CMD_FNC) my_dump, ": dump rx ip packets (0:off 1:eth0 2:eth1 3:both)"},
     {"stats", (SYS_CMD_FNC) cmd_stats, ": show TX/RX counters for eth0 and eth1"},
     {"meminfo", (SYS_CMD_FNC) cmd_meminfo, ": free memory on the C-runtime heap and the TCP/IP heap"},

@@ -38,13 +38,21 @@
 /* Interface the frames go out of: 0 = eth0, the 10BASE-T1S MAC-PHY. */
 #define NOIP_IF          0u
 
-#define NOIP_FRAME_LEN   60u     /* minimum legal Ethernet frame, so nothing pads it */
-#define NOIP_MAX_COUNT   100u
+#define NOIP_FRAME_LEN   60u     /* default/minimum legal Ethernet frame length */
+#define NOIP_MAX_FRAME_LEN 1518u /* standard max Ethernet frame (no FCS) - see the
+                                   * optional [size] arg of noip_send, added for the
+                                   * sniffer/mirror large-frame investigation
+                                   * (BANDWIDTH/FALLSTRICKE.md, 2026-08-27): lets a
+                                   * follower push a controlled-size, controlled-rate
+                                   * raw frame straight at the bridge's real RX mirror
+                                   * path (MIRROR_Eth0Rx()), instead of relying on
+                                   * iperf's own pacing/segmentation. */
+#define NOIP_MAX_COUNT   1000u
 #define NOIP_MAX_GAP_MS  1000u
 
 static uint32_t s_tx_cnt = 0u;
 static uint32_t s_rx_cnt = 0u;
-static uint8_t  s_frame[NOIP_FRAME_LEN];
+static uint8_t  s_frame[NOIP_MAX_FRAME_LEN];
 
 uint32_t NOIP_TxCount(void) { return s_tx_cnt; }
 uint32_t NOIP_RxCount(void) { return s_rx_cnt; }
@@ -88,13 +96,19 @@ static void noip_wait_ms(uint32_t ms)
     }
 }
 
-/* noip_send <n> [gap_ms]  - send N raw Ethernet frames (EtherType 0x88B5) on eth0/T1S */
+/* noip_send <n> [gap_ms] [size]  - send N raw Ethernet frames (EtherType
+ * 0x88B5) on eth0/T1S. size (total frame length, no FCS) defaults to
+ * NOIP_FRAME_LEN (60, the Ethernet minimum) and is clamped to
+ * 60..NOIP_MAX_FRAME_LEN - lets a follower push controlled-size,
+ * controlled-rate frames straight at another node's real RX path. */
 static void cmd_noip_send(SYS_CMD_DEVICE_NODE *pCmdIO, int argc, char **argv)
 {
     uint32_t count = 5u;
     uint32_t gap_ms = 0u;
+    uint32_t size = NOIP_FRAME_LEN;
     if (argc >= 2) { count = (uint32_t)strtoul(argv[1], NULL, 10); }
     if (argc >= 3) { gap_ms = (uint32_t)strtoul(argv[2], NULL, 10); }
+    if (argc >= 4) { size = (uint32_t)strtoul(argv[3], NULL, 10); }
     if (count == 0u || count > NOIP_MAX_COUNT) {
         SYS_CONSOLE_PRINT("[NoIP] count must be 1..%u\r\n", (unsigned)NOIP_MAX_COUNT);
         return;
@@ -103,8 +117,13 @@ static void cmd_noip_send(SYS_CMD_DEVICE_NODE *pCmdIO, int argc, char **argv)
         SYS_CONSOLE_PRINT("[NoIP] gap_ms must be 0..%u\r\n", (unsigned)NOIP_MAX_GAP_MS);
         return;
     }
+    if (size < NOIP_FRAME_LEN || size > NOIP_MAX_FRAME_LEN) {
+        SYS_CONSOLE_PRINT("[NoIP] size must be %u..%u\r\n", (unsigned)NOIP_FRAME_LEN, (unsigned)NOIP_MAX_FRAME_LEN);
+        return;
+    }
 
-    SYS_CONSOLE_PRINT("[NoIP-TX] start count=%u gap_ms=%u\r\n", (unsigned)count, (unsigned)gap_ms);
+    SYS_CONSOLE_PRINT("[NoIP-TX] start count=%u gap_ms=%u size=%u\r\n",
+        (unsigned)count, (unsigned)gap_ms, (unsigned)size);
 
     /* Get our MAC from the T1S interface (index 0 = eth0) */
     TCPIP_NET_HANDLE netH = TCPIP_STACK_IndexToNet(NOIP_IF);
@@ -118,8 +137,8 @@ static void cmd_noip_send(SYS_CMD_DEVICE_NODE *pCmdIO, int argc, char **argv)
     /* EtherType 0x88B5 */
     s_frame[12] = (uint8_t)((NOIP_ETHERTYPE >> 8u) & 0xFFu);
     s_frame[13] = (uint8_t)( NOIP_ETHERTYPE        & 0xFFu);
-    /* Payload: 4-byte sequence + 42-byte fill to reach the 60-byte minimum frame */
-    memset(&s_frame[14], 0xAAu, NOIP_FRAME_LEN - 14u);
+    /* Payload: 4-byte sequence + fill to reach the requested frame size */
+    memset(&s_frame[14], 0xAAu, size - 14u);
 
     uint32_t i;
     for (i = 0u; i < count; i++) {
@@ -128,7 +147,7 @@ static void cmd_noip_send(SYS_CMD_DEVICE_NODE *pCmdIO, int argc, char **argv)
         s_frame[15] = (uint8_t)((s_tx_cnt >> 16u) & 0xFFu);
         s_frame[16] = (uint8_t)((s_tx_cnt >>  8u) & 0xFFu);
         s_frame[17] = (uint8_t)( s_tx_cnt         & 0xFFu);
-        if (!DRV_LAN865X_SendRawEthFrame(NOIP_IF, s_frame, (uint16_t)sizeof(s_frame), 0x00u, NULL, NULL)) {
+        if (!DRV_LAN865X_SendRawEthFrame(NOIP_IF, s_frame, (uint16_t)size, 0x00u, NULL, NULL)) {
             SYS_CONSOLE_PRINT("[NoIP-TX] send failed at seq=%u\r\n", (unsigned)s_tx_cnt);
             s_tx_cnt--;
             break;
