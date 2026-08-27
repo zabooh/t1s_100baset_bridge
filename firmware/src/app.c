@@ -44,6 +44,7 @@
 #include "lan865x_diag.h"
 #include "port_mirror.h"
 #include "noip_test.h"
+#include "testserver.h"
 
 
 // *****************************************************************************
@@ -96,6 +97,15 @@ uint32_t ipdump_mode = 0;
 uint32_t my_delay_time = 0;
 
 SYS_TIME_HANDLE timerHandle;
+
+/* How fast the cooperative main loop actually spins - added to find out
+ * whether the loop's own cadence, not the 100 Mbps eth1 link or the T1S
+ * segment, is what capped testserver.c's echo throughput at ~4.3 Mbps
+ * regardless of how much it drains per call (FALLSTRICKE.md, 2026-08-27).
+ * Incremented once per APP_STATE_IDLE iteration; BRIDGE_TimerCallback (1 Hz)
+ * snapshots the delta into idle_cycles_per_sec, printed by 'stats'. */
+static volatile uint32_t s_idle_cycle_count = 0u;
+static uint32_t s_idle_cycles_per_sec = 0u;
 
 /* =========================================================
  * Deferred Packet Logging
@@ -239,7 +249,14 @@ static bool PktLog_Read(PKT_LOG_ENTRY *entry)
 
 
 void BRIDGE_TimerCallback(uintptr_t context) {
+    static uint32_t s_last_idle_count = 0u;
+    uint32_t now;
+
     if (my_delay_time)my_delay_time--;
+
+    now = s_idle_cycle_count;
+    s_idle_cycles_per_sec = now - s_last_idle_count;   /* wraps correctly even if s_idle_cycle_count overflows */
+    s_last_idle_count = now;
 }
 
 // Help command for Test group
@@ -278,6 +295,7 @@ static void cmd_stats(SYS_CMD_DEVICE_NODE* pCmdIO, int argc, char** argv) {
             SYS_CONSOLE_PRINT("%s: stats not available\n\r", ifNames[i]);
         }
     }
+    SYS_CONSOLE_PRINT("main loop: %lu cycles/s\n\r", (unsigned long)s_idle_cycles_per_sec);
 }
 
 // Timestamp command to show build info
@@ -328,6 +346,7 @@ void APP_Initialize(void) {
     LAN865X_DIAG_Initialize();
     MIRROR_Initialize();
     NOIP_Initialize();
+    TESTSERVER_Initialize();
     /* TODO: Initialize your application's state machine and other
      * parameters.
      */
@@ -386,8 +405,13 @@ void APP_Tasks(void) {
                 ticks_per_ms = (uint64_t)SYS_TIME_FrequencyGet() / 1000ULL;
             }
 
+            s_idle_cycle_count++;
+
             /* Register access / test modes / PLCA - see lan865x_diag.c */
             LAN865X_DIAG_Tasks();
+
+            /* TCP echo test server - see testserver.c */
+            TESTSERVER_Tasks();
 
             /* === Deferred packet log output (max 10 entries per APP_Tasks iteration) === */
             if (ticks_per_ms > 0u) {

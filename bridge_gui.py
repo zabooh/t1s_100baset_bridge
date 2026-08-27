@@ -846,6 +846,8 @@ class BridgeGUI:
             ("Device", [
                 ("Mirror: Enable", lambda: self.run_async_cmd("mirror 1")),
                 ("Mirror: Disable", lambda: self.run_async_cmd("mirror 0")),
+                ("Sniffer: Enable", lambda: self.run_async_cmd("sniffer 1")),
+                ("Sniffer: Disable", lambda: self.run_async_cmd("sniffer 0")),
                 ("Read Stats", lambda: self.run_async_cmd("stats")),
                 ("Memory Info", lambda: self.run_async_cmd("meminfo")),
                 ("Build Timestamp", lambda: self.run_async_cmd("timestamp")),
@@ -1388,7 +1390,8 @@ Example commands:
   lan_read 0x0004CA02      - Read PLCA_CTRL1
   lan_write 0x0004CA02 0x80    - Write PLCA_CTRL1
   testmode 1         - Apply test mode 1
-  mirror 1           - Enable port mirror
+  mirror 1           - Enable port mirror (this bridge's own T1S traffic only)
+  sniffer 1          - Enable sniffer (ALL T1S traffic, incl. other nodes)
 """
 
         text.insert(1.0, help_text)

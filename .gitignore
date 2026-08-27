@@ -34,3 +34,7 @@ bench.json
 # gui_term.py's COM-port-to-name assignment - per-machine, written by its own
 # "Setup > Configure Ports" dialog, not something to carry across a clone.
 term_ports.json
+
+# scripts/bandwidth_ramp_client.c's compiled binary - one gcc command away
+# (see the comment at the top of that file), never commit the .exe itself.
+scripts/bandwidth_ramp_client.exe

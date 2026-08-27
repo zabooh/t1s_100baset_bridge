@@ -454,3 +454,88 @@ Regel: siehe `CLAUDE.md` Abschnitt 7 „Erkenntnisse festhalten". Neue Einträge
   Frage "kann ich mich gerade auf einen aktiven Coordinator verlassen?" ist das unerheblich — in
   allen drei Fällen ist die richtige Antwort "nein, gerade nicht", und genau die liefert `PST`
   zuverlässig.
+- **2026-08-27 — Neuer `sniffer`-Modus (`port_mirror.c`) spiegelte anfangs 0 Frames bei
+  iperf-Rate, obwohl die Firmware jeden einzelnen Schritt als erfolgreich meldete — Ursache war
+  Heap-Fragmentierung, nicht Adressfilterung.** `sniffer` hebt bei `MIRROR_Eth0Rx()` den
+  Ziel-MAC-Filter auf, den `mirror` hat (Frames zwischen zwei *anderen* Knoten werden jetzt auch
+  gespiegelt — möglich, weil `DRV_LAN865X_PROMISCUOUS_IDX0=true` das MAC schon vorher alles
+  annehmen lässt, siehe `configuration.h:138`). Bei iperf-Rate (~500 fps) kam auf `eth1` aber fast
+  nichts an. **Diagnoseweg:** eigene Zähler in `mirror_ethpkt_to_eth1()` (`rx_hook`,
+  `pool_empty`, `tx_submitted`) UND der längst vorhandene `stats`-Befehl (`eth1 TX: ok=8134
+  qFull=0`) zeigten beide **erfolgreiche** Übergabe an den GMAC-Treiber — der Verlust lag also
+  nicht im eigenen Code, sondern weiter unten. `TCPIP_PKT_PacketAlloc()` zieht aus dem
+  gemeinsamen 65 536-Byte-TCPIP-Heap (`TCPIP_STACK_DRAM_SIZE`, `configuration.h:332`) — bei
+  ~1650 Byte je Kopie und **Fragmentierung durch alles andere, was denselben Heap benutzt** (TCP,
+  DHCP, ARP, …), schlägt die Allokation lange vor der nominellen Kapazität fehl. **Lösung:**
+  eigenes, festes Pool aus 8 vorab allokierten `TCPIP_MAC_PACKET`s (`TCPIP_PKT_PacketAlloc(...,
+  TCPIP_MAC_PKT_FLAG_STATIC)`, über eine `PROTECTED_SINGLE_LIST` verwaltet), genau das Muster,
+  das `tcpip_mac_bridge.c` für dieselbe Traffic-Rate bereits erfolgreich nutzt
+  (`TCPIP_MAC_BRIDGE_PACKET_POOL_SIZE=8`) — ein Pool aus gleich großen Blöcken kann nicht
+  fragmentieren, ein allgemeiner Heap mit gemischten Lebensdauern schon. **Wichtige Falle dabei:**
+  `TCPIP_MAC_PKT_FLAG_STATIC` schützt ein Paket **nicht** automatisch vor `TCPIP_PKT_PacketFree()`
+  — `_TCPIP_PKT_PacketAllocInt()` streicht dieses Flag bei jeder Allokation unbedingt
+  (`tcpip_packet.c`). Der einzige Schutz ist Disziplin im eigenen Code: nie `PacketFree`
+  aufrufen, nur über die eigene Ack-Funktion ins eigene Pool zurücklegen — exakt das Muster, das
+  `drv_lan865x_api.c`s `_RxPacketAck()` für die eigenen RX-Puffer schon vorlebt.
+- **2026-08-27 — Neues, eigenes Modul `testserver.c` (TCP-Echo-Server für Bandbreitentests)
+  hatte zwei unabhängige, schwerwiegende Bugs, beide erst durch einen bewusst
+  thread-freien C-Referenzclient von einem unzuverlässigen Python-Client unterscheidbar.**
+  (1) **Nach dem ersten Client nahm der Server nie einen zweiten an** — `TCPIP_TCP_IsConnected()`/
+  `WasDisconnected()` zeigten den Verbindungsabbau korrekt, aber der Socket blieb für neue
+  Verbindungen taub. `tcp.h`s eigener Kommentar zu `TCPIP_TCP_Disconnect()` sagt es explizit:
+  *"The server socket will return to listen state."* — genau dieser Aufruf fehlte. **(2) Weit
+  schwerwiegender: echter, stiller Datenverlust bei niedrigen Bandbreiten (10–40 Kbps), auch
+  ganz ohne T1S/PLCA (reproduziert direkt gegen die Bridge selbst, kein Follower beteiligt).**
+  `TCPIP_TCP_ArrayPut()` kann **weniger** Bytes annehmen als übergeben (TX-Puffer momentan voll)
+  — der Rückgabewert ist kein Logging-Detail, sondern die tatsächlich angenommene Menge. Der
+  Code behandelte den kompletten `got`-Wert als „gesendet" und verwarf den nicht angenommenen
+  Rest ersatzlos. **Erst nach beiden Fixes:** `sent == received`, byte-genau, bei jeder einzelnen
+  Stufe von 10 Kbps bis in den Mbps-Bereich, sowohl bridge-direkt als auch über den vollen
+  T1S-Pfad. **Merksatz, der zum Fund führte:** bei unerwartetem Datenverlust nie nur einen
+  einzigen Client vertrauen — ein zweiter, unabhängig implementierter Client (hier: `select()`-
+  basiertes C statt Python-Threads, siehe `scripts/bandwidth_ramp_client.c`) trennt zuverlässig
+  Client-Bug von Server-Bug, wenn beide dasselbe Verlustmuster zeigen oder eben nicht.
+- **2026-08-27 — Eine doppelte PLCA-Node-ID (Bridge und ein Follower beide auf ID 7) erzeugte
+  genau das Bild eines Firmware-Bugs: mal ging eine Verbindung durch, mal nicht, ganz ohne
+  erkennbares Muster.** Erst als der Nutzer den betroffenen Follower auf eine freie ID (1)
+  umkonfigurierte, wurde klar, dass die vorher beobachtete Instabilität (Timeouts, ein einmaliger
+  Runaway-Output auf der Konsole nach einem SWD-Reset) eine **Umgebungsursache** hatte, keine im
+  Code. **Merksatz:** bei sporadischem, nicht reproduzierbarem Verhalten auf einem Mehrknoten-T1S-
+  Bus zuerst die PLCA-Node-IDs alle beteiligten Knoten gegenprüfen (`plca_node` bzw. `showenv`),
+  bevor man im eigenen Code sucht.
+- **2026-08-27 — Das `follower/`-Projekt aus dem Schwesterprojekt `t1s_ptp_bridge` in dieses
+  Repo kopiert, um `testserver.c` auch dort zu bauen.** Reiner Ordner-Kopiervorgang
+  (`follower/firmware/T1S_Follower.X`, eigenes MPLAB-X-Projekt) — funktioniert selbstständig,
+  weil `nbproject\configurations.xml` keine Pfade oberhalb des eigenen Projektordners referenziert
+  und `follower/build.bat` nur `..\genmk.bat`/`..\setup_compiler.config` **im neuen Elternordner**
+  braucht, die hier schon vorhanden sind (identisch bis auf Sprache). **Vor dem ersten Build
+  aufräumen:** `dist/`, `build/`, `debug/`, `.generated_files/` und die `nbproject\Makefile-*`-
+  Fragmente aus der alten Kopie sind gitignored, aber physisch mitkopiert und tragen absolute
+  Pfade des **alten** Speicherorts — erst löschen, dann `genmk.bat` neu erzeugen lassen, sonst
+  scheitert `xc32-bin2hex` auf die bekannte Art (siehe Abschnitt 2 in `CLAUDE.md`).
+  **Board-Zuordnung nicht aus einer Sonden-Seriennummer allein ableiten:** Sonde (SWD) und
+  COM-Port (USB-CDC) sind zwei unabhängige USB-Schnittstellen desselben oder verschiedener
+  Boards — ein Flash auf eine vom Nutzer benannte Sonde, gefolgt von einer Prüfung über den
+  *erwarteten* COM-Port, zeigte zweimal **keine Änderung**, weil die genannte Sonde zu einem
+  anderen physischen Board gehörte als der COM-Port. Verlässlich war erst der Ausschluss über
+  alle drei bekannten Sonden aus `bench.json` plus Gegenprobe (`help` zeigt die neu geflashte
+  Kommandogruppe am erwarteten COM-Port, oder eben nicht).
+- **2026-08-27 — Der ~4,3-Mbit/s-Deckel von `testserver.c` lag NICHT an der Zykluszeit der
+  Hauptschleife — eine Vermutung, die sich mit echter Messung als falsch herausstellte, statt
+  eine weitere Sackgasse blind auszubauen.** Erste Theorie: `TESTSERVER_Tasks()` liest nur einen
+  `TESTSERVER_CHUNK` (512 Byte) pro `APP_Tasks()`-Durchlauf, also limitiert die Zyklusrate der
+  Schleife den Durchsatz. **Gegenprobe statt Umbau ins Blaue:** ein Zähler
+  (`s_idle_cycle_count`, einmal pro `APP_STATE_IDLE`-Durchlauf erhöht, per 1-Hz-Timer-Callback
+  in Zyklen/Sekunde umgerechnet, ausgegeben über `stats`) zeigte **75 548 Zyklen/s im Leerlauf**
+  und **38 000–59 000 Zyklen/s unter voller Last** — um Größenordnungen schneller, als nötig
+  wäre. Ein Umbau von `testserver.c` auf ein 8-KB-Budget pro Aufruf (statt 512 Byte) bestätigte
+  das: **keine Änderung am Deckel**, weiterhin ~4,3 Mbit/s. **Der eigentliche Hinweis steckt in
+  `eth1 TX: ok=`** (bereits vorhandener `stats`-Zähler): über 27 Sekunden von 718 auf 28382, also
+  **~1024 Frames/Sekunde, auffällig konstant** — passt größenordnungsmäßig zu ~4,3 Mbit/s bei
+  ~1 KB Nutzlast pro Frame. Das deutet auf eine Frames-pro-Sekunde-Grenze im GMAC-Treiber oder
+  der TCPIP-Stack-Verarbeitung selbst, unabhängig von `testserver.c` und der App-Schleife — nicht
+  weiter verfolgt, da das eine Ebene tiefer (Treiber-/Interrupt-Overhead pro Frame) liegt als für
+  eine Diagnose-Sonde sinnvoll ist. **Merksatz: bei einer Performance-Vermutung erst einen
+  Zähler einbauen und messen, bevor man den Code umbaut** — der Umbau hier kostete eine
+  Baue-Flash-Test-Runde und brachte nichts, weil die Theorie falsch war; die Messung hätte das
+  vorher gezeigt.

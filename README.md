@@ -55,6 +55,7 @@ host machine in between.
   - [7.3 Using it](#73-using-it)
   - [7.4 Limitations](#74-limitations)
   - [7.5 Where the code lives, and one fragile coupling](#75-where-the-code-lives-and-one-fragile-coupling)
+  - [7.6 Sniffer mode: seeing traffic between other nodes too](#76-sniffer-mode-seeing-traffic-between-other-nodes-too)
 - [8. Throughput testing with iperf](#8-throughput-testing-with-iperf)
   - [Commands](#commands)
   - [`iperf` options](#iperf-options)
@@ -494,6 +495,7 @@ captures and for separating a bus problem from an IP-configuration problem:
 | Command | Description |
 |---|---|
 | `mirror [0\|1]` | SPAN: copy T1S (eth0) traffic — RX **and** the bridge's own TX — to eth1 for Wireshark |
+| `sniffer [0\|1]` | Like `mirror`, but RX is unfiltered: copies **every** T1S frame to eth1, including traffic between two other nodes that never involves this bridge (§7.6) |
 
 **`lan` group** — LAN865x registers, transmitter test modes and PLCA. Lives in the
 self-contained [`lan865x_diag.c`](firmware/src/lan865x_diag.c) module rather than in
@@ -968,6 +970,35 @@ reusable in another Harmony two-port bridge — adapt `MIRROR_SRC_IF` /
 > ```text
 > python test_mirror.py
 > ```
+
+### 7.6 Sniffer mode: seeing traffic between other nodes too
+
+`mirror`'s RX side only copies frames addressed **to the bridge itself** (§7.2)
+— traffic between two other nodes on the T1S bus never shows up on `eth1`,
+even though the bridge's `eth0` MAC driver actually receives it: the LAN865x
+driver runs promiscuous (`DRV_LAN865X_PROMISCUOUS_IDX0` in
+[`configuration.h`](firmware/src/config/default/configuration.h)), so nothing
+is filtered at the hardware level — `MIRROR_Eth0Rx()` in `port_mirror.c` is
+what discards it, on purpose, to keep a bridge-focused capture free of
+duplicates.
+
+`sniffer [0|1]` is the same RX hook with that destination-MAC check skipped:
+with it on, **every** frame `eth0` receives is copied to `eth1`, including
+conversations between two other nodes that never involve this bridge at all.
+It is independent of `mirror` and both can be on at once — `sniffer`'s filter
+is simply the broader of the two. The TX side is unchanged in either mode: it
+still mirrors only what the bridge itself sends, since traffic between two
+other nodes never touches the bridge's own TX path to begin with.
+
+```text
+sniffer 1                # eth0(T1S) -> eth1 sniffer: ON  (ALL RX, any node)
+sniffer                  # show current state
+sniffer 0                # back to mirror's bridge-only filter (if mirror is on)
+```
+
+Same limitations as `mirror` apply (§7.4) — exact L2 frames, single-segment
+copy, extra `eth1` load while it runs. Also a runtime-only toggle, defaults to
+**off** on every boot, not persisted via `env`.
 
 ---
 

@@ -11,7 +11,7 @@
 |---|---|
 | `firmware\src\app.c` | App-Zustandsmaschine, Packet-Handler, Packet-Log (Ringpuffer + Drain), `stats`/`meminfo`/`dump`/`ipdump`/`logstat` |
 | `firmware\src\lan865x_diag.c` `.h` | **Registerzugriff, Testmodi, PLCA** — `lan_read`/`lan_write`/`lan_rmw`/`testmode`/`plca_node`. Eigenständig und in andere Projekte kopierbar: hängt nur am LAN865x-Treiber und an SYS_CMD/SYS_TIME/SYS_CONSOLE |
-| `firmware\src\port_mirror.c` `.h` | **Port-Mirror/SPAN** `eth0` → `eth1` — Kommando `mirror`. **Nicht** frei portierbar: braucht den TCP/IP-Stack, `DRV_GMAC_PacketTx` und den gepatchten LAN865x-Treiber (siehe `FALLSTRICKE.md`) |
+| `firmware\src\port_mirror.c` `.h` | **Port-Mirror/SPAN** `eth0` → `eth1` — Kommando `mirror` (nur an die Bridge adressierte Frames) und `sniffer` (**alle** eth0-RX-Frames, auch zwischen zwei anderen Knoten — dieselbe RX-Hook ohne den Ziel-MAC-Filter, möglich weil der LAN865x-Treiber ohnehin promiscuous läuft). **Nicht** frei portierbar: braucht den TCP/IP-Stack, `DRV_GMAC_PacketTx` und den gepatchten LAN865x-Treiber (siehe `FALLSTRICKE.md`) |
 | `firmware\src\noip_test.c` `.h` | **Rohframe-Test** EtherType `0x88B5` ohne IP-Stack — `noip_send`/`noip_stat`. Besitzt EtherType, Frameaufbau, Zähler und Ausgabetexte. **Teilweise gekoppelt:** der Ringpuffer des Packet-Logs bleibt in `app.c` (teilt ihn mit `ipdump`), deshalb ruft `pktEth0Handler()` beim Empfang `NOIP_IsNoIpFrame`/`NOIP_CountRx`/`NOIP_SeqFromFrame` und die Drain-Schleife `NOIP_PrintRxLine()` |
 | `firmware\src\env.c` | Persistente Konfiguration (IP/MAC/PLCA) im Emulated EEPROM |
 | `firmware\T1S_100BaseT_Bridge.X\` | MPLAB-X-Projekt (Makefiles, `dist\`) |

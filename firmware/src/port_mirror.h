@@ -25,6 +25,17 @@
     original MAC addresses and already reach eth1 natively; mirroring them would
     show them twice at the PC.
 
+    A second, independent mode - "sniffer" - drops the RX destination-MAC
+    filter above: with sniffer on, EVERY frame eth0 receives is mirrored,
+    including traffic between two OTHER nodes on the bus that never involves
+    the bridge at all (only possible because the LAN865x driver already runs
+    promiscuous - see DRV_LAN865X_PROMISCUOUS_IDX0 in configuration.h - so the
+    frames reach this module's RX hook in the first place). The TX side is
+    unchanged in sniffer mode: it still only mirrors what the bridge itself
+    sends, since traffic between two other nodes never touches the bridge's
+    own TX path to begin with. Mirror and sniffer are independent toggles and
+    may be on at the same time; sniffer's filter is the strict superset.
+
   Dependencies:
     Unlike lan865x_diag.c, this module is NOT free-standing. It needs:
 
@@ -59,6 +70,11 @@ bool MIRROR_IsEnabled(void);
 
 /* Turn mirroring on or off without going through the console. */
 void MIRROR_Set(bool enable);
+
+/* Sniffer mode: RX mirrors every eth0 frame regardless of destination MAC,
+   not just frames addressed to the bridge - see the module description. */
+bool SNIFFER_IsEnabled(void);
+void SNIFFER_Set(bool enable);
 
 /* RX path: call for every frame received on eth0, from the interface's packet
    handler. Does nothing when mirroring is off, and applies the own-MAC filter
