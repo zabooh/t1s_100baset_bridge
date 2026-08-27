@@ -71,6 +71,8 @@ command directly. The group only decides which help listing it appears in:
 |---|---|---|
 | [`help`](#help) | Test | list the Test group commands |
 | [`timestamp`](#timestamp) | Test | show the firmware build stamp |
+| [`uptime`](#uptime) | Test | time since boot/last reset |
+| [`history`](#history) | Test | show previously entered CLI commands |
 | [`stats`](#stats) | Test | TX/RX counters for `eth0` and `eth1` |
 | [`meminfo`](#meminfo) | Test | free memory on the C heap and the TCP/IP heap |
 | [`dump`](#dump) | Test | hex-dump MCU memory |
@@ -91,6 +93,8 @@ command directly. The group only decides which help listing it appears in:
 | [`noip_send`](#noip_send) | noip | send raw Ethernet frames, bypassing IP |
 | [`noip_stat`](#noip_stat) | noip | raw-frame TX/RX counters |
 | [`mirror`](#mirror) | mirror | mirror the T1S port to `eth1` for Wireshark |
+| [`sniffer`](#sniffer) | mirror | mirror ALL `eth0` RX to `eth1`, incl. traffic between other nodes |
+| [`bigframe`](#bigframe) | mirror | send one raw oversized frame straight out `eth1` |
 | [stack commands](#9-harmony-tcpip-stack-commands) | tcpip, iperf | `netinfo`, `arp`, `ping`, `bridge`, `iperf` … |
 
 ---
@@ -138,6 +142,38 @@ Build Timestamp: Aug 18 2026 17:58:12
 One caveat worth knowing: those macros are expanded in `app.c`, so an **incremental build that did not
 recompile `app.c` leaves the stamp at the older date** while the linked image is new. `build.bat`
 touches `app.c` before building for exactly this reason.
+
+### `uptime`
+
+```
+uptime
+```
+
+Time since boot/last reset, human-readable. The fast way to tell "the board is still the same process
+that was running before" from "it silently rebooted (watchdog, assert loop, `pyocd reset`) and only
+looks the same" — nothing else in the normal log surfaces a silent restart.
+
+```
+uptime: 0d 00:14:22  (862 s since boot/last reset)
+```
+
+### `history`
+
+```
+history
+```
+
+Shows the last `CMD_HISTORY_DEPTH` (20) CLI commands entered, oldest first, including this `history`
+call itself.
+
+```
+command history: 5/20, oldest first (this command included)
+   1: stats
+   2: mirror 1
+   3: mirror 0
+   4: testmode
+   5: history
+```
 
 ### `stats`
 
@@ -570,7 +606,7 @@ outranks any host-side capture when the two disagree.
 
 ---
 
-## 8. Port mirror (`mirror`)
+## 8. Port mirror (`mirror`, `sniffer`, `bigframe`)
 
 ### `mirror`
 
@@ -610,6 +646,50 @@ the bus but no longer the bridge's own — which reads like a half-working mirro
 `python test_mirror.py` checks exactly this and should run after every regeneration.
 
 `mirror` is pointless while a test mode is active — the link is down. Revert first, then measure.
+
+### `sniffer`
+
+```
+sniffer          show the current state
+sniffer 0|1      off / on
+```
+
+Same mechanism as `mirror`, but drops the destination-MAC filter: it copies **every** `eth0` RX frame
+to `eth1`, including traffic between two other T1S nodes that never touches this bridge. Only possible
+because the LAN865x driver already runs promiscuous. Also disables the T1S transmitter
+(`T1SPMACTL.TXD`) for the duration — a passive tap — so the bridge sends nothing of its own and pauses
+forwarding while it is on.
+
+```
+sniffer 1
+```
+```
+eth0(T1S)->eth1 sniffer: ON
+  Capture on the PC (eth1) in Wireshark to see ALL T1S bus traffic,
+  including frames between other nodes that do not involve this bridge.
+  T1S transmitter disabled (passive tap) - forwarding is paused meanwhile.
+```
+
+Frames over 1514 bytes are truncated before mirroring, not dropped — a larger frame passed through
+whole was found to stall the PC-side USB Ethernet adapter/Npcap (see `FALLSTRICKE.md`, 2026-08-27).
+
+`sniffer` and `mirror` share the same 8-entry packet pool and are mutually exclusive in practice — both
+being about the T1S RX path, running one while debugging the other just wastes pool entries.
+
+### `bigframe`
+
+```
+bigframe <total_frame_len_bytes>   (60..9000)
+```
+
+Diagnostic only, unrelated to `mirror`/`sniffer` as such: builds and sends **one** raw Ethernet frame of
+the given total length straight out `eth1` via `DRV_GMAC_PacketTx()`, bypassing the TCP/IP stack, T1S,
+and the mirror/sniffer pool entirely. Destination is broadcast, source is `eth1`'s own MAC, EtherType
+`0xFEED` (deliberately unregistered, unambiguous in a capture), payload is an incrementing byte pattern
+so length/content are easy to verify in Wireshark.
+
+Sole purpose: isolate whether an oversized frame on `eth1` alone reproduces a PC-side symptom — rules
+out T1S/mirror/iperf as the cause when it does.
 
 ---
 
