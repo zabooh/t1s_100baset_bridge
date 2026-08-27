@@ -527,18 +527,18 @@ extern "C" {
 #define TCPIP_STACK_MAC_BRIDGE_COMMANDS true
 #define TCPIP_MAC_BRIDGE_FDB_TABLE_ENTRIES          17
 #define TCPIP_MAC_BRIDGE_MAX_PORTS_NO               2
-#define TCPIP_MAC_BRIDGE_PACKET_POOL_SIZE           8
+#define TCPIP_MAC_BRIDGE_PACKET_POOL_SIZE           16
 #define TCPIP_MAC_BRIDGE_PACKET_SIZE                1536
-#define TCPIP_MAC_BRIDGE_PACKET_POOL_REPLENISH      2
-#define TCPIP_MAC_BRIDGE_DCPT_POOL_SIZE             16
-#define TCPIP_MAC_BRIDGE_DCPT_POOL_REPLENISH        4
+#define TCPIP_MAC_BRIDGE_PACKET_POOL_REPLENISH      4
+#define TCPIP_MAC_BRIDGE_DCPT_POOL_SIZE             32
+#define TCPIP_MAC_BRIDGE_DCPT_POOL_REPLENISH        8
 /* Advanced */
 #define TCPIP_MAC_BRIDGE_ENTRY_TIMEOUT              300
 #define TCPIP_MAC_BRIDGE_MAX_TRANSIT_DELAY          1
-#define TCPIP_MAC_BRIDGE_TASK_RATE                  333
+#define TCPIP_MAC_BRIDGE_TASK_RATE                  20
 
-#define TCPIP_MAC_BRIDGE_STATISTICS          		false
-#define TCPIP_MAC_BRIDGE_EVENT_NOTIFY          		false
+#define TCPIP_MAC_BRIDGE_STATISTICS          		true
+#define TCPIP_MAC_BRIDGE_EVENT_NOTIFY          		true
 
 #define TCPIP_MAC_BRIDGE_IF_NAME_TABLE false
 

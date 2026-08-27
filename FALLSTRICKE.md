@@ -715,3 +715,125 @@ Regel: siehe `CLAUDE.md` Abschnitt 7 „Erkenntnisse festhalten". Neue Einträge
   künftigen iperf-TCP-Tests über die Bridge: `-M 1400` (JPerf-Feld „Max Segment Size")
   routinemäßig setzen**, sonst können Transfers ohne erkennbaren Grund minutenlang hängen
   bleiben.
+  **Korrektur (2026-08-27, selber Tag, per echten Bridge-internen Zählern widerlegt):**
+  Die `eth1 TX err=7`-Erklärung oben war ein Fehlschluss — der Zähler stand schon direkt
+  nach jedem Boot/Reset auf einem kleinen, stabilen Wert (vermutlich PHY-Aufstartverhalten)
+  und hatte mit dem eigentlichen Verlust nichts zu tun. Die echte Ursache: siehe den Eintrag
+  weiter unten zu `TCPIP_MAC_BRIDGE`/`failMtu` — **`-M 1400` hat zufällig genau deshalb
+  geholfen, weil es die Framegröße unter dieselbe 1518-Byte-Grenze drückt**, an der die
+  generische Harmony-Bridge fälschlich alles Größere verwarf. Kein Link-Down, keine
+  GMAC-Race — ein simpler Off-by-Header/FCS-Fehler in `tcpip_mac_bridge.c`.
+- **2026-08-27 — Follower→PC-UDP-Flood (`iperf -c 192.168.0.100 -u -b ...`) kam beim echten
+  PC-Server mit 0 von 2510 Paketen an (per echtem `iperf`-UDP-Server verifiziert, nicht nur
+  Wireshark) — Ursache: generische Harmony-`tcpip_mac_bridge.c` verwirft beim Weiterleiten
+  jeden Frame > 1500 Byte, obwohl Standard-Ethernet bis 1518 Byte erlaubt.** Root-Cause per
+  neu aktiviertem `TCPIP_MAC_BRIDGE_STATISTICS`/`EVENT_NOTIFY` (`configuration.h:540f`,
+  vorher beide `false` — deshalb war das eingebaute `bridge stats`-Kommando bis dahin nutzlos,
+  „failed to get stats!") zweifelsfrei belegt: `bridge stats` zeigte `failMtu: 2511` (exakt
+  die Paketzahl), `bridge register` + Testpaket lieferte den echten Wert
+  `Bridge event: fail MTU, size: 1516` (= 14 Byte Ethernet-Header + 20 IP + 8 UDP + 1470
+  Nutzlast + 4 Byte FCS).
+  **Mechanismus** (`tcpip_mac_bridge.c:1257-1271`): `linkMtu = _TCPIPStackNetLinkMtu(pOutIf)`
+  liefert `TCPIP_MAC_LINK_MTU_DEFAULT = 1500` (`tcpip_mac.h:1657`) — das ist die **IP-Schicht-MTU**
+  (an anderer Stelle im selben Stack, `ipv4.c:3450`, wird dieselbe Größe als
+  `linkMtu - sizeof(IPV4_HEADER)` benutzt, um die maximale Nutzlast zu berechnen — dort also
+  korrekt als „ohne Ethernet-Header" behandelt). `pFDcpt->pktLen` kommt aber aus
+  `TCPIP_PKT_PayloadLen()`, das stumpf `segLen` aller Segmente aufaddiert — bei diesem
+  Projekt (patched LAN865x-Treiber auf `eth0`) ist das der **komplette erfasste Frame
+  inklusive 14-Byte-Header und 4-Byte-FCS**, nicht nur die Nutzlast. Laut
+  `tcpip_mac.h:358-367` sollte der MAC-**Treiber** Header+FCS beim Empfang eigentlich schon
+  abziehen, bevor er das Paket an den Stack übergibt — passiert hier nicht (Indiz:
+  `pktEth0Handler()` liest die Quell-MAC über `pMacLayer[6]`, `pktEth1Handler()` dagegen über
+  `pDSeg->segLoad[6]` — unterschiedliche Zeigerkonvention zwischen LAN865x- und
+  GMAC-Empfangspfad). Der Vergleich `pktLen <= linkMtu` (1500) verwirft dadurch **jeden**
+  Standard-1500-Byte-IP-Frame (der als Ethernet-Frame 1518 Byte groß ist), nicht nur
+  Ausreißer — trifft TCP mit MSS 1460 (1514 Byte) genauso wie UDP mit Default-Datagrammgröße
+  1470 (1516 Byte).
+  **Fix, bewusst am Symptom statt an der Ursache** (Entscheidung: der eigentliche Fehler säße
+  im bereits mehrfach gepatchten, kritischen LAN865x-Treiber — riskanter Eingriff mit
+  potenziell weiteren Auswirkungen auf den Stack; der lokale Patch im generischen
+  Bridge-Modul ist die pragmatische, schnell verifizierbare Lösung):
+  ```c
+  // tcpip_mac_bridge.c, ~Zeile 1263
+  if(pFDcpt->pktLen <= linkMtu + sizeof(TCPIP_MAC_ETHERNET_HEADER) + 4u)  // + FCS
+  ```
+  Nach Fix: `failMtu: 0`, `fwd_direct`/`fwd ucast` zählen die Pakete korrekt, `eth1 TX ok`
+  (GMAC-Treiberebene) steigt passend mit. **Nicht behoben, nur umgangen:** der eigentliche
+  Vertragsbruch im LAN865x-RX-Pfad (Header+FCS werden entgegen `tcpip_mac.h`-Doku nicht
+  abgezogen) bleibt bestehen — falls anderer Stack-Code sich ebenfalls auf die dokumentierte
+  Kontrakt-Länge verlässt, könnten dort verwandte Symptome auftauchen. Patch ist ein
+  Hand-Patch an generiertem Harmony-Code (wie die GMAC-/LAN865x-Fixes weiter oben) — geht bei
+  MCC-Neugenerierung verloren.
+  **`bridge stats`/`bridge register` sind ab jetzt scharf** (`TCPIP_MAC_BRIDGE_STATISTICS`
+  und `TCPIP_MAC_BRIDGE_EVENT_NOTIFY` auf `true`, RAM-Kosten minimal, ~0,5 KB) — für jede
+  künftige „Pakete kommen nicht durch die Bridge"-Diagnose zuerst `bridge stats` prüfen,
+  nicht erst raten.
+  **Nebenbefund/Sackgassen bei der Diagnose:**
+  - Mehrere Hintereinander-Starts von `jperf-2.0.2/bin/iperf.exe -s` auf dem PC binden sich
+    NICHT alle scheiternd — der alte Prozess läuft weiter (dieses iperf-1.7-Binary beendet
+    sich nach einer Session normalerweise selbst, tat es aber in dieser Sitzung mehrfach
+    nicht) und mehrere Instanzen laufen parallel weiter, ohne Fehler beim Neustart. Wer nur
+    das Log der *neuen* Instanz prüft, sieht scheinbar „nichts angekommen", obwohl eine
+    ältere Instanz den Port hält. **Vor jedem Reproduktionsversuch `taskkill /F /IM
+    iperf.exe` (alle Instanzen), dann neu starten**, nicht nur die zuletzt gestartete PID
+    killen — Windows-PIDs aus Git-Bash-`ps`/`$!` stimmen nicht zuverlässig mit denen von
+    `taskkill` überein.
+  - Firewall/fehlende ARP-Einträge waren **keine** Ursache: passende Freigaberegeln für
+    genau dieses `iperf.exe` (TCP und UDP) existierten bereits, `bridge fdb show` zeigte die
+    PC-MAC korrekt gelernt.
+  - **Zwischenzeitlich offener Punkt, seitdem aufgeklärt (siehe unten):** Trotz `failMtu: 0`
+    kam beim echten PC-Server weiterhin nichts an — der `failMtu`-Fix allein hat das Problem
+    nicht gelöst, siehe Fortsetzung.
+- **2026-08-27 — Fortsetzung/Abschluss des `failMtu`-Funds oben: `failMtu`-Fix allein reichte
+  nicht — der eigentliche Fehler steckte in der `pktLen`-Berechnung selbst, jetzt vollständig
+  behoben und mit einem echten `iperf`-UDP-Server bei 0% Verlust verifiziert.** Auch nach dem
+  `failMtu`-Fix kam beim Follower→PC-UDP-Test weiterhin **0 von 2510** Paketen an (mit
+  eigenem `tshark` **und** der eigenen Wireshark-GUI des Nutzers gegengeprüft — kein
+  Mitschnitt-Artefakt). `bridge stats` zeigte aber `fwd ucast`/`fwd direct` korrekt hochzählen
+  und `eth1 TX ok` (GMAC-Ebene) passend mitsteigen — die Software glaubte auf allen Ebenen,
+  erfolgreich gesendet zu haben.
+  **Zwischenschritt 1 (Idee des Nutzers): kopierloses Weiterleiten abschalten.** Bei nur
+  einem Zielport reicht `tcpip_mac_bridge.c` (`_MAC_Bridge_ForwardPacket`, ~Zeile 855-859)
+  den **originalen** eth0-Empfangspuffer ungekopiert an `_TCPIPStackPacketTx()` für eth1
+  weiter (Zähler `fwd_direct`) — anders als `sniffer`, der immer in einen eigenen Puffer
+  kopiert. Umgebaut auf denselben Copy-Mechanismus wie beim `TCPIP_MAC_BRIDGE_PKT_RES_HOST_PROCESS`-Zweig
+  (`_MAC_Bridge_GetFwdPkt()` + `_MAC_Bridge_PacketCopy()`), inklusive sofortiger
+  `TCPIP_PKT_PacketAcknowledge(pRxPkt, TCPIP_MAC_PKT_ACK_RX_OK)` fürs Original (sonst geht dem
+  LAN865x-Treiber der RX-Puffer aus, da der `BRIDGE_OWN`-Rückgabepfad am Ende von
+  `_MAC_Bridge_ForwardPacket` das Original nie quittiert). **Allein brachte das noch keine
+  Besserung** — weiterhin 0 Pakete beim Server.
+  **Zwischenschritt 2, der eigentliche Rootcause:** `_TCPIPStackPacketTx()` (`tcpip_manager.c:4514`)
+  ruft letztlich exakt dieselbe `pMacObj->TCPIP_MAC_PacketTx()` (= `DRV_GMAC_PacketTx()`) wie
+  `sniffer` auf — der Transportweg ist identisch, das Problem lag also nicht im Aufrufpfad,
+  sondern weiterhin in der Länge. `_MAC_Bridge_PacketCopy()` kopiert `pktLen` Byte ab
+  `pNetLayer` (das schon HINTER dem Ethernet-Header liegt) — mit dem (aus dem `failMtu`-Fund
+  bekannten) fehlerhaften `pktLen` von 1516 (statt korrekt 1498) wurden dabei **18 Byte zu
+  viel** kopiert (in den alten FCS-Bereich und 14 Byte danach liegenden Heap-Speicher hinein),
+  und die für beide Zweige geltende Zeile `pFwdPkt->pDSeg->segLen += sizeof(TCPIP_MAC_ETHERNET_HEADER)`
+  machte die Länge zusätzlich falsch (1530 statt korrekt 1512 für die Übertragung). Die Wurzel
+  ist **`fwdDcpt.pktLen = TCPIP_PKT_PayloadLen(pRxPkt)`** selbst (`tcpip_mac_bridge.c:805`) —
+  dieselbe Fehlmessung, die schon den `failMtu`-Bug verursacht hat, wird hier ein zweites Mal
+  wirksam. **Fix, direkt an der Quelle statt an jeder einzelnen Verwendungsstelle:**
+  ```c
+  // tcpip_mac_bridge.c, direkt nach fwdDcpt.pktLen = TCPIP_PKT_PayloadLen(pRxPkt);
+  if(inPort == 0)  // eth0/LAN865x - hier steckt der Vertragsbruch, eth1/GMAC ist korrekt
+  {
+      fwdDcpt.pktLen -= (uint16_t)(sizeof(TCPIP_MAC_ETHERNET_HEADER) + 4u);  // Header + FCS
+  }
+  ```
+  **Ergebnis, mit echtem `iperf -s -u` auf dem PC verifiziert:**
+  ```
+  [612]  0.0- 5.0 sec  3.51 MBytes  5.88 Mbits/sec  2.045 ms    0/ 2501 (0%)
+  ```
+  0 % Verlust, alle Datagramme angekommen — vorher, mit demselben Testaufbau: 0 von 2510.
+  **Zusammenspiel der drei Fixes:** Der `failMtu`-Schwellenwert-Patch (`+18`) ist mit dieser
+  Korrektur eigentlich überflüssig geworden (echtes `pktLen` liegt jetzt sowieso unter 1500),
+  bleibt aber als harmlose zusätzliche Sicherheitsmarge stehen. Der Umkopieren-Patch war
+  **notwendig**, nicht nur der `pktLen`-Fix allein: der kopierlose Pfad verwendet
+  `pDSeg->segLen` direkt (weiterhin roh und falsch vom Treiber), nicht `fwdDcpt.pktLen` — nur
+  über `_MAC_Bridge_PacketCopy()` wirkt die `pktLen`-Korrektur überhaupt. Alle drei Änderungen
+  zusammen ergeben den vollständigen Fix.
+  **Bewusst nicht am LAN865x-Treiber selbst behoben** (Nutzerentscheidung, siehe oben) — falls
+  der Treiber später doch korrigiert wird (Header+FCS beim RX korrekt abziehen, wie
+  `tcpip_mac.h` es vorschreibt), müssen alle drei Patches hier wieder rückgebaut werden, sonst
+  zieht `fwdDcpt.pktLen` dann fälschlich nochmal 18 Byte zu viel ab.

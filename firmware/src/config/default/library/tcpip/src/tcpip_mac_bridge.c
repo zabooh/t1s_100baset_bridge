@@ -803,7 +803,20 @@ TCPIP_MAC_BRIDGE_PKT_RES TCPIP_MAC_Bridge_ProcessPacket(TCPIP_MAC_PACKET* pRxPkt
     // forward
     fwdDcpt.tReceive = _MAC_Bridge_GetSecond();
     fwdDcpt.pktLen = TCPIP_PKT_PayloadLen(pRxPkt);
-    
+    if(inPort == 0)
+    {   // eth0 (LAN865x) hands RX packets up with segLen = the FULL captured
+        // frame (14-byte Ethernet header + 4-byte FCS included), not
+        // payload-only as the generic MAC driver contract requires
+        // (tcpip_mac.h: "the MAC driver subtracts the FCS and Ethernet
+        // header length before handing over the packet"). TCPIP_PKT_PayloadLen()
+        // just sums segLen, so fwdDcpt.pktLen inherits that +18 - correct
+        // it here at the source since every downstream use (the MTU check,
+        // the TX header-size re-add, _MAC_Bridge_PacketCopy()'s pNetLayer
+        // copy length) assumes payload-only, matching eth1/GMAC's correct
+        // behavior. eth1-sourced packets (inPort == 1) are unaffected.
+        fwdDcpt.pktLen -= (uint16_t)(sizeof(TCPIP_MAC_ETHERNET_HEADER) + 4u);
+    }
+
 
     // check destination is in the FDB
     _MAC_Bridge_CheckFDB(gBridgeDcpt);
@@ -853,9 +866,37 @@ TCPIP_MAC_BRIDGE_PKT_RES TCPIP_MAC_Bridge_ProcessPacket(TCPIP_MAC_PACKET* pRxPkt
                 }
             }
             else
-            {   // use directly the incoming packet
-                pFwdPkt = pRxPkt;
-                _MAC_Bridge_SetPktFlags(pFwdPkt, MAC_BRIDGE_ALLOC_FLAG_NONE);
+            {   // Always copy instead of forwarding pRxPkt directly (was:
+                // "use directly the incoming packet" - zero-copy fast path).
+                // On this board the eth0 (LAN865x) RX driver hands segLen
+                // up as the FULL captured frame (Ethernet header + 4-byte
+                // FCS included), not payload-only as the generic MAC
+                // driver contract requires (tcpip_mac.h: "the MAC driver
+                // subtracts the FCS and Ethernet header length before
+                // handing over the packet"). The zero-copy path below
+                // trusts that contract and unconditionally does
+                // "segLen += sizeof(TCPIP_MAC_ETHERNET_HEADER)" a few
+                // lines down to turn an RX length back into a TX length -
+                // for a LAN865x-sourced frame that double-counts the
+                // header, so the frame transmitted on eth1 is corrupted/
+                // oversized and never arrives intact at the far end (a
+                // real UDP flood from a T1S node measured 0/2510 packets
+                // received, confirmed by a real PC-side iperf server,
+                // while `sniffer`'s own dedicated-copy mirror path -
+                // which does not depend on segLen this way - delivered
+                // everything). _MAC_Bridge_PacketCopy() sidesteps this
+                // because it rebuilds segLen from pNetLayer/pMacLayer
+                // instead, independent of the driver's segLen value - the
+                // same reason the mirror path already works. The original
+                // pRxPkt is no longer needed once copied, so acknowledge
+                // it back to its own driver right away instead of handing
+                // it to TX.
+                pFwdPkt = _MAC_Bridge_GetFwdPkt(gBridgeDcpt, fwdDcpt.pktLen);
+                if(pFwdPkt != 0)
+                {
+                    _MAC_Bridge_PacketCopy(pRxPkt, pFwdPkt, fwdDcpt.pktLen, heDest);
+                    TCPIP_PKT_PacketAcknowledge(pRxPkt, TCPIP_MAC_PKT_ACK_RX_OK);
+                }
             }
 
             if(pFwdPkt != 0)
@@ -1260,8 +1301,19 @@ static void _MAC_Bridge_SetPacketForward(MAC_BRIDGE_DCPT* pBDcpt, MAC_BRIDGE_HAS
             outIfIx = pBDcpt->port2IfIx[portIx];
             pOutIf = _TCPIPStackHandleToNet(TCPIP_STACK_IndexToNet(outIfIx));
             linkMtu = _TCPIPStackNetLinkMtu(pOutIf);
-            if(pFDcpt->pktLen <= linkMtu)
-            {   
+            /* pFDcpt->pktLen (TCPIP_PKT_PayloadLen()) is the FULL captured
+             * frame length - Ethernet header AND the 4-byte FCS included
+             * (confirmed live: a standard 1470-byte UDP datagram shows up
+             * here as 1516 = 14 header + 20 IP + 8 UDP + 1470 data + 4 FCS)
+             * - but linkMtu is the IP-layer MTU (1500), not the frame size
+             * (see its use in ipv4.c: linkMtu - sizeof(IPV4_HEADER) to get
+             * the max IP payload). Comparing pktLen directly against
+             * linkMtu rejects every standard-size frame (1500-byte IP
+             * payload -> 1518-byte frame > 1500), so add the header and
+             * FCS back in for a fair check against the classic 1518-byte
+             * max Ethernet frame size. */
+            if(pFDcpt->pktLen <= linkMtu + sizeof(TCPIP_MAC_ETHERNET_HEADER) + 4u)
+            {
                 _MAC_Bridge_AddPortMap(portIx, pFDcpt);
             }
             else
