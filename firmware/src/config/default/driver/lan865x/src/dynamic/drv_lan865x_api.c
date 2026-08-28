@@ -108,7 +108,9 @@ const TCPIP_MAC_OBJECT DRV_LAN865X_MACObject = {
 // Local information
 static DRV_LAN865X_DriverInfo drvLAN865XDrvInst[DRV_LAN865X_INSTANCES_NUMBER];
 
-extern const DRV_LAN865X_Configuration drvLan865xInitData[DRV_LAN865X_INSTANCES_NUMBER];
+/* Not const - initialization.c patches nodeId/nodeCount from the persisted env before
+ * TCPIP_STACK_Init(), see the comment at its definition. */
+extern DRV_LAN865X_Configuration drvLan865xInitData[DRV_LAN865X_INSTANCES_NUMBER];
 
 /******************************************************************************
 *  Local Function Prototypes

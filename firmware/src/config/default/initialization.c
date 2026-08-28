@@ -86,8 +86,12 @@
 
 // <editor-fold defaultstate="collapsed" desc="LAN865X Driver Initialization Data">
 
-/* LAN865X Driver Configuration */
-const DRV_LAN865X_Configuration drvLan865xInitData[] = {
+/* LAN865X Driver Configuration.
+ * NOT const: nodeId/nodeCount are overwritten from the persisted env (see
+ * SYS_Initialize() below, right after ENV_Init()) before TCPIP_STACK_Init() triggers
+ * DRV_LAN865X_Initialize()'s one-time memcpy of this table into the running instance -
+ * so the node's very first PLCA_CTRL1 write already carries its real identity. */
+DRV_LAN865X_Configuration drvLan865xInitData[] = {
 {
     .spiDrvIndex =          DRV_LAN865X_SPI_DRIVER_INSTANCE_IDX0,
     .spiChipSelectPin =     DRV_LAN865X_SPI_CS_IDX0,
@@ -779,6 +783,19 @@ void SYS_Initialize ( void* data )
    ENV_Init();
    env_mac_str(0, s_macAddrStr0);
    env_mac_str(1, s_macAddrStr1);
+
+    /* Same idea for the PLCA node ID/count: drvLan865xInitData[] otherwise ships the
+     * compile-time default (node 7 of 8, see configuration.h), which DRV_LAN865X's own
+     * init state machine writes to PLCA_CTRL1 and only THEN enables TX/RX - a node that
+     * is live on the bus with the wrong PLCA identity for the several seconds it takes
+     * app.c's env_apply() to correct it. Overwriting the table here, before
+     * TCPIP_STACK_Init() triggers DRV_LAN865X_Initialize()'s one-time memcpy of it into
+     * the running instance, means PLCA_CTRL1 is correct on the very first write - no
+     * window where the node is on the bus with the wrong identity. env_apply() (called
+     * later, from app.c) still matters for a live 'setenv plca_id/plca_cnt' + 'saveenv'
+     * change while already running. */
+   drvLan865xInitData[0].nodeId    = env_plca_id();
+   drvLan865xInitData[0].nodeCount = env_plca_cnt();
 
     /* MISRA C-2012 Rule 11.3, 11.8 deviated below. Deviation record ID -
     H3_MISRAC_2012_R_11_3_DR_1 & H3_MISRAC_2012_R_11_8_DR_1*/
