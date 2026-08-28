@@ -1095,3 +1095,33 @@ Regel: siehe `CLAUDE.md` Abschnitt 7 „Erkenntnisse festhalten". Neue Einträge
   file's own older entries mentioning `term.bat` (the `batch\` move entry above, and the one further
   up about the `docs\`/`scripts\` reorg) were deliberately left unchanged, per this file's own rule.
   Verified: `run_term.bat --selftest` still exits 0.
+- **2026-08-28 — `nbproject/configurations.xml` trug einen falschen `heap-size`-Wert
+  (`98304` = 96 KiB), der Wert des *tatsächlich funktionierenden* Hex war `163840`
+  = 160 KiB. Jeder frische Build aus dem Repo heraus (egal ob `build.bat`, `build.bat
+  rebuild`, egal auf welchem Rechner/Worktree) erzeugte damit einen Hex, dessen
+  Firmware in `CLOCK_Initialize()`/`FDPLL0_Initialize()` permanent in der
+  `DPLLSYNCBUSY.DPLLRATIO`-Wartschleife hängen blieb (`plib_clock.c`) — noch bevor
+  die Konsole überhaupt initialisiert ist, deshalb keinerlei CLI-Ausgabe. Nach
+  stundenlanger Fehlsuche in die falsche Richtung (Fuses, pyOCD-Pack-Bug,
+  Board-Zustand, Reset-Typ Hardware vs. Software, Toolchain-Version) fand sich die
+  Ursache über einen präzisen Bit-für-Bit-Vergleich: der einzige inhaltliche
+  Unterschied zwischen dem funktionierenden, committeten Hex und jedem Rebuild war
+  ein einzelner 32-Bit-Zeiger, der exakt um 65536 Byte verschoben war — an einer
+  Adresse kurz hinter dem letzten benannten RAM-Symbol, genau am Ende der
+  linker-eigenen Heap-Reservierung (`_min_heap_size`, sichtbar im Build-Summary als
+  „Heap"). Der Zeiger selbst liegt in einer für den Hang irrelevanten
+  iperf-Reporting-Funktion (`ReportBW_Jitter_Loss`) — der eigentliche
+  Boot-kritische Code (`CLOCK_Initialize`) war in jedem Vergleich byte-identisch.
+  Der ursächliche Zusammenhang zwischen einer um 64 KiB kleineren Heap-Reservierung
+  und dem DPLL-Hang ist **nicht** vollständig verstanden (kein offensichtlicher
+  RAM-Overlap gefunden) — die Korrektur ist trotzdem eindeutig belegt: mit
+  `heap-size=163840` bootet jeder frische Rebuild zuverlässig (mehrfach mit
+  normalem Software-Reset über pyOCD getestet, kein Hardware-Reset-Workaround
+  nötig). **Lösung:** `nbproject/configurations.xml`, Property `heap-size`, auf
+  `163840` korrigiert, Makefiles danach neu generiert (die generierten
+  Makefile-Fragmente sind gitignored und übernehmen den Wert nicht automatisch
+  nach). **Merksatz: bei „Hex A funktioniert, identischer Quelltext + Rebuild
+  funktioniert nicht" nicht nur den ausgeführten Code vergleichen, sondern JEDEN
+  Byte-Unterschied im ganzen Image — auch scheinbar irrelevante Konstanten in
+  unbeteiligtem Code können auf eine falsche Linker-/Projekteinstellung zeigen,
+  die an ganz anderer Stelle wirkt.**
