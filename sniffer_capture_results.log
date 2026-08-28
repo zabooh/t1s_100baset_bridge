@@ -1,0 +1,505 @@
+
+
+===== run started 2026-08-28T01:52:09.120787 =====
+sniffer capture test - 2026-08-28T01:52:09.120941
+duration per test: 5.0s
+
+Enabling sniffer on the bridge...
+sniffer 1
+eth0(T1S)->eth1 sniffer: ON
+  Capture on the PC (eth1) in Wireshark to see ALL T1S bus traffic,
+  including frames between other nodes that do not involve this bridge.
+  T1S transmitter disabled (passive tap) - forwarding is paused meanwhile.
+  dbg: rx_hook=28094 passed_filter=28094 pool_empty=0 no_eth1=0 tx_submitted=28094
+  dbg: ack_ok=28094 ack_fail=0 last_ack_res=0 max_len_submitted=1514 max_len_ok=1514
+  dbg: truncated=19260 (frames cut to 1514 bytes before mirroring, see SNIFFER_4_ERGEBNISSE.md)
+>
+>LAN865X RMW OK: Addr=0x000308F9 Mask=0x00004000 Value=0x00004000 Final=0x00004000
+LAN865X Read OK: Addr=0x000308F9 Value=0x00004000
+[VERIFY] PASS addr=0x000308F9 masked=0x00004000 (mask 0x00004000)
+
+
+### UDP FollowerA -> FollowerB (while sniffing) ###
+  client (source) output:
+    iperf -c 192.168.0.201 -u -b 5000000 -t 5.0
+    iperf: Starting session instance 0
+    iperf: Using the default interface!
+    >
+    >    - RemoteNode MAC: 0 4 25 8e 8c a1
+    ---------------------------------------------------------
+    iperf: Client connecting to 192.168.0.201, UDP port 5001
+    iperf: instance 0 started ...
+        - Local  192.168.0.202 port 62755 connected with
+        - Remote 192.168.0.201 port 5001
+        - Target rate = 5000000 bps, period = 2 ms
+        - [ 0-  1 sec]   0/ 501 ( 0%)    5892 Kbps
+        - [ 1-  2 sec]   0/ 500 ( 0%)    5880 Kbps
+        - [ 2-  3 sec]   0/ 500 ( 0%)    5880 Kbps
+        - [ 3-  4 sec]   0/ 500 ( 0%)    5880 Kbps
+        - [ 4-  5 sec]   0/ 500 ( 0%)    5880 Kbps
+        - [0.0- 5.0 sec]   0/ 2501 ( 0%)    5882 Kbps
+        -----------------------------------------
+        - [0.0- 5.1 sec]   0/ 2510 ( 0%)    5786 Kbps
+    iperf: instance 0 completed ...iperf instance 0: Tx done. Socket closed.
+    iperf: instance 0 completed.
+  destination report: 0/2501 lost, 5.88 Mbit/s
+  source reports it actually sent: 2510
+  capture analysis: 2511 datagrams captured (2501 data + 10 end-of-stream marker(s)), expected 2510 (source-reported sent count)
+  => COMPLETE: every sent sequence id is present in the capture
+
+### TCP FollowerA -> FollowerB (while sniffing) ###
+  destination report: 5.84 Mbit/s over 5.0s
+  capture analysis: 3651460 bytes / 2506 segments captured, ~3648750 bytes expected (from destination's reported rate)
+  => COMPLETE (within measurement tolerance, 100.1% of expected)
+
+### UDP FollowerB -> FollowerA (while sniffing) ###
+  client (source) output:
+    iperf -c 192.168.0.202 -u -b 5000000 -t 5.0
+    iperf: Starting session instance 0
+    iperf: Using the default interface!
+    >
+    >    - RemoteNode MAC: 0 4 25 9d 4c 63
+    ---------------------------------------------------------
+    iperf: Client connecting to 192.168.0.202, UDP port 5001
+    iperf: instance 0 started ...
+        - Local  192.168.0.201 port 55547 connected with
+        - Remote 192.168.0.202 port 5001
+        - Target rate = 5000000 bps, period = 2 ms
+        - [ 0-  1 sec]   0/ 501 ( 0%)    5892 Kbps
+        - [ 1-  2 sec]   0/ 500 ( 0%)    5880 Kbps
+        - [ 2-  3 sec]   0/ 500 ( 0%)    5880 Kbps
+        - [ 3-  4 sec]   0/ 500 ( 0%)    5880 Kbps
+        - [ 4-  5 sec]   0/ 500 ( 0%)    5880 Kbps
+        - [0.0- 5.0 sec]   0/ 2501 ( 0%)    5882 Kbps
+        -----------------------------------------
+        - [0.0- 5.1 sec]   0/ 2510 ( 0%)    5786 Kbps
+    iperf: instance 0 completed ...iperf instance 0: Tx done. Socket closed.
+    iperf: instance 0 completed.
+  destination report: 0/2501 lost, 5.88 Mbit/s
+  source reports it actually sent: 2510
+  capture analysis: 2511 datagrams captured (2501 data + 10 end-of-stream marker(s)), expected 2510 (source-reported sent count)
+  => COMPLETE: every sent sequence id is present in the capture
+
+### TCP FollowerB -> FollowerA (while sniffing) ###
+  destination report: 5.84 Mbit/s over 5.0s
+  capture analysis: 3651460 bytes / 2506 segments captured, ~3648750 bytes expected (from destination's reported rate)
+  => COMPLETE (within measurement tolerance, 100.1% of expected)
+
+Disabling sniffer on the bridge...
+sniffer 0
+eth0(T1S)->eth1 sniffer: OFF
+  dbg: rx_hook=43257 passed_filter=43257 pool_empty=0 no_eth1=0 tx_submitted=43257
+  dbg: ack_ok=43257 ack_fail=0 last_ack_res=0 max_len_submitted=1514 max_len_ok=1514
+  dbg: truncated=29282 (frames cut to 1514 bytes before mirroring, see SNIFFER_4_ERGEBNISSE.md)
+>
+>LAN865X RMW OK: Addr=0x000308F9 Mask=0x00004000 Value=0x00000000 Final=0x00000000
+LAN865X Read OK: Addr=0x000308F9 Value=0x00000000
+[VERIFY] PASS addr=0x000308F9 masked=0x00000000 (mask 0x00004000)
+
+
+Full log written to sniffer_capture_results.log
+Capture files written to C:\Users\M91221\AppData\Local\Temp\claude\c--work-t1s-bridge-bridge-t1s-100baset-bridge\559e8da3-5ad7-47ab-9a0c-9a8e64be861b\scratchpad\pcaps_final
+
+
+===== run started 2026-08-28T01:58:43.834035 =====
+sniffer capture test - 2026-08-28T01:58:43.834153
+duration per test: 5.0s
+
+Enabling sniffer on the bridge...
+sniffer 1
+eth0(T1S)->eth1 sniffer: ON
+  Capture on the PC (eth1) in Wireshark to see ALL T1S bus traffic,
+  including frames between other nodes that do not involve this bridge.
+  T1S transmitter disabled (passive tap) - forwarding is paused meanwhile.
+  dbg: rx_hook=43257 passed_filter=43257 pool_empty=0 no_eth1=0 tx_submitted=43257
+  dbg: ack_ok=43257 ack_fail=0 last_ack_res=0 max_len_submitted=1514 max_len_ok=1514
+  dbg: truncated=29282 (frames cut to 1514 bytes before mirroring, see SNIFFER_4_ERGEBNISSE.md)
+>
+>LAN865X RMW OK: Addr=0x000308F9 Mask=0x00004000 Value=0x00004000 Final=0x00004000
+LAN865X Read OK: Addr=0x000308F9 Value=0x00004000
+[VERIFY] PASS addr=0x000308F9 masked=0x00004000 (mask 0x00004000)
+
+
+### UDP FollowerA -> FollowerB (while sniffing) ###
+  client (source) output:
+    iperf -c 192.168.0.201 -u -b 5000000 -t 5.0
+    iperf: Starting session instance 0
+    iperf: Using the default interface!
+    >
+    >    - RemoteNode MAC: 0 4 25 8e 8c a1
+    ---------------------------------------------------------
+    iperf: Client connecting to 192.168.0.201, UDP port 5001
+    iperf: instance 0 started ...
+        - Local  192.168.0.202 port 50342 connected with
+        - Remote 192.168.0.201 port 5001
+        - Target rate = 5000000 bps, period = 2 ms
+        - [ 0-  1 sec]   0/ 501 ( 0%)    5892 Kbps
+        - [ 1-  2 sec]   0/ 500 ( 0%)    5880 Kbps
+        - [ 2-  3 sec]   0/ 500 ( 0%)    5880 Kbps
+        - [ 3-  4 sec]   0/ 500 ( 0%)    5880 Kbps
+        - [ 4-  5 sec]   0/ 500 ( 0%)    5880 Kbps
+        - [0.0- 5.0 sec]   0/ 2501 ( 0%)    5882 Kbps
+        -----------------------------------------
+        - [0.0- 5.1 sec]   0/ 2510 ( 0%)    5786 Kbps
+    iperf: instance 0 completed ...iperf instance 0: Tx done. Socket closed.
+    iperf: instance 0 completed.
+  destination report: 0/2501 lost, 5.88 Mbit/s
+  source reports it actually sent: 2510
+  capture analysis: 2511 datagrams captured (2501 data + 10 end-of-stream marker(s)), expected 2510 (source-reported sent count)
+  => COMPLETE: every sent sequence id is present in the capture
+
+### TCP FollowerA -> FollowerB (while sniffing) ###
+  destination report: 5.84 Mbit/s over 5.0s
+  capture analysis: 3652920 bytes / 2507 segments captured, ~3650000 bytes expected (from destination's reported rate)
+  => COMPLETE (within measurement tolerance, 100.1% of expected)
+
+### UDP FollowerB -> FollowerA (while sniffing) ###
+  client (source) output:
+    iperf -c 192.168.0.202 -u -b 5000000 -t 5.0
+    iperf: Starting session instance 0
+    iperf: Using the default interface!
+    >
+    >    - RemoteNode MAC: 0 4 25 9d 4c 63
+    ---------------------------------------------------------
+    iperf: Client connecting to 192.168.0.202, UDP port 5001
+    iperf: instance 0 started ...
+        - Local  192.168.0.201 port 52282 connected with
+        - Remote 192.168.0.202 port 5001
+        - Target rate = 5000000 bps, period = 2 ms
+        - [ 0-  1 sec]   0/ 501 ( 0%)    5892 Kbps
+        - [ 1-  2 sec]   0/ 500 ( 0%)    5880 Kbps
+        - [ 2-  3 sec]   0/ 500 ( 0%)    5880 Kbps
+        - [ 3-  4 sec]   0/ 500 ( 0%)    5880 Kbps
+        - [ 4-  5 sec]   0/ 500 ( 0%)    5880 Kbps
+        - [0.0- 5.0 sec]   0/ 2501 ( 0%)    5882 Kbps
+        -----------------------------------------
+        - [0.0- 5.1 sec]   0/ 2510 ( 0%)    5786 Kbps
+    iperf: instance 0 completed ...iperf instance 0: Tx done. Socket closed.
+    iperf: instance 0 completed.
+  destination report: 0/2501 lost, 5.88 Mbit/s
+  source reports it actually sent: 2510
+  capture analysis: 2511 datagrams captured (2501 data + 10 end-of-stream marker(s)), expected 2510 (source-reported sent count)
+  => COMPLETE: every sent sequence id is present in the capture
+
+### TCP FollowerB -> FollowerA (while sniffing) ###
+  destination report: 5.84 Mbit/s over 5.0s
+  capture analysis: 3652920 bytes / 2507 segments captured, ~3649375 bytes expected (from destination's reported rate)
+  => COMPLETE (within measurement tolerance, 100.1% of expected)
+
+Disabling sniffer on the bridge...
+sniffer 0
+eth0(T1S)->eth1 sniffer: OFF
+  dbg: rx_hook=58424 passed_filter=58424 pool_empty=0 no_eth1=0 tx_submitted=58424
+  dbg: ack_ok=58424 ack_fail=0 last_ack_res=0 max_len_submitted=1514 max_len_ok=1514
+  dbg: truncated=39306 (frames cut to 1514 bytes before mirroring, see SNIFFER_4_ERGEBNISSE.md)
+>
+>LAN865X RMW OK: Addr=0x000308F9 Mask=0x00004000 Value=0x00000000 Final=0x00000000
+LAN865X Read OK: Addr=0x000308F9 Value=0x00000000
+[VERIFY] PASS addr=0x000308F9 masked=0x00000000 (mask 0x00004000)
+
+
+Full log written to sniffer_capture_results.log
+Capture files written to C:\work\t1s_bridge\bridge\t1s_100baset_bridge
+
+
+===== run started 2026-08-28T02:09:43.174801 =====
+sniffer capture test - 2026-08-28T02:09:43.174916
+duration per test: 5.0s, UDP rate: 9000000.0 Mbit/s
+
+Enabling sniffer on the bridge...
+sniffer 1
+eth0(T1S)->eth1 sniffer: ON
+  Capture on the PC (eth1) in Wireshark to see ALL T1S bus traffic,
+  including frames between other nodes that do not involve this bridge.
+  T1S transmitter disabled (passive tap) - forwarding is paused meanwhile.
+  dbg: rx_hook=58424 passed_filter=58424 pool_empty=0 no_eth1=0 tx_submitted=58424
+  dbg: ack_ok=58424 ack_fail=0 last_ack_res=0 max_len_submitted=1514 max_len_ok=1514
+  dbg: truncated=39306 (frames cut to 1514 bytes before mirroring, see SNIFFER_4_ERGEBNISSE.md)
+>
+>LAN865X RMW OK: Addr=0x000308F9 Mask=0x00004000 Value=0x00004000 Final=0x00004000
+LAN865X Read OK: Addr=0x000308F9 Value=0x00004000
+[VERIFY] PASS addr=0x000308F9 masked=0x00004000 (mask 0x00004000)
+
+
+### UDP FollowerA -> FollowerB (while sniffing) ###
+  client (source) output:
+    iperf -c 192.168.0.201 -u -b 9000000000000.0 -t 5.0
+    iperf: Starting session instance 0
+    iperf: Using the default interface!
+    >
+    >    - RemoteNode MAC: 0 4 25 8e 8c a1
+    ---------------------------------------------------------
+    iperf: Client connecting to 192.168.0.201, UDP port 5001
+    iperf: instance 0 started ...
+        - Local  192.168.0.202 port 62316 connected with
+        - Remote 192.168.0.201 port 5001
+        - Target rate = 2043514880 bps, period = 0 ms
+        - [ 0-  1 sec]   0/ 806 ( 0%)    9469 Kbps
+        - [ 1-  2 sec]   0/ 802 ( 0%)    9432 Kbps
+        - [ 2-  3 sec]   0/ 802 ( 0%)    9432 Kbps
+        - [ 3-  4 sec]   0/ 802 ( 0%)    9432 Kbps
+        - [ 4-  5 sec]   0/ 802 ( 0%)    9432 Kbps
+        - [0.0- 5.0 sec]   0/ 4013 ( 0%)    9439 Kbps
+        -----------------------------------------
+        - [0.0- 5.1 sec]   0/ 4022 ( 0%)    9257 Kbps
+    iperf: instance 0 completed ...iperf instance 0: Tx done. Socket closed.
+    iperf: instance 0 completed.
+  destination report: 0/4013 lost, 9.43 Mbit/s
+  source reports it actually sent: 4022
+  capture analysis: 4023 datagrams captured (4013 data + 10 end-of-stream marker(s)), expected 4022 (source-reported sent count)
+  => COMPLETE: every sent sequence id is present in the capture
+
+### TCP FollowerA -> FollowerB (while sniffing) ###
+  destination report: 5.84 Mbit/s over 5.0s
+  capture analysis: 3651460 bytes / 2506 segments captured, ~3648750 bytes expected (from destination's reported rate)
+  => COMPLETE (within measurement tolerance, 100.1% of expected)
+
+### UDP FollowerB -> FollowerA (while sniffing) ###
+  client (source) output:
+    iperf -c 192.168.0.202 -u -b 9000000000000.0 -t 5.0
+    iperf: Starting session instance 0
+    iperf: Using the default interface!
+    >
+    >    - RemoteNode MAC: 0 4 25 9d 4c 63
+    ---------------------------------------------------------
+    iperf: Client connecting to 192.168.0.202, UDP port 5001
+    iperf: instance 0 started ...
+        - Local  192.168.0.201 port 64303 connected with
+        - Remote 192.168.0.202 port 5001
+        - Target rate = 2043514880 bps, period = 0 ms
+        - [ 0-  1 sec]   0/ 806 ( 0%)    9479 Kbps
+        - [ 1-  2 sec]   0/ 802 ( 0%)    9422 Kbps
+        - [ 2-  3 sec]   0/ 802 ( 0%)    9432 Kbps
+        - [ 3-  4 sec]   0/ 802 ( 0%)    9432 Kbps
+        - [ 4-  5 sec]   0/ 802 ( 0%)    9432 Kbps
+        - [0.0- 5.0 sec]   0/ 4013 ( 0%)    9439 Kbps
+        -----------------------------------------
+        - [0.0- 5.1 sec]   0/ 4022 ( 0%)    9257 Kbps
+    iperf: instance 0 completed ...iperf instance 0: Tx done. Socket closed.
+    iperf: instance 0 completed.
+  destination report: 0/4013 lost, 9.43 Mbit/s
+  source reports it actually sent: 4022
+  capture analysis: 4023 datagrams captured (4013 data + 10 end-of-stream marker(s)), expected 4022 (source-reported sent count)
+  => COMPLETE: every sent sequence id is present in the capture
+
+### TCP FollowerB -> FollowerA (while sniffing) ###
+  destination report: 5.84 Mbit/s over 5.0s
+  capture analysis: 3651460 bytes / 2506 segments captured, ~3648750 bytes expected (from destination's reported rate)
+  => COMPLETE (within measurement tolerance, 100.1% of expected)
+
+Disabling sniffer on the bridge...
+sniffer 0
+eth0(T1S)->eth1 sniffer: OFF
+  dbg: rx_hook=76617 passed_filter=76617 pool_empty=0 no_eth1=0 tx_submitted=76617
+  dbg: ack_ok=76617 ack_fail=0 last_ack_res=0 max_len_submitted=1514 max_len_ok=1514
+  dbg: truncated=52352 (frames cut to 1514 bytes before mirroring, see SNIFFER_4_ERGEBNISSE.md)
+>
+>LAN865X RMW OK: Addr=0x000308F9 Mask=0x00004000 Value=0x00000000 Final=0x00000000
+LAN865X Read OK: Addr=0x000308F9 Value=0x00000000
+[VERIFY] PASS addr=0x000308F9 masked=0x00000000 (mask 0x00004000)
+
+
+Full log written to sniffer_capture_results.log
+Capture files written to C:\work\t1s_bridge\bridge\t1s_100baset_bridge
+
+
+===== run started 2026-08-28T02:11:06.944183 =====
+sniffer capture test - 2026-08-28T02:11:06.944509
+duration per test: 5.0s, UDP rate: 12000000.0 Mbit/s
+
+Enabling sniffer on the bridge...
+sniffer 1
+eth0(T1S)->eth1 sniffer: ON
+  Capture on the PC (eth1) in Wireshark to see ALL T1S bus traffic,
+  including frames between other nodes that do not involve this bridge.
+  T1S transmitter disabled (passive tap) - forwarding is paused meanwhile.
+  dbg: rx_hook=76617 passed_filter=76617 pool_empty=0 no_eth1=0 tx_submitted=76617
+  dbg: ack_ok=76617 ack_fail=0 last_ack_res=0 max_len_submitted=1514 max_len_ok=1514
+  dbg: truncated=52352 (frames cut to 1514 bytes before mirroring, see SNIFFER_4_ERGEBNISSE.md)
+>
+>LAN865X RMW OK: Addr=0x000308F9 Mask=0x00004000 Value=0x00004000 Final=0x00004000
+LAN865X Read OK: Addr=0x000308F9 Value=0x00004000
+[VERIFY] PASS addr=0x000308F9 masked=0x00004000 (mask 0x00004000)
+
+
+### UDP FollowerA -> FollowerB (while sniffing) ###
+  client (source) output:
+    iperf -c 192.168.0.201 -u -b 12000000000000.0 -t 5.0
+    iperf: Starting session instance 0
+    iperf: Using the default interface!
+    >
+    >    - RemoteNode MAC: 0 4 25 8e 8c a1
+    ---------------------------------------------------------
+    iperf: Client connecting to 192.168.0.201, UDP port 5001
+    iperf: instance 0 started ...
+        - Local  192.168.0.202 port 59509 connected with
+        - Remote 192.168.0.201 port 5001
+        - Target rate = -138625024 bps, period = 0 ms
+        - [ 0-  1 sec]   0/ 805 ( 0%)    9467 Kbps
+        - [ 1-  2 sec]   0/ 802 ( 0%)    9432 Kbps
+        - [ 2-  3 sec]   0/ 802 ( 0%)    9432 Kbps
+        - [ 3-  4 sec]   0/ 802 ( 0%)    9432 Kbps
+        - [ 4-  5 sec]   0/ 802 ( 0%)    9432 Kbps
+        - [0.0- 5.0 sec]   0/ 4013 ( 0%)    9439 Kbps
+        -----------------------------------------
+        - [0.0- 5.1 sec]   0/ 4022 ( 0%)    9255 Kbps
+    iperf: instance 0 completed ...iperf instance 0: Tx done. Socket closed.
+    iperf: instance 0 completed.
+  destination report: 0/4013 lost, 9.43 Mbit/s
+  source reports it actually sent: 4022
+  capture analysis: 4023 datagrams captured (4013 data + 10 end-of-stream marker(s)), expected 4022 (source-reported sent count)
+  => COMPLETE: every sent sequence id is present in the capture
+
+### TCP FollowerA -> FollowerB (while sniffing) ###
+  destination report: 5.84 Mbit/s over 5.0s
+  capture analysis: 3651460 bytes / 2506 segments captured, ~3649375 bytes expected (from destination's reported rate)
+  => COMPLETE (within measurement tolerance, 100.1% of expected)
+
+### UDP FollowerB -> FollowerA (while sniffing) ###
+  client (source) output:
+    iperf -c 192.168.0.202 -u -b 12000000000000.0 -t 5.0
+    iperf: Starting session instance 0
+    iperf: Using the default interface!
+    >
+    >    - RemoteNode MAC: 0 4 25 9d 4c 63
+    ---------------------------------------------------------
+    iperf: Client connecting to 192.168.0.202, UDP port 5001
+    iperf: instance 0 started ...
+        - Local  192.168.0.201 port 63841 connected with
+        - Remote 192.168.0.202 port 5001
+        - Target rate = -138625024 bps, period = 0 ms
+        - [ 0-  1 sec]   0/ 805 ( 0%)    9467 Kbps
+        - [ 1-  2 sec]   0/ 802 ( 0%)    9432 Kbps
+        - [ 2-  3 sec]   0/ 802 ( 0%)    9432 Kbps
+        - [ 3-  4 sec]   0/ 802 ( 0%)    9432 Kbps
+        - [ 4-  5 sec]   0/ 802 ( 0%)    9432 Kbps
+        - [0.0- 5.0 sec]   0/ 4013 ( 0%)    9439 Kbps
+        -----------------------------------------
+        - [0.0- 5.1 sec]   0/ 4022 ( 0%)    9255 Kbps
+    iperf: instance 0 completed ...iperf instance 0: Tx done. Socket closed.
+    iperf: instance 0 completed.
+  destination report: 0/4013 lost, 9.43 Mbit/s
+  source reports it actually sent: 4022
+  capture analysis: 4023 datagrams captured (4013 data + 10 end-of-stream marker(s)), expected 4022 (source-reported sent count)
+  => COMPLETE: every sent sequence id is present in the capture
+
+### TCP FollowerB -> FollowerA (while sniffing) ###
+  destination report: 5.84 Mbit/s over 5.0s
+  capture analysis: 3651460 bytes / 2506 segments captured, ~3647500 bytes expected (from destination's reported rate)
+  => COMPLETE (within measurement tolerance, 100.1% of expected)
+
+Disabling sniffer on the bridge...
+sniffer 0
+eth0(T1S)->eth1 sniffer: OFF
+  dbg: rx_hook=94812 passed_filter=94812 pool_empty=0 no_eth1=0 tx_submitted=94812
+  dbg: ack_ok=94812 ack_fail=0 last_ack_res=0 max_len_submitted=1514 max_len_ok=1514
+  dbg: truncated=65398 (frames cut to 1514 bytes before mirroring, see SNIFFER_4_ERGEBNISSE.md)
+>
+>LAN865X RMW OK: Addr=0x000308F9 Mask=0x00004000 Value=0x00000000 Final=0x00000000
+LAN865X Read OK: Addr=0x000308F9 Value=0x00000000
+[VERIFY] PASS addr=0x000308F9 masked=0x00000000 (mask 0x00004000)
+
+
+Full log written to sniffer_capture_results.log
+Capture files written to C:\work\t1s_bridge\bridge\t1s_100baset_bridge
+
+
+===== run started 2026-08-28T02:14:39.157443 =====
+sniffer capture test - 2026-08-28T02:14:39.157557
+duration per test: 5.0s, UDP rate: 10.0 Mbit/s
+
+Enabling sniffer on the bridge...
+sniffer 1
+eth0(T1S)->eth1 sniffer: ON
+  Capture on the PC (eth1) in Wireshark to see ALL T1S bus traffic,
+  including frames between other nodes that do not involve this bridge.
+  T1S transmitter disabled (passive tap) - forwarding is paused meanwhile.
+  dbg: rx_hook=94812 passed_filter=94812 pool_empty=0 no_eth1=0 tx_submitted=94812
+  dbg: ack_ok=94812 ack_fail=0 last_ack_res=0 max_len_submitted=1514 max_len_ok=1514
+  dbg: truncated=65398 (frames cut to 1514 bytes before mirroring, see SNIFFER_4_ERGEBNISSE.md)
+>
+>LAN865X RMW OK: Addr=0x000308F9 Mask=0x00004000 Value=0x00004000 Final=0x00004000
+LAN865X Read OK: Addr=0x000308F9 Value=0x00004000
+[VERIFY] PASS addr=0x000308F9 masked=0x00004000 (mask 0x00004000)
+
+
+### UDP FollowerA -> FollowerB (while sniffing) ###
+  client (source) output:
+    iperf -c 192.168.0.201 -u -b 10000000.0 -t 5.0
+    iperf: Starting session instance 0
+    iperf: Using the default interface!
+    >
+    >    - RemoteNode MAC: 0 4 25 8e 8c a1
+    ---------------------------------------------------------
+    iperf: Client connecting to 192.168.0.201, UDP port 5001
+    iperf: instance 0 started ...
+        - Local  192.168.0.202 port 56032 connected with
+        - Remote 192.168.0.201 port 5001
+        - Target rate = 10000000 bps, period = 1 ms
+        - [ 0-  1 sec]   0/ 805 ( 0%)    9467 Kbps
+        - [ 1-  2 sec]   0/ 802 ( 0%)    9432 Kbps
+        - [ 2-  3 sec]   0/ 802 ( 0%)    9432 Kbps
+        - [ 3-  4 sec]   0/ 802 ( 0%)    9432 Kbps
+        - [ 4-  5 sec]   0/ 802 ( 0%)    9432 Kbps
+        - [0.0- 5.0 sec]   0/ 4013 ( 0%)    9439 Kbps
+        -----------------------------------------
+        - [0.0- 5.1 sec]   0/ 4022 ( 0%)    9255 Kbps
+    iperf: instance 0 completed ...iperf instance 0: Tx done. Socket closed.
+    iperf: instance 0 completed.
+  destination report: 0/4013 lost, 9.43 Mbit/s
+  source reports it actually sent: 4022
+  capture analysis: 4023 datagrams captured (4013 data + 10 end-of-stream marker(s)), expected 4022 (source-reported sent count)
+  => COMPLETE: every sent sequence id is present in the capture
+
+### TCP FollowerA -> FollowerB (while sniffing) ###
+  destination report: 5.84 Mbit/s over 5.0s
+  capture analysis: 3652920 bytes / 2507 segments captured, ~3650000 bytes expected (from destination's reported rate)
+  => COMPLETE (within measurement tolerance, 100.1% of expected)
+
+### UDP FollowerB -> FollowerA (while sniffing) ###
+  client (source) output:
+    iperf -c 192.168.0.202 -u -b 10000000.0 -t 5.0
+    iperf: Starting session instance 0
+    iperf: Using the default interface!
+    >
+    >    - RemoteNode MAC: 0 4 25 9d 4c 63
+    ---------------------------------------------------------
+    iperf: Client connecting to 192.168.0.202, UDP port 5001
+    iperf: instance 0 started ...
+        - Local  192.168.0.201 port 49893 connected with
+        - Remote 192.168.0.202 port 5001
+        - Target rate = 10000000 bps, period = 1 ms
+        - [ 0-  1 sec]   0/ 805 ( 0%)    9467 Kbps
+        - [ 1-  2 sec]   0/ 802 ( 0%)    9432 Kbps
+        - [ 2-  3 sec]   0/ 802 ( 0%)    9432 Kbps
+        - [ 3-  4 sec]   0/ 802 ( 0%)    9432 Kbps
+        - [ 4-  5 sec]   0/ 802 ( 0%)    9432 Kbps
+        - [0.0- 5.0 sec]   0/ 4013 ( 0%)    9437 Kbps
+        -----------------------------------------
+        - [0.0- 5.1 sec]   0/ 4022 ( 0%)    9271 Kbps
+    iperf: instance 0 completed ...iperf instance 0: Tx done. Socket closed.
+    iperf: instance 0 completed.
+  destination report: 0/4013 lost, 9.43 Mbit/s
+  source reports it actually sent: 4022
+  capture analysis: 4023 datagrams captured (4013 data + 10 end-of-stream marker(s)), expected 4022 (source-reported sent count)
+  => COMPLETE: every sent sequence id is present in the capture
+
+### TCP FollowerB -> FollowerA (while sniffing) ###
+  destination report: 5.84 Mbit/s over 5.0s
+  capture analysis: 3652920 bytes / 2507 segments captured, ~3649375 bytes expected (from destination's reported rate)
+  => COMPLETE (within measurement tolerance, 100.1% of expected)
+
+Disabling sniffer on the bridge...
+sniffer 0
+eth0(T1S)->eth1 sniffer: OFF
+  dbg: rx_hook=113004 passed_filter=113004 pool_empty=0 no_eth1=0 tx_submitted=113004
+  dbg: ack_ok=113004 ack_fail=0 last_ack_res=0 max_len_submitted=1514 max_len_ok=1514
+  dbg: truncated=78446 (frames cut to 1514 bytes before mirroring, see SNIFFER_4_ERGEBNISSE.md)
+>
+>LAN865X RMW OK: Addr=0x000308F9 Mask=0x00004000 Value=0x00000000 Final=0x00000000
+LAN865X Read OK: Addr=0x000308F9 Value=0x00000000
+[VERIFY] PASS addr=0x000308F9 masked=0x00000000 (mask 0x00004000)
+
+
+Full log written to sniffer_capture_results.log
+Capture files written to C:\work\t1s_bridge\bridge\t1s_100baset_bridge
