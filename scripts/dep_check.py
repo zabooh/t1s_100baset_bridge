@@ -35,7 +35,8 @@ import tkinter as tk
 from tkinter import scrolledtext, ttk
 from pathlib import Path
 
-INSTALL_SCRIPT = Path(__file__).parent / "install_dependencies.bat"
+# install_dependencies.bat is a repo-root file, not next to this script.
+INSTALL_SCRIPT = Path(__file__).parent.parent / "install_dependencies.bat"
 
 
 def _missing(deps):

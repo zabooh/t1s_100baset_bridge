@@ -461,7 +461,7 @@ end-to-end throughput across the bridge itself (PC → `eth1` → MAC bridge →
 
 > **Complete reference: [`CLI_COMMANDS.md`](CLI_COMMANDS.md)** — all 22 commands with syntax,
 > description and example output, plus the Harmony stack groups. That file is derived from the
-> firmware's command tables and held against them by `python cli_doc_check.py`. What follows here is
+> firmware's command tables and held against them by `python scripts/cli_doc_check.py`. What follows here is
 > the short overview.
 
 Two command groups; type the command name directly (no group prefix needed).
@@ -610,7 +610,7 @@ pyOCD and reports whether a probe and the device pack are visible.
 After flashing, verify the bridge end to end from the PC:
 
 ```bat
-python smoketest.py --bridge 192.168.0.210 --endpoint 192.168.0.54 --com COM8
+python scripts/smoketest.py --bridge 192.168.0.210 --endpoint 192.168.0.54 --com COM8
 ```
 
 Checks bridge reachability, L2 forwarding to the endpoint (ping through the
@@ -618,7 +618,7 @@ bridge), and — if `--com` is given — that the on-board console answers
 `stats`. Exits non-zero if any check fails.
 
 `cli.py` sends ad-hoc CLI commands over the EDBG COM port, e.g.
-`python cli.py --port COM8 "stats" "plca_node"`.
+`python scripts/cli.py --port COM8 "stats" "plca_node"`.
 
 ### First bring-up checklist
 
@@ -627,7 +627,7 @@ bridge), and — if `--com` is given — that the on-board console answers
 3. `stats` — confirm `eth0`/`eth1` exist and counters move.
 4. `plca_node` — reports the configured node id.
 5. From the PC (on `192.168.0.220`): `ping 192.168.0.54` → 0% loss (bridge
-   works). Or run `python smoketest.py`.
+   works). Or run `python scripts/smoketest.py`.
 
 ---
 
@@ -722,7 +722,7 @@ every board is unique from one firmware image.
 #### Worked example
 
 Change eth0's DNS server, persist it, and prove it survives a reboot (this
-transcript is a real console session, via `python cli.py --port COM8 "..."`):
+transcript is a real console session, via `python scripts/cli.py --port COM8 "..."`):
 
 ```text
 > showenv
@@ -961,14 +961,14 @@ reusable in another Harmony two-port bridge — adapt `MIRROR_SRC_IF` /
 > shows frames *from* the bus but none of the bridge's own, which looks like a
 > half-working mirror rather than a missing patch.
 >
-> **[`test_mirror.py`](test_mirror.py) checks exactly this** and is worth running
+> **[`test_mirror.py`](scripts/test_mirror.py) checks exactly this** and is worth running
 > after any regeneration. It pings the T1S node from the board's own console and
 > counts the resulting ICMP on `eth1` with `tshark`: that conversation cannot
 > reach `eth1` by any route other than the mirror, so mirror-off must yield zero
 > frames and mirror-on must yield both directions.
 >
 > ```text
-> python test_mirror.py
+> python scripts/test_mirror.py
 > ```
 
 ### 7.6 Sniffer mode: seeing traffic between other nodes too
@@ -1152,9 +1152,9 @@ so the measurement does not perturb the bus the way polling registers during a
 throughput test would.
 
 ```text
-python test_lan8651.py --port COM8
-python test_lan8651.py --port COM8 --modes 1,2 --window 6
-python test_lan8651.py --list-interfaces
+python scripts/test_lan8651.py --port COM8
+python scripts/test_lan8651.py --port COM8 --modes 1,2 --window 6
+python scripts/test_lan8651.py --list-interfaces
 ```
 
 The script **requires this board to be the PLCA coordinator** (node id 0) and

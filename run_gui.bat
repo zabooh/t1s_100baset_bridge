@@ -17,7 +17,7 @@ if errorlevel 1 (
 REM Run the GUI
 echo Starting Bridge GUI...
 cd /d "%SCRIPT_DIR%"
-python bridge_gui.py
+python scripts\bridge_gui.py
 
 if errorlevel 1 (
     echo.

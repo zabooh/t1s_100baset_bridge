@@ -8,7 +8,8 @@ Bridge-Parameter, LAN8651-Register, IEEE-Testmodi und ein Terminal.
 Standalone bis auf zwei pip-Pakete: sv-ttk (Pflicht, fürs Theme) und pyserial
 (optional, ohne COM-Port-Zugriff läuft das Tool trotzdem) - dep_check.py
 prüft beides beim Start und bietet bei Bedarf install_dependencies.bat an.
-Dazu bridge_config.json (liegt daneben). Kein cli.py, kein test_lan8651.py --
+Dazu bridge_config.json (liegt im Repo-Root, eine Ebene über diesem Skript).
+Kein cli.py, kein test_lan8651.py --
 die öffnen den COM-Port selbst und kollidieren mit der Verbindung dieser GUI,
 weil der Port unter Windows exklusiv ist. Alle Kommandos laufen über den
 einen offenen Link.
@@ -58,15 +59,15 @@ def _console_python() -> str:
 
 PYOCD_PYTHON = _console_python()
 
-# Configuration file path
-CONFIG_FILE = Path(__file__).parent / "bridge_config.json"
+# Configuration file path - bridge_config.json is a repo-root file, not next to this script.
+CONFIG_FILE = Path(__file__).parent.parent / "bridge_config.json"
 
 # Flash/Erase over the EDBG probe (SWD), independent of the open serial link - see
 # flash_from_release()/erase_chip(). RELEASE_HEX is the same file build.bat copies
 # to after every build (see CLAUDE.md section 2); FLASH_SAME54_SCRIPT already knows
 # how to find the SAME54_DFP pack and pick a probe, this GUI only adds the picker
 # for "which probe, if more than one is connected" and the confirmation dialogs.
-RELEASE_HEX = Path(__file__).parent / "release" / "T1S_100BaseT_Bridge.hex"
+RELEASE_HEX = Path(__file__).parent.parent / "release" / "T1S_100BaseT_Bridge.hex"
 FLASH_SAME54_SCRIPT = Path(__file__).parent / "flash_same54.py"
 # Typed into the erase confirmation dialog, not just clicked - a chip erase is not
 # reversible (wipes firmware AND the emulated EEPROM, both live in the same flash).
@@ -77,14 +78,16 @@ ERASE_CONFIRM_WORD = "ERASE"
 # Referenz, auf die sich jemand verlaesst, der einen Fehler sucht. Die GUI liest es
 # und schreibt es NIE; Werte und Sitzungszustand gehoeren in bridge_config.json.
 # Stimmt etwas nicht, wird diese Datei korrigiert, nicht dieser Quelltext -- danach
-# "python check_register_model.py".
-MODEL_FILE = Path(__file__).parent / "lan8651_model.json"
+# "python scripts\check_register_model.py". lan8651_model.json ist eine
+# Repo-Root-Datei, nicht neben diesem Skript.
+MODEL_FILE = Path(__file__).parent.parent / "lan8651_model.json"
 
 # Das Environment-Modell: welche Felder der EEPROM-Datensatz hat, wie sie aus showenv
 # gelesen und mit welchem CLI-Kommando sie geschrieben werden -- je Kennung und Version.
 # Firmware-Varianten teilen sich den EEPROM-Offset, aber nicht das Layout; deshalb wird
 # die Kennung vom Geraet gelesen und gegen dieses Modell gehalten, statt sie zu raten.
-ENV_MODEL_FILE = Path(__file__).parent / "env_model.json"
+# env_model.json ist ebenfalls eine Repo-Root-Datei.
+ENV_MODEL_FILE = Path(__file__).parent.parent / "env_model.json"
 
 # Default configuration
 # Vorgaben, falls bridge_config.json fehlt. Die Registerkarte kommt dann NICHT
@@ -626,7 +629,7 @@ class BridgeGUI:
             messagebox.showerror(
                 "Register model unreadable",
                 f"{MODEL_FILE.name} is not valid JSON:\n\n{exc}\n\n"
-                "The register tab stays empty. Check it with: python check_register_model.py")
+                "The register tab stays empty. Check it with: python scripts\\check_register_model.py")
             return {}
         return model
 
@@ -646,7 +649,7 @@ class BridgeGUI:
             messagebox.showerror(
                 "Environment model unreadable",
                 f"{ENV_MODEL_FILE.name} is not valid JSON:\n\n{exc}\n\n"
-                "Check it with: python check_env_model.py")
+                "Check it with: python scripts\\check_env_model.py")
             return {}
 
     def env_entry_for(self, identity: Optional[dict]) -> dict:

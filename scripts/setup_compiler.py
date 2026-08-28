@@ -13,8 +13,10 @@ import json
 import os
 import sys
 
-SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-CONFIG_FILE = os.path.join(SCRIPT_DIR, "setup_compiler.config")
+# setup_compiler.config is a repo-root file (both build.bat and
+# follower/build.bat read it from there), not next to this script.
+REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+CONFIG_FILE = os.path.join(REPO_ROOT, "setup_compiler.config")
 
 XC32_BASE = r"C:\Program Files\Microchip\xc32"
 

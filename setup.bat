@@ -34,7 +34,7 @@ if errorlevel 1 ( echo [WARN] pyserial install failed - check your network/pip. 
 
 echo.
 echo [2/5] Compiler selection (XC32) ...
-python "%SCRIPT_DIR%setup_compiler.py"
+python "%SCRIPT_DIR%scripts\setup_compiler.py"
 if errorlevel 1 ( echo [WARN] setup_compiler.py failed - run it manually. & set "RC=1" )
 
 echo.
@@ -44,7 +44,7 @@ if errorlevel 1 ( echo [WARN] install.bat reported missing prerequisites - see a
 
 echo.
 echo [4/5] VS Code debug fix (SAME54_DFP tool pack) ...
-python "%SCRIPT_DIR%setup_debug.py"
+python "%SCRIPT_DIR%scripts\setup_debug.py"
 if errorlevel 1 ( echo [WARN] setup_debug.py failed - only needed for VS Code debugging. & set "RC=1" )
 
 rem The nbproject Makefile fragments are gitignored - they carry absolute paths

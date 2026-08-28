@@ -23,7 +23,7 @@ rem the same board even with several plugged in. Setting it here overrides bench
 rem for this file; "flash.bat --probe <serial>" overrides it for a single run.
 set "PROBE="
 
-set "TOOL=%~dp0flash_same54.py"
+set "TOOL=%~dp0scripts\flash_same54.py"
 set "HEX=%~dp0firmware\T1S_100BaseT_Bridge.X\dist\default\production\T1S_100BaseT_Bridge.X.production.hex"
 
 if not exist "%TOOL%" (
@@ -76,7 +76,7 @@ python "%TOOL%" "%HEX%" %PROBEARG% %ARGS%
 if errorlevel 1 (
     echo.
     echo ERROR: flashing failed.
-    echo         Check prerequisites: python install_prereqs.py
+    echo         Check prerequisites: python scripts\install_prereqs.py
     exit /b 1
 )
 

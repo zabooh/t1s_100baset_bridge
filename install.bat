@@ -24,7 +24,7 @@ rem  the output).
 rem ===========================================================================
 setlocal
 
-set "TOOL=%~dp0install_prereqs.py"
+set "TOOL=%~dp0scripts\install_prereqs.py"
 
 if not exist "%TOOL%" (
     echo ERROR: %TOOL% missing.

@@ -85,7 +85,7 @@ Regel: siehe `CLAUDE.md` Abschnitt 7 „Erkenntnisse festhalten". Neue Einträge
   `port_mirror.c` umbenennt oder die Funktion umbenennt, bricht den Link; (2) **ein erneutes
   MCC „Generate Code" entfernt die Aufrufstelle lautlos.** Symptom danach: der Mirror zeigt noch
   die Frames *vom* Bus, aber nicht mehr die eigenen des Bridge — sieht wie ein halb funktionierender
-  Mirror aus, nicht wie ein fehlender Patch. **`python test_mirror.py` prüft genau das** (Mirror aus
+  Mirror aus, nicht wie ein fehlender Patch. **`python scripts\test_mirror.py` prüft genau das** (Mirror aus
   = 0 Frames, Mirror an > 0, beide Richtungen) und sollte nach jeder MCC-Regenerierung laufen.
 - **Ein neues `.c` in `firmware\src\` wird nur gebaut, wenn es in den Projektdateien steht.**
   `nbproject\configurations.xml` ist **getrackt** und die Quelle der Wahrheit (je ein `<itemPath>`
@@ -128,7 +128,7 @@ Regel: siehe `CLAUDE.md` Abschnitt 7 „Erkenntnisse festhalten". Neue Einträge
   **und** das generierte Makefile führen `lan865x_diag`, `port_mirror`, `noip_test` je als `.c`+`.h`;
   Build fehlerfrei (167 525 B Flash / 16,2 %, 49 359 B RAM / 18,8 %), Baum danach clean. Gefährlich
   ist nicht *Build*, sondern MCC „Generate Code" (Mirror-Patch, siehe oben) — danach
-  `python test_mirror.py`.
+  `python scripts\test_mirror.py`.
 - **2026-08-11 — „Baum danach clean" gilt nur für `build.bat`. Ein Build aus der MPLAB-X-IDE macht
   den Baum dreckig, und beide Symptome sehen schlimmer aus, als sie sind.** Am 2026-08-10 stand nach
   einem IDE-Lauf des Users (1) `firmware\T1S_100BaseT_Bridge.X\dist\default\production\` mit allen
@@ -883,3 +883,30 @@ Regel: siehe `CLAUDE.md` Abschnitt 7 „Erkenntnisse festhalten". Neue Einträge
   `dep_check.py`, `requirements.txt` und `CLAUDE.md` entsprechend nachgezogen. Verifiziert:
   beide Tools starten fehlerfrei mit dem Theme (kein Traceback) — die tatsächliche Optik
   nicht per Screenshot geprüft, nur die Abwesenheit eines Absturzes.
+- **2026-08-28 — Alle 19 Python-Dateien aus dem Repo-Root nach `scripts\` verschoben (`git mv`),
+  auf Nutzerwunsch ("ich will das alle python dateie in scripts\ liegen").** Betroffen:
+  `bridge_gui.py`, `build_summary.py`, `check_env_model.py`, `check_gui_language.py`,
+  `check_register_model.py`, `cli.py`, `cli_doc_check.py`, `dep_check.py`, `flash_same54.py`,
+  `gui_term.py`, `install_prereqs.py`, `iperf_matrix_test.py`, `setup_compiler.py`,
+  `setup_debug.py`, `smoketest.py`, `sniffer_capture_test.py`, `test_lan8651.py`,
+  `test_mirror.py`, `test_terminal_input.py`. Reine Verschiebung, kein Verhaltensunterschied —
+  aber jede `Path(__file__)`-relative Referenz auf eine Repo-Root-Datei (`bridge_config.json`,
+  `bench.json`, `lan8651_model.json`, `env_model.json`, `setup_compiler.config`,
+  `install_dependencies.bat`) musste von `.parent` auf `.parent.parent` wechseln — sonst hätte
+  z. B. `flash_same54.py` sein `bench.json` plötzlich unter `scripts\bench.json` gesucht statt
+  im Root, wo `install.bat --select` es tatsächlich schreibt. **Skripte, die sich nur auf sich
+  selbst oder auf einen jetzt ebenfalls mitgezogenen Nachbarn beziehen, brauchten dagegen KEINE
+  Änderung** — `test_lan8651.py`s eigener `sys.path.insert(0, os.path.dirname(...))`,
+  `install_prereqs.py`s `from flash_same54 import ...` (beide jetzt Geschwister in `scripts\`),
+  `gui_term.py`s `term_ports.json` (bewusst neben sich selbst, wandert einfach mit). Alle
+  `.bat`-Aufrufstellen (`build.bat`, `flash.bat`, `install.bat`, `run_gui.bat`, `setup.bat`,
+  `term.bat`, `follower\build.bat`) und alle Doku-Dateien (`CLAUDE.md`, `README.md`,
+  `BRIDGE_GUI_README.md`, `CLI_COMMANDS.md`, `LAN8651_TEST_MODES.md`,
+  `SNIFFER_CAPTURE_VALIDATION.md`) entsprechend nachgezogen — **mit Ausnahme reiner
+  Prosa-Erwähnungen eines Dateinamens ohne Aufrufsyntax**, die blieben unverändert, und mit
+  Ausnahme der eigenen historischen Einträge in dieser Datei (nur echte Kommandozeilen-Beispiele
+  wie `python test_mirror.py` wurden hier auf `scripts\test_mirror.py` korrigiert, der
+  erzählende Text drumherum nicht). Verifiziert: `check_register_model.py`, `check_env_model.py`,
+  `check_gui_language.py` (0 Fehler), `gui_term.py --selftest` (14/14) und `flash_same54.py
+  --show-probe`/`--list` liefen fehlerfrei aus `scripts\` heraus, `build.bat` lief komplett durch
+  (inkl. `scripts\build_summary.py`-Aufruf am Ende) und hinterließ einen sauberen Baum.

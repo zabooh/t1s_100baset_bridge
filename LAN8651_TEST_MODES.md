@@ -379,13 +379,13 @@ Level 1 alone only proves the register latched a value. Levels 2 and 3 are what 
 PHY changed state, which is otherwise exactly the thing you would reach for an oscilloscope
 to confirm.
 
-**[`test_lan8651.py`](test_lan8651.py)** automates all three and exits non-zero on any
+**[`test_lan8651.py`](scripts/test_lan8651.py)** automates all three and exits non-zero on any
 failure:
 
 ```text
-python test_lan8651.py --port COM8
-python test_lan8651.py --port COM8 --modes 1,2 --window 6
-python test_lan8651.py --list-interfaces
+python scripts/test_lan8651.py --port COM8
+python scripts/test_lan8651.py --port COM8 --modes 1,2 --window 6
+python scripts/test_lan8651.py --list-interfaces
 ```
 
 The traffic oracle is whatever the T1S node emits by itself — by default a SOME/IP-SD OFFER
@@ -505,6 +505,6 @@ Related documents in this repository:
 
 - **[`README.md`](README.md)** — hardware bill of materials, architecture, the full CLI
   reference, `env` configuration, port mirroring and iperf.
-- **[`test_lan8651.py`](test_lan8651.py)** — the verification harness described in §8.
+- **[`test_lan8651.py`](scripts/test_lan8651.py)** — the verification harness described in §8.
 - **`CLAUDE.md`** *(German)* — working notes for this repository, including the register-path
   pitfalls and corrected misconceptions worth knowing before touching that code.

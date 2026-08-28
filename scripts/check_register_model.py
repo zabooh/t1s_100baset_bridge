@@ -28,7 +28,8 @@ import sys
 from collections import defaultdict
 from pathlib import Path
 
-MODEL_PATH = Path(__file__).parent / "lan8651_model.json"
+# lan8651_model.json is a repo-root file, not next to this script.
+MODEL_PATH = Path(__file__).parent.parent / "lan8651_model.json"
 
 # Group name -> the MMS its addresses must carry in the upper 16 bits.
 GROUP_MMS = {"MMS0": 0, "MMS1": 1, "MMS2": 2, "MMS3": 3, "MMS4": 4, "MMS10": 10}

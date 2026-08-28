@@ -21,8 +21,8 @@ firmware's own format strings, so the shape is exact even where the numbers are 
 **This file is checked mechanically, not by eye:**
 
 ```bat
-python cli_doc_check.py          :: PASS/FAIL, exit code 1 on any drift
-python cli_doc_check.py --list   :: just what the firmware registers
+python scripts/cli_doc_check.py          :: PASS/FAIL, exit code 1 on any drift
+python scripts/cli_doc_check.py --list   :: just what the firmware registers
 ```
 
 It catches the three ways a reference like this rots — a command with no section, a section with no
@@ -37,7 +37,7 @@ The console runs on the board's **EDBG virtual COM port at 115200 8N1** — over
 network. That matters: no register poke, test mode or link failure can lock you out.
 
 ```bat
-python cli.py --port COM8 --read 1 "stats"
+python scripts/cli.py --port COM8 --read 1 "stats"
 ```
 
 `cli.py` sends one command and collects the reply. Two things to know:
@@ -643,7 +643,7 @@ off, because every mirrored frame costs a packet-pool entry.
 `drv_lan865x_api.c` declares `mirror_eth0_tx_hook` as `extern` and calls it. An MCC *Generate Code* run
 removes that call silently, and the symptom is misleading: the mirror still shows frames coming *from*
 the bus but no longer the bridge's own — which reads like a half-working mirror, not a missing patch.
-`python test_mirror.py` checks exactly this and should run after every regeneration.
+`python scripts/test_mirror.py` checks exactly this and should run after every regeneration.
 
 `mirror` is pointless while a test mode is active — the link is down. Revert first, then measure.
 

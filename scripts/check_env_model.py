@@ -21,9 +21,10 @@ import re
 import sys
 from pathlib import Path
 
-HERE = Path(__file__).parent
-MODEL_PATH = HERE / "env_model.json"
-ENV_C = HERE / "firmware" / "src" / "env.c"
+# env_model.json and firmware/ are repo-root, not next to this script.
+REPO_ROOT = Path(__file__).parent.parent
+MODEL_PATH = REPO_ROOT / "env_model.json"
+ENV_C = REPO_ROOT / "firmware" / "src" / "env.c"
 
 # Same conservative list as check_register_model.py - see the note there about "die".
 GERMAN_WORDS = re.compile(

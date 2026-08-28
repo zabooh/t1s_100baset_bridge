@@ -13,7 +13,7 @@ run_gui.bat
 
 **Option 2: Direct Python**
 ```bash
-python bridge_gui.py
+python scripts/bridge_gui.py
 ```
 
 ### Connect to Device
@@ -297,7 +297,7 @@ All long-running operations (register reads, test scripts) run in background thr
 
 ```bash
 python -m tkinter  # Test tkinter installation
-python bridge_gui.py -v  # Run with verbose output
+python scripts/bridge_gui.py -v  # Run with verbose output
 ```
 
 ### Commands timing out
@@ -311,7 +311,7 @@ python bridge_gui.py -v  # Run with verbose output
 1. Check status bar for error message
 2. Verify register address is correct (MMS encoding)
 3. Try individual **Read** button to see error output
-4. Check device is in IDLE state: `python cli.py --port COM8 --read 1 "stats"`
+4. Check device is in IDLE state: `python scripts/cli.py --port COM8 --read 1 "stats"`
 
 ## Adding Custom Parameters or Registers
 
@@ -364,7 +364,7 @@ Format: `0x` + 4 hex digits (MMS) + 4 hex digits (offset)
 The GUI calls `cli.py` with this pattern:
 
 ```bash
-python cli.py --port COM8 --read 1 "<command>"
+python scripts/cli.py --port COM8 --read 1 "<command>"
 ```
 
 Common commands executed by GUI:

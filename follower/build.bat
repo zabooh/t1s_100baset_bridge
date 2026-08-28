@@ -160,7 +160,7 @@ if exist "%HEX_PATH%" (
 )
 
 rem Post-build memory / interrupt summary (flash/RAM, heap, IRQ handlers).
-if exist "%ELF_PATH%" python "%SCRIPT_DIR%..\build_summary.py" "%DIST_DIR%" "%ELF_PATH%" "%XC32_BIN_DIR%"
+if exist "%ELF_PATH%" python "%SCRIPT_DIR%..\scripts\build_summary.py" "%DIST_DIR%" "%ELF_PATH%" "%XC32_BIN_DIR%"
 rem CLI-Dokumentation gegen den Quelltext pruefen (CLI_KOMMANDOS.md, Anhang A).
 rem NUR IM EINZELAUFRUF: wird dieses Skript vom uebergeordneten build.bat gerufen,
 rem prueft das dort einmal fuer beide Projekte - das Skript sieht ohnehin beide an,
@@ -171,7 +171,7 @@ rem UND DER EXITCODE: cli_doc_check.py gibt bei Funden 1 zurueck.  Als LETZTER B
 rem der Datei hat es damit einen erfolgreichen Build als Fehlschlag gemeldet, obwohl
 rem der Kommentar hier immer das Gegenteil versprach - eine veraltete Doku ist kein
 rem Baufehler.  Deshalb steht danach ein ausdrueckliches "exit /b 0".
-if not defined T1S_SKIP_DOCCHECK python "%SCRIPT_DIR%..\cli_doc_check.py" --quiet
+if not defined T1S_SKIP_DOCCHECK python "%SCRIPT_DIR%..\scripts\cli_doc_check.py" --quiet
 
 endlocal
 exit /b 0

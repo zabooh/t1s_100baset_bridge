@@ -17,9 +17,9 @@ setlocal EnableDelayedExpansion
 ::
 :: Tool setup (once per machine):
 ::     install_dependencies.bat       (pyserial for the python tools)
-::     python setup_compiler.py       (pick the installed XC32 version)
+::     python scripts\setup_compiler.py   (pick the installed XC32 version)
 ::     install.bat --install          (pyOCD for flash.bat)
-::     python setup_debug.py          (SAME54_DFP tool-pack fix for VS Code)
+::     python scripts\setup_debug.py      (SAME54_DFP tool-pack fix for VS Code)
 :: Then:
 ::     build.bat [incremental|clean|rebuild|help]
 ::     flash.bat
@@ -93,7 +93,7 @@ if exist "%COMPILER_CONFIG%" (
     for /f "usebackq delims=" %%D in (`powershell -NoProfile -Command "(Get-Content '%COMPILER_CONFIG%' | ConvertFrom-Json).bin_dir"`) do set "XC32_BIN_DIR=%%D"
     if defined XC32_BIN_DIR echo Compiler  : %XC32_BIN_DIR%
 ) else (
-    echo WARNING: No compiler configured ^(run "python setup_compiler.py"^).
+    echo WARNING: No compiler configured ^(run "python scripts\setup_compiler.py"^).
     echo          build_summary.py's interrupt-handler listing will be empty.
 )
 
@@ -155,5 +155,5 @@ if exist "%HEX_PATH%" (
 )
 
 rem Post-build memory / interrupt summary (flash/RAM, heap, IRQ handlers).
-if exist "%ELF_PATH%" python "%SCRIPT_DIR%build_summary.py" "%DIST_DIR%" "%ELF_PATH%" "%XC32_BIN_DIR%"
+if exist "%ELF_PATH%" python "%SCRIPT_DIR%scripts\build_summary.py" "%DIST_DIR%" "%ELF_PATH%" "%XC32_BIN_DIR%"
 endlocal

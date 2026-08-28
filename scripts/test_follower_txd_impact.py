@@ -41,13 +41,10 @@ Usage:
       --bridge-ip 192.168.0.200 --iperf-seconds 60 --out run2.txt
 """
 import argparse
-import os
 import sys
 import threading
 import time
 from datetime import datetime
-
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))  # repo root - test_lan8651.py lives there, not in scripts/
 
 import serial  # pyserial
 from test_lan8651 import reg_value  # reuse the "Read OK: Addr=... Value=..." parser
