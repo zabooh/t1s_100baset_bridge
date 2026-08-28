@@ -38,7 +38,7 @@ Output:
     - Progress is printed to the screen as each test runs.
     - Full details (every rate step tried, raw captured device output,
       parsed result) are appended to the log file (default:
-      iperf_matrix_results.log) as they complete, so a run that's
+      docs/iperf_matrix_results.log) as they complete, so a run that's
       interrupted partway still leaves a usable log.
     - This script does NOT write the final Markdown report - hand the
       log file to Claude afterward to have the table filled in
@@ -442,7 +442,7 @@ def test_udp_max(src, dst, duration, iperf_exe, ip_cache):
 def main():
     ap = argparse.ArgumentParser(description=__doc__,
                                   formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--log", default="iperf_matrix_results.log")
+    ap.add_argument("--log", default="docs/iperf_matrix_results.log")
     ap.add_argument("--iperf-exe", default=DEFAULT_IPERF_EXE)
     ap.add_argument("--udp-duration", type=float, default=3.0,
                      help="seconds per UDP rate step")

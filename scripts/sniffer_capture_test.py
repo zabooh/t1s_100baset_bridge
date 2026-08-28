@@ -295,10 +295,10 @@ Examples:
   python sniffer_capture_test.py --udp-rate 8 --duration 8
   python sniffer_capture_test.py --log my_run.log --cap-dir C:\\captures
 """)
-    ap.add_argument("--log", default="sniffer_capture_results.log",
+    ap.add_argument("--log", default="docs/sniffer_capture_results.log",
                      help="log file to append the full run to (default: "
-                          "sniffer_capture_results.log in the current directory). "
-                          "Progress is also printed to the screen as it happens.")
+                          "docs/sniffer_capture_results.log, relative to the current "
+                          "directory). Progress is also printed to the screen as it happens.")
     ap.add_argument("--tshark", default=DEFAULT_TSHARK,
                      help=f"path to tshark.exe (default: {DEFAULT_TSHARK})")
     ap.add_argument("--duration", type=float, default=5.0,

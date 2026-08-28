@@ -1,7 +1,7 @@
 @echo off
 :: ============================================================
 ::  install_dependencies.bat
-::  Installs all Python packages listed in requirements.txt.
+::  Installs all Python packages listed in scripts\requirements.txt.
 ::
 ::  Usage:
 ::    Double-click this file (or run it from a command prompt)
@@ -51,7 +51,7 @@ echo [OK]    Found: %PIP_VERSION%
 :: ------------------------------------------------------------
 :: 3. Check if requirements.txt exists
 :: ------------------------------------------------------------
-set REQUIREMENTS=%~dp0requirements.txt
+set REQUIREMENTS=%~dp0scripts\requirements.txt
 
 if not exist "%REQUIREMENTS%" (
     echo.

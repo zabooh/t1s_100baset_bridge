@@ -987,3 +987,31 @@ Regel: siehe `CLAUDE.md` Abschnitt 7 „Erkenntnisse festhalten". Neue Einträge
   `follower\build.bat`), abschließende Grep-Suche über `*.c`/`*.h`/`*.py`/`*.txt`/`*.bat` fand
   keine unpräfixierten Treffer mehr außer der eigenen `os.path.join('docs', ...)`-Zeile (falsch
   positiv der Grep-Suche selbst, keine echte Lücke).
+- **2026-08-28 — `boards.jpg`, `iperf_matrix_results.log` und `sniffer_capture_results.log` aus
+  dem Repo-Root ebenfalls nach `docs\` verschoben (`git mv`), auf Nutzerwunsch.** `boards.jpg`
+  war nur von `README.md` verlinkt (`![...](boards.jpg)` → `![...](docs/boards.jpg)`). Die
+  beiden Logs sind Lauf-Ergebnisse von `iperf_matrix_test.py`/`sniffer_capture_test.py` — anders
+  als die JSON-/Modell-Dateien beim `scripts\`-Umzug hängt ihr Zielpfad **nicht** an
+  `Path(__file__)`, sondern an argparse-`--log`-Defaults, die als reiner Dateiname CWD-relativ
+  aufgelöst werden (`ap.add_argument("--log", default="iperf_matrix_results.log")` bzw.
+  `"sniffer_capture_results.log"`) — beide Defaults auf `docs/…` umgestellt, damit ein Lauf ohne
+  `--log`-Override (Aufruf weiterhin von der Repo-Wurzel aus, wie überall sonst in diesem
+  Projekt) automatisch wieder neben der `.md`-Datei landet, die ihn zitiert
+  (`docs\IPERF_TEST_MATRIX.md`, `docs\SNIFFER_CAPTURE_VALIDATION.md`). Deren eigene
+  Prosa-Erwähnung des Logdateinamens brauchte **keine** Änderung — Log und zitierende `.md`-Datei
+  sind jetzt Geschwister im selben Ordner, ein bare Dateiname stimmt weiterhin. Der bestehende
+  historische Hinweis weiter oben in dieser Datei („sniffer_capture_results.log … explizit NICHT
+  angefasst" beim `docs\`-Umzug der Markdown-Dateien selbst) bleibt unverändert stehen — er
+  beschreibt eine damals richtige Entscheidung (Inhalt nicht ändern), nicht den Dateipfad, und
+  bleibt auch nach diesem Umzug wahr. Verifiziert: `--help` beider Skripte zeigt den neuen
+  Default korrekt, `py_compile` beider Dateien fehlerfrei, `open(..., "a")` gegen beide neuen
+  Zielpfade erfolgreich getestet (leerer Schreibzugriff, kein Inhalt verändert).
+- **2026-08-28 — `requirements.txt` aus dem Repo-Root nach `scripts\` verschoben (`git mv`),
+  auf Nutzerwunsch.** Einzige echte Funktionsstelle: `install_dependencies.bat` las es bisher
+  über `set REQUIREMENTS=%~dp0requirements.txt` (repo-root-relativ zu sich selbst) — auf
+  `%~dp0scripts\requirements.txt` umgestellt und real durchgetestet (`install_dependencies.bat`
+  fand die Datei, `pip install -r ...` lief durch, alle drei Pakete bereits vorhanden). Narrative
+  Erwähnungen mit `pip install -r requirements.txt`/`requirements.txt` als reinem Namen in
+  `scripts\dep_check.py`s Docstring und `CLAUDE.md`s Dateitabelle um `scripts\` ergänzt; die drei
+  Treffer in den eigenen historischen Einträgen weiter oben in dieser Datei bewusst unverändert
+  gelassen (Regel wie immer: datierte Einträge beschreiben, was zum jeweiligen Zeitpunkt galt).

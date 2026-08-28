@@ -225,7 +225,7 @@ MikroElektronika Click add-on. Whatever device(s) sit on the T1S side is a
 the bridge board, and this firmware makes no assumption about what chip or
 product it is.
 
-![The assembled bridge board: the SAM E54 Curiosity Ultra host (red board) with the green Two-Wire ETH Click (10BASE-T1S MAC-PHY, plugged into the "X32" header, top left) for eth0, and the LAN8740A PHY Daughter Board (AC320004-3, bottom left, with the RJ45 jack) for eth1 — note it is a separate plug-in module, not part of the Curiosity board itself.](boards.jpg)
+![The assembled bridge board: the SAM E54 Curiosity Ultra host (red board) with the green Two-Wire ETH Click (10BASE-T1S MAC-PHY, plugged into the "X32" header, top left) for eth0, and the LAN8740A PHY Daughter Board (AC320004-3, bottom left, with the RJ45 jack) for eth1 — note it is a separate plug-in module, not part of the Curiosity board itself.](docs/boards.jpg)
 
 ### Bridge board: bill of materials
 

@@ -2,7 +2,7 @@
 """Shared dependency check for the two GUI entry points, bridge_gui.py and
 gui_term.py.
 
-On a fresh checkout without `pip install -r requirements.txt`, sv-ttk (a hard
+On a fresh checkout without `pip install -r scripts/requirements.txt`, sv-ttk (a hard
 dependency of both tools - they always run themed, there is no plain-ttk
 fallback anymore) would otherwise fail with an unconditional import at module
 load - and term.bat launches via pythonw with no exit-code check, so that
