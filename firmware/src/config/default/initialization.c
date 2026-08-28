@@ -109,6 +109,7 @@ DRV_LAN865X_Configuration drvLan865xInitData[] = {
     .promiscuous =          DRV_LAN865X_PROMISCUOUS_IDX0,
     .txCutThrough =         DRV_LAN865X_TX_CUT_THROUGH_IDX0,
     .rxCutThrough =         DRV_LAN865X_RX_CUT_THROUGH_IDX0,
+    .suppressTx =           false,
 },
 };
 
@@ -793,9 +794,15 @@ void SYS_Initialize ( void* data )
      * the running instance, means PLCA_CTRL1 is correct on the very first write - no
      * window where the node is on the bus with the wrong identity. env_apply() (called
      * later, from app.c) still matters for a live 'setenv plca_id/plca_cnt' + 'saveenv'
-     * change while already running. */
+     * change while already running.
+     *
+     * Same reasoning for suppressTx: a board persisted as a permanent sniffer
+     * ('setenv sniffer 1' + 'saveenv') must never put a signal on the bus, not even
+     * for the fraction of a second between NETWORK_CONTROL/TXEN and a later app-level
+     * fix-up - see drv_lan865x_api.c's _InitUserSettings() for where this is read. */
    drvLan865xInitData[0].nodeId    = env_plca_id();
    drvLan865xInitData[0].nodeCount = env_plca_cnt();
+   drvLan865xInitData[0].suppressTx = env_sniffer();
 
     /* MISRA C-2012 Rule 11.3, 11.8 deviated below. Deviation record ID -
     H3_MISRAC_2012_R_11_3_DR_1 & H3_MISRAC_2012_R_11_8_DR_1*/

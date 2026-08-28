@@ -47,8 +47,9 @@
                                       * this layout's version AND crc can only have come
                                       * from this variant. Rewritten with the new id on the
                                       * next saveenv, so it disappears by itself. */
-#define ENV_VERSION  4u            /* v2 added PLCA, v3 the MACs, v4 the mirror flag */
+#define ENV_VERSION  5u            /* v2 PLCA, v3 the MACs, v4 the mirror flag, v5 the sniffer flag */
 #define ENV_VERSION_V3 3u          /* migrated in place by env_migrate_v3() - see there why */
+#define ENV_VERSION_V4 4u          /* migrated in place by env_migrate_v4() - see there why */
 #define ENV_VARIANT  "t1s_100baset_bridge"   /* printed by showenv next to the id */
 #define ENV_IF_CNT   2             /* [0] = eth0 (LAN865x/T1S), [1] = eth1 (GMAC/100BASE-T) */
 #define ENV_EE_OFFSET 0u           /* byte offset of the record in the emulated EEPROM */
@@ -73,11 +74,12 @@ typedef struct {
     uint32_t plca_id;              /* eth0 PLCA node id    (0 = coordinator)         */
     uint32_t plca_cnt;             /* eth0 PLCA node count (PLCA_CTRL1 NODE_CNT)      */
     uint32_t mirror;               /* 1 = enable the eth0->eth1 port mirror at boot   */
+    uint32_t sniffer;              /* 1 = suppress the eth0 PHY transmitter at boot   */
     uint32_t crc32;
 } env_t;
 
-/* The v3 record: byte-for-byte the layout above without `mirror`. Kept so a board
- * that was configured before v4 can be migrated instead of re-seeded - see
+/* The v3 record: byte-for-byte the layout above without `mirror`/`sniffer`. Kept so a
+ * board that was configured before v4 can be migrated instead of re-seeded - see
  * env_migrate_v3(). Do not "tidy" this away: dropping it turns a firmware update
  * into a silent factory reset. */
 typedef struct {
@@ -93,15 +95,34 @@ typedef struct {
     uint32_t crc32;
 } env_v3_t;
 
-/* The two layouts must be padding-free, and v4 must be exactly v3 plus one word -
- * that is what makes the migration a field-by-field copy and keeps the crc32 stable.
- * Checked at COMPILE time (negative array size fails the build) rather than trusted,
- * because padding would corrupt the stored record silently: the crc would still be
- * self-consistent, so nothing would ever report an error. */
+/* The v4 record: byte-for-byte the layout above with `mirror` but without `sniffer`.
+ * Kept so a board that was configured before v5 can be migrated instead of re-seeded -
+ * see env_migrate_v4(). Do not "tidy" this away, same reasoning as env_v3_t. */
+typedef struct {
+    uint32_t magic;
+    uint32_t version;
+    uint32_t ip[ENV_IF_CNT];
+    uint32_t mask[ENV_IF_CNT];
+    uint32_t gw[ENV_IF_CNT];
+    uint32_t dns[ENV_IF_CNT];
+    uint8_t  mac[ENV_IF_CNT][6];
+    uint32_t plca_id;
+    uint32_t plca_cnt;
+    uint32_t mirror;
+    uint32_t crc32;
+} env_v4_t;
+
+/* The three layouts must be padding-free, and each must be exactly the previous one
+ * plus one word - that is what makes the migrations a field-by-field copy and keeps
+ * the crc32 stable. Checked at COMPILE time (negative array size fails the build)
+ * rather than trusted, because padding would corrupt the stored record silently: the
+ * crc would still be self-consistent, so nothing would ever report an error. */
 typedef char env_layout_assert[
-    (sizeof(env_v3_t) == 64u && sizeof(env_t) == 68u &&
-     offsetof(env_v3_t, crc32) == 60u && offsetof(env_t, crc32) == 64u &&
-     offsetof(env_v3_t, plca_id) == offsetof(env_t, plca_id)) ? 1 : -1];
+    (sizeof(env_v3_t) == 64u && sizeof(env_v4_t) == 68u && sizeof(env_t) == 72u &&
+     offsetof(env_v3_t, crc32) == 60u && offsetof(env_v4_t, crc32) == 64u &&
+     offsetof(env_t, crc32) == 68u &&
+     offsetof(env_v3_t, plca_id) == offsetof(env_v4_t, plca_id) &&
+     offsetof(env_v4_t, plca_id) == offsetof(env_t, plca_id)) ? 1 : -1];
 
 /* Derive the per-board default MACs from the SAME54 serial: eth0 = OUI + serial[2..0],
  * eth1 = eth0 with the lowest byte +1. */
@@ -158,6 +179,7 @@ static void env_load_defaults(env_t *e)
     e->plca_id  = (uint32_t)DRV_LAN865X_PLCA_NODE_ID_IDX0;
     e->plca_cnt = (uint32_t)DRV_LAN865X_PLCA_NODE_COUNT_IDX0;
     e->mirror   = 0u;              /* off by default: mirroring costs packet-pool entries */
+    e->sniffer  = 0u;              /* off by default: a sniffer never talks on the bus */
     e->crc32 = env_calc_crc(e);
 }
 
@@ -264,6 +286,42 @@ static bool env_migrate_v3(env_t *out)
     out->plca_id  = old.plca_id;
     out->plca_cnt = old.plca_cnt;
     out->mirror   = 0u;                /* the flag did not exist before: start off */
+    out->sniffer  = 0u;                /* neither did this one */
+    out->crc32    = env_calc_crc(out);
+    return true;
+}
+
+/* Migrate a v4 record in place: carry every field (including `mirror`) over, default
+ * the new `sniffer` field, store as v5. True if a valid v4 record was found and
+ * converted. Same reasoning as env_migrate_v3() - without this, a firmware update on a
+ * v4 board would silently discard the whole record (not just fail to add `sniffer`),
+ * including the PLCA coordinator id. */
+static bool env_migrate_v4(env_t *out)
+{
+    env_v4_t old;
+    int i;
+
+    if (EMU_EEPROM_BufferRead(ENV_EE_OFFSET, (uint8_t *)&old, (uint16_t)sizeof old) != EMU_EEPROM_STATUS_OK)
+        return false;
+    if (old.magic != ENV_MAGIC || old.version != ENV_VERSION_V4)
+        return false;
+    if (old.crc32 != env_crc32(&old, offsetof(env_v4_t, crc32)))
+        return false;
+
+    memset(out, 0, sizeof *out);
+    out->magic   = ENV_MAGIC;
+    out->version = ENV_VERSION;
+    for (i = 0; i < ENV_IF_CNT; i++) {
+        out->ip[i]   = old.ip[i];
+        out->mask[i] = old.mask[i];
+        out->gw[i]   = old.gw[i];
+        out->dns[i]  = old.dns[i];
+        memcpy(out->mac[i], old.mac[i], 6);
+    }
+    out->plca_id  = old.plca_id;
+    out->plca_cnt = old.plca_cnt;
+    out->mirror   = old.mirror;
+    out->sniffer  = 0u;                 /* the flag did not exist before: start off */
     out->crc32    = env_calc_crc(out);
     return true;
 }
@@ -292,6 +350,7 @@ void env_apply(void)
 uint8_t env_plca_id(void)  { return (uint8_t)s_env.plca_id;  }
 uint8_t env_plca_cnt(void) { return (uint8_t)s_env.plca_cnt; }
 bool    env_mirror(void)   { return s_env.mirror != 0u;      }
+bool    env_sniffer(void)  { return s_env.sniffer != 0u;     }
 
 /* --- CLI ------------------------------------------------------------------------ */
 static void pr_addr(const char *label, uint32_t val)
@@ -339,6 +398,9 @@ static void cmd_showenv(SYS_CMD_DEVICE_NODE *pCmdIO, int argc, char **argv)
     SYS_CONSOLE_PRINT("  mirror %s at boot  (now: %s)\r\n",
                       (s_env.mirror != 0u) ? "ON " : "OFF",
                       MIRROR_IsEnabled() ? "ON" : "OFF");
+    SYS_CONSOLE_PRINT("  sniffer %s at boot  (now: %s)\r\n",
+                      (s_env.sniffer != 0u) ? "ON " : "OFF",
+                      SNIFFER_IsEnabled() ? "ON" : "OFF");
     SYS_CONSOLE_PRINT("  (saveenv = persist+apply, readenv = reload, resetenv = defaults)\r\n");
 }
 
@@ -363,7 +425,8 @@ static void cmd_setenv(SYS_CMD_DEVICE_NODE *pCmdIO, int argc, char **argv)
                           "  IP keys:   ip0/mask0/gw0/dns0, ip1/mask1/gw1/dns1  (dotted-quad)\r\n"
                           "  MAC keys:  mac0, mac1  (XX:XX:XX:XX:XX:XX; applies after reset)\r\n"
                           "  PLCA keys: plca_id (0..254), plca_cnt (1..255)\r\n"
-                          "  mirror:    0|1  (eth0->eth1 port mirror at boot)\r\n");
+                          "  mirror:    0|1  (eth0->eth1 port mirror at boot)\r\n"
+                          "  sniffer:   0|1  (suppress the eth0 PHY transmitter at boot)\r\n");
         return;
     }
     /* mirror: stored here, applied at the next boot by MIRROR_Initialize(). The live
@@ -374,6 +437,19 @@ static void cmd_setenv(SYS_CMD_DEVICE_NODE *pCmdIO, int argc, char **argv)
         s_env.mirror = (uint32_t)v;
         SYS_CONSOLE_PRINT("setenv: mirror = %lu (RAM only; 'saveenv' to persist; "
                           "takes effect at the next boot - use 'mirror %lu' to switch it now)\r\n",
+                          v, v);
+        return;
+    }
+    /* sniffer: stored here, applied INSIDE the LAN865x driver's own init sequence
+     * (before NETWORK_CONTROL/TXEN is ever written - see initialization.c and
+     * drv_lan865x_api.c), not just at the next boot's app-level init. The live state
+     * stays with the 'sniffer' command - same split as mirror/plca_id above. */
+    if (!strcmp(argv[1], "sniffer")) {
+        unsigned long v = strtoul(argv[2], NULL, 0);
+        if (v > 1u) { SYS_CONSOLE_PRINT("setenv: sniffer must be 0 or 1\r\n"); return; }
+        s_env.sniffer = (uint32_t)v;
+        SYS_CONSOLE_PRINT("setenv: sniffer = %lu (RAM only; 'saveenv' to persist; "
+                          "takes effect at the next boot - use 'sniffer %lu' to switch it now)\r\n",
                           v, v);
         return;
     }
@@ -449,7 +525,7 @@ static void cmd_resetenv(SYS_CMD_DEVICE_NODE *pCmdIO, int argc, char **argv)
 
 static const SYS_CMD_DESCRIPTOR env_cmd_tbl[] = {
     {"showenv",  (SYS_CMD_FNC)cmd_showenv,  ": show the current network config (RAM shadow)"},
-    {"setenv",   (SYS_CMD_FNC)cmd_setenv,   ": setenv <key> <val>  (ip0../dns1, mac0/mac1, plca_id, plca_cnt, mirror)"},
+    {"setenv",   (SYS_CMD_FNC)cmd_setenv,   ": setenv <key> <val>  (ip0../dns1, mac0/mac1, plca_id, plca_cnt, mirror, sniffer)"},
     {"saveenv",  (SYS_CMD_FNC)cmd_saveenv,  ": persist config to EEPROM and apply it live"},
     {"readenv",  (SYS_CMD_FNC)cmd_readenv,  ": reload config from EEPROM and apply (discards unsaved edits)"},
     {"resetenv", (SYS_CMD_FNC)cmd_resetenv, ": reset to compiled defaults, persist and apply"},
@@ -464,10 +540,15 @@ void ENV_Init(void)
 
     if (env_read_valid(&tmp)) {
         s_env = tmp;                       /* valid persisted config */
-    } else if (env_migrate_v3(&tmp)) {
-        s_env = tmp;                       /* pre-v4 board: keep its settings, add the new field */
+    } else if (env_migrate_v4(&tmp)) {
+        s_env = tmp;                       /* pre-v5 board: keep its settings, add the new field */
         (void)env_save();
-        SYS_CONSOLE_PRINT("env: migrated v%u record to v%u (settings kept, mirror=0)\r\n",
+        SYS_CONSOLE_PRINT("env: migrated v%u record to v%u (settings kept, sniffer=0)\r\n",
+                          (unsigned)ENV_VERSION_V4, (unsigned)ENV_VERSION);
+    } else if (env_migrate_v3(&tmp)) {
+        s_env = tmp;                       /* pre-v4 board: keep its settings, add the new fields */
+        (void)env_save();
+        SYS_CONSOLE_PRINT("env: migrated v%u record to v%u (settings kept, mirror=0, sniffer=0)\r\n",
                           (unsigned)ENV_VERSION_V3, (unsigned)ENV_VERSION);
     } else {
         /* Say why. Falling back to the compiled defaults is not harmless here: the default

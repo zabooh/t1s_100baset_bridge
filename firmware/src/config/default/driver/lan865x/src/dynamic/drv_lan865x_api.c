@@ -2061,6 +2061,20 @@ static bool _InitUserSettings(DRV_LAN865X_DriverInfo * pDrvInst)
             }
             break;
         case 9:
+            /* Suppress the PHY transmitter (T1SPMACTL.TXD) BEFORE NETWORK_CONTROL/TXEN
+             * is ever written, for a board persisted as a permanent sniffer - see
+             * drvCfg.suppressTx / initialization.c. T1SPMACTL is untouched by every
+             * earlier step here, reset default 0x0000, so a plain write (not RMW) is
+             * safe. Flag off: skip straight to case 10, no extra SPI transaction. */
+            if (true == pDrvInst->drvCfg.suppressTx) {
+                if (TC6_WriteRegister(tc, 0x000308F9u /* T1SPMACTL */, 0x00004000u /* TXD */, CONTROL_PROTECTION, _OnInitialRegisterCB, NULL)) {
+                    pDrvInst->initSubState++;
+                }
+            } else {
+                pDrvInst->initSubState++;
+            }
+            break;
+        case 10:
             /* Enable Data Traffic */
             if (TC6_WriteRegister(tc, 0x00010000u /* NETWORK_CONTROL */, 0x0000000Cu, CONTROL_PROTECTION, _OnRegisterDoneCB, NULL)) {
                 done = true;

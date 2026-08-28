@@ -15,9 +15,9 @@
     "description": "The identity line printed by showenv. 'eeprom_*' is what was found at boot, 'firmware_*' what this firmware writes - they differ exactly when a record was rejected."
   },
   "environments": {
-    "EBRG v4": {
+    "EBRG v5": {
       "id": "EBRG",
-      "version": 4,
+      "version": 5,
       "variant": "t1s_100baset_bridge",
       "accepts_ids": [
         "LANE"
@@ -26,7 +26,7 @@
       "source": {
         "file": "firmware/src/env.c",
         "struct": "env_t",
-        "size_bytes": 68
+        "size_bytes": 72
       },
       "commands": {
         "read": "showenv",
@@ -154,6 +154,22 @@
             "OFF": "0"
           },
           "description": "Whether the eth0->eth1 port mirror comes up enabled. The 'mirror' command changes the running state only; this is what boots.",
+          "applies": "NEXT BOOT"
+        },
+        "sniffer": {
+          "label": "sniffer",
+          "cli_key": "sniffer",
+          "type": "bool",
+          "values": {
+            "0": "off",
+            "1": "on"
+          },
+          "pattern": "sniffer\\s+(ON|OFF)\\s+at boot",
+          "reads_as": {
+            "ON": "1",
+            "OFF": "0"
+          },
+          "description": "Whether this board comes up as a permanent T1S sniffer: the PHY transmitter (T1SPMACTL.TXD) is suppressed inside the LAN865x driver's own init sequence, before it ever goes live - not just after a later 'sniffer' command. The 'sniffer' command changes the running state only; this is what boots.",
           "applies": "NEXT BOOT"
         }
       }

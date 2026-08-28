@@ -31,6 +31,15 @@ uint8_t env_plca_cnt(void);
  * 'mirror' command changes the live state only. */
 bool env_mirror(void);
 
+/* Should this board come up as a permanent T1S sniffer - PHY transmitter (T1SPMACTL.TXD)
+ * suppressed from the very first LAN865x init step, before NETWORK_CONTROL (TXEN) is
+ * ever written? Read in SYS_Initialize() (initialization.c), right after ENV_Init() and
+ * before TCPIP_STACK_Init(), to feed drvLan865xInitData[0].suppressTx - same pattern as
+ * env_plca_id()/env_plca_cnt(). Also read by MIRROR_Initialize() to set the RAM-only
+ * s_sniffer_on flag (port_mirror.c) that drives the RX-hook filtering; the 'sniffer'
+ * command changes the live state (and the hardware TXD bit) only. */
+bool env_sniffer(void);
+
 /* Format the env MAC for interface 0/1 as "XX:XX:XX:XX:XX:XX" into buf (>= 18 bytes).
  * Call after ENV_Init(), before TCPIP_STACK_Init(), to fill the stack's MAC strings. */
 void env_mac_str(int iface, char *buf);

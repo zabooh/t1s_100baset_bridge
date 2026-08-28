@@ -111,6 +111,11 @@ typedef struct _DRV_LAN865X_Configuration
 
     bool rxCutThrough;
 
+    /* True: suppress T1SPMACTL.TXD as its own init step, before NETWORK_CONTROL (TXEN)
+     * is ever written - so the PHY transmitter never goes live, not even briefly. Set
+     * from the persisted env (see initialization.c, right after ENV_Init()). */
+    bool suppressTx;
+
 } DRV_LAN865X_Configuration;
 
 // *****************************************************************************

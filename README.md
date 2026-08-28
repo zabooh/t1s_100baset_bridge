@@ -514,8 +514,8 @@ self-contained [`lan865x_diag.c`](firmware/src/lan865x_diag.c) module rather tha
 
 | Command | Description |
 |---|---|
-| `showenv` | show the current config: per-interface IP/mask/gw/dns, MAC, PLCA id/count, mirror at boot |
-| `setenv <key> <val>` | edit the RAM shadow — keys: `ip0/mask0/gw0/dns0`, `ip1/…`, `mac0`/`mac1`, `plca_id`/`plca_cnt`, `mirror` |
+| `showenv` | show the current config: per-interface IP/mask/gw/dns, MAC, PLCA id/count, mirror at boot, sniffer at boot |
+| `setenv <key> <val>` | edit the RAM shadow — keys: `ip0/mask0/gw0/dns0`, `ip1/…`, `mac0`/`mac1`, `plca_id`/`plca_cnt`, `mirror`, `sniffer` |
 | `saveenv` | persist to EEPROM **and** apply (IP/PLCA live; MAC at next reset) |
 | `readenv` | reload from EEPROM and apply (discard unsaved edits) |
 | `resetenv` | restore the compiled defaults, persist and apply |
@@ -739,6 +739,7 @@ every board is unique from one firmware image.
 | `plca_id` | `0`..`254` | PLCA node id (0 = coordinator) |
 | `plca_cnt` | `1`..`255` | PLCA node count |
 | `mirror` | `0` or `1` | eth0→eth1 port mirror at boot — applies **at the next boot**; `mirror 0`/`mirror 1` switches it now |
+| `sniffer` | `0` or `1` | permanent T1S sniffer at boot — the PHY transmitter is suppressed inside the LAN865x driver's own init sequence, before it ever goes live, not just after a later command; applies **at the next boot**; `sniffer 0`/`sniffer 1` switches it now |
 
 #### Worked example
 

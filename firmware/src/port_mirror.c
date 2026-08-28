@@ -425,4 +425,18 @@ void MIRROR_Initialize(void) {
     if (s_mirror_on) {
         SYS_CONSOLE_PRINT("MIRROR: eth0(T1S)->eth1 mirror enabled from env\n\r");
     }
+
+    /* Same persisted-start-state idea for sniffer - but unlike mirror, this is a RAM
+     * flag ONLY here: the actual hardware bit (T1SPMACTL.TXD) was already suppressed
+     * inside the LAN865x driver's own init sequence (see initialization.c/
+     * drv_lan865x_api.c, drvCfg.suppressTx), before NETWORK_CONTROL/TXEN was ever
+     * written. Deliberately NOT calling SNIFFER_SetEnabled() here: that goes through
+     * LAN865X_DIAG_Rmw(), which only works once the driver reaches SYS_STATUS_READY -
+     * a second, redundant, and strictly later register write than what the driver
+     * already did. This just makes the RX-hook filtering (mirror_pool.c) and
+     * SNIFFER_IsEnabled()/showenv agree with what the hardware already is. */
+    s_sniffer_on = env_sniffer();
+    if (s_sniffer_on) {
+        SYS_CONSOLE_PRINT("SNIFFER: eth0(T1S) transmitter suppressed from env (permanent sniffer)\n\r");
+    }
 }
