@@ -140,16 +140,19 @@ CONTROL_BIT = 0x0004      # Ctrl in event.state, measured on Windows
 
 # --------------------------------------------------------------- port list
 def get_available_com_ports():
-    """Currently plugged-in COM ports, for the config dialog's dropdowns.
+    """Currently plugged-in COM ports, as (device, probe_serial_or_None) pairs, for
+    the config dialog's dropdowns - the serial (an EDBG probe's USB serial descriptor,
+    shared between its CDC/COM and CMSIS-DAP functions) lets you tell boards apart
+    without unplugging one to see which port disappears.
 
-    Same approach as bridge_gui.py's helper of the same name - duplicated
-    rather than imported, so this tool stays launchable on its own (see the
-    module docstring: it depends on nothing but pyserial and term_ports.json).
+    Same approach as bridge_gui.py's helper of the same name - duplicated rather than
+    imported, so this tool stays launchable on its own (see the module docstring: it
+    depends on nothing but pyserial and term_ports.json).
     """
     try:
         from serial.tools import list_ports
-        ports = [p.device for p in list_ports.comports()]
-        return sorted(ports) if ports else []
+        ports = [(p.device, p.serial_number) for p in list_ports.comports()]
+        return sorted(ports)
     except ImportError:
         pass
 
@@ -160,7 +163,7 @@ def get_available_com_ports():
             for i in range(winreg.QueryInfoKey(key)[1]):
                 _name, value, _type = winreg.EnumValue(key, i)
                 if value.startswith("COM"):
-                    com_ports.append(value)
+                    com_ports.append((value, None))
         return sorted(com_ports)
     except OSError:
         return []
@@ -554,10 +557,13 @@ class ConfigDialog(tk.Toplevel):
             row2 = ttk.Frame(grp)
             row2.pack(fill="x", pady=2)
             ttk.Label(row2, text="COM Port:", width=10).pack(side="left")
+            # No textvariable here: the combobox DISPLAYS "COM8   (ATML...)" but the
+            # saved/used value must stay the bare port - see _on_port_selected().
             port_var = tk.StringVar(value=port or "")
             self.port_vars[key] = port_var
-            combo = ttk.Combobox(row2, textvariable=port_var, width=27, state="readonly")
+            combo = ttk.Combobox(row2, width=34, state="readonly")
             combo.pack(side="left", padx=5)
+            combo.bind("<<ComboboxSelected>>", lambda e, k=key: self._on_port_selected(k))
             self.port_combos[key] = combo
 
         # Applies to all three panes at once, not per terminal - one font,
@@ -587,17 +593,33 @@ class ConfigDialog(tk.Toplevel):
 
         self._refresh_ports()
 
+    @staticmethod
+    def _format_port(port: str, probe_serial) -> str:
+        return f"{port}   ({probe_serial})" if probe_serial else port
+
+    def _on_port_selected(self, key):
+        """Combobox has no textvariable (see __init__) - translate its displayed
+        "COM8   (ATML...)" back to the bare port before it lands in port_vars, the
+        thing _save() actually writes to term_ports.json."""
+        display = self.port_combos[key].get()
+        self.port_vars[key].set(display.split()[0] if display else "")
+
     def _refresh_ports(self):
-        """Live ports plus, per slot, whatever it already has - so reassigning
-        one slot does not silently blank another slot's port just because that
-        device happens to be unplugged right now."""
-        available = get_available_com_ports()
+        """Live ports (each with its probe's own serial, so a board is identifiable
+        without unplugging it to see which port disappears) plus, per slot, whatever
+        it already has - so reassigning one slot does not silently blank another
+        slot's port just because that device happens to be unplugged right now."""
+        available_info = get_available_com_ports()
+        serial_by_port = dict(available_info)
+        available = [device for device, _serial in available_info]
         for key in SLOT_KEYS:
             saved = self.port_vars[key].get()
             values = list(available)
             if saved and saved not in values:
                 values.append(saved)
-            self.port_combos[key]["values"] = [""] + values
+            combo = self.port_combos[key]
+            combo["values"] = [""] + [self._format_port(p, serial_by_port.get(p)) for p in values]
+            combo.set(self._format_port(saved, serial_by_port.get(saved)) if saved else "")
 
     def _pick_color(self):
         from tkinter import colorchooser
