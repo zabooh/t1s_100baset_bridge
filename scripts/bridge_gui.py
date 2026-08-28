@@ -16,7 +16,7 @@ einen offenen Link.
 """
 
 import tkinter as tk
-from tkinter import ttk, messagebox, scrolledtext, simpledialog
+from tkinter import ttk, messagebox, scrolledtext, simpledialog, filedialog
 import argparse
 import ctypes
 import json
@@ -64,7 +64,7 @@ PYOCD_PYTHON = _console_python()
 CONFIG_FILE = Path(__file__).parent.parent / "json" / "bridge_config.json"
 
 # Flash/Erase over the EDBG probe (SWD), independent of the open serial link - see
-# flash_from_release()/erase_chip(). RELEASE_HEX is the same file build.bat copies
+# flash_current_hex()/erase_chip(). RELEASE_HEX is the same file build.bat copies
 # to after every build (see CLAUDE.md section 2); FLASH_SAME54_SCRIPT already knows
 # how to find the SAME54_DFP pack and pick a probe, this GUI only adds the picker
 # for "which probe, if more than one is connected" and the confirmation dialogs.
@@ -359,6 +359,11 @@ class BridgeGUI:
         self.result_queue = queue.Queue()
         self.connected = False
         self.port_link: Optional[Link] = None  # Globale Verbindung für CLI + Terminal
+
+        # Der zuletzt per "Select Hex..." gewaehlte Pfad -- "Flash" nimmt diesen statt
+        # immer wieder release/T1S_100BaseT_Bridge.hex, bis erneut ein anderer gewaehlt
+        # wird. Nur Sitzungszustand (wie bridge_config.json's "values"), nicht persistiert.
+        self._selected_hex_path: Path = RELEASE_HEX
 
         # Kommando-Antworten laufen über eine EIGENE Queue. Sonst konkurrieren
         # terminal_process_queue() (Main-Thread, alle 30 ms) und der Worker-Thread
@@ -988,7 +993,8 @@ class BridgeGUI:
                 ("Memory Info", lambda: self.run_async_cmd("meminfo")),
                 ("Build Timestamp", lambda: self.run_async_cmd("timestamp")),
                 ("Reset Device", self.reset_device),
-                ("Flash from release/", self.flash_from_release),
+                ("Flash", self.flash_current_hex),
+                ("Select Hex...", self.flash_select_hex),
                 ("Erase chip...", self.erase_chip),
             ]),
         ]
@@ -1653,8 +1659,11 @@ Example commands:
             return
         self.run_async_cmd("reset")
 
-    def flash_from_release(self):
-        """Flash release/T1S_100BaseT_Bridge.hex via pyOCD - onto a probe YOU pick.
+    def flash_current_hex(self):
+        """Flash self._selected_hex_path via pyOCD - onto a probe YOU pick. Defaults to
+        release/T1S_100BaseT_Bridge.hex until "Select Hex..." picks a different file;
+        that choice then sticks for every later "Flash" click, this session, until
+        "Select Hex..." is used again.
 
         Goes through flash_same54.py directly, not through install.bat's saved probe
         selection: with more than one EDBG probe on the desk, silently flashing
@@ -1664,10 +1673,26 @@ Example commands:
         Independent of the open serial link: pyOCD talks to the EDBG probe's SWD
         interface, not the COM port, so nothing needs to disconnect first.
         """
-        if not RELEASE_HEX.is_file():
-            messagebox.showerror("Not found", f"{RELEASE_HEX} is missing.")
+        if not self._selected_hex_path.is_file():
+            messagebox.showerror("Not found", f"{self._selected_hex_path} is missing.")
             return
-        self._open_probe_picker("flash")
+        self._open_probe_picker("flash", hex_path=self._selected_hex_path)
+
+    def flash_select_hex(self):
+        """Flash a hex file YOU pick, not necessarily release/T1S_100BaseT_Bridge.hex --
+        e.g. a build from another branch, or one someone else sent you. Starts browsing
+        wherever the current selection sits (release/ by default, same as the sister
+        project's "Select Hex..."). The choice also becomes the new default for "Flash",
+        so picking once covers every later flash until this is used again."""
+        initial_dir = (self._selected_hex_path.parent
+                        if self._selected_hex_path.parent.is_dir() else Path(__file__).parent)
+        chosen = filedialog.askopenfilename(
+            parent=self.root, title="Select hex file to flash",
+            initialdir=str(initial_dir), filetypes=[("Hex files", "*.hex"), ("All files", "*.*")])
+        if not chosen:
+            return
+        self._selected_hex_path = Path(chosen)
+        self._open_probe_picker("flash", hex_path=self._selected_hex_path)
 
     def erase_chip(self):
         """Chip-erase a probe YOU pick - firmware AND the emulated EEPROM.
@@ -1675,11 +1700,11 @@ Example commands:
         A plain flash only programs the regions the hex file covers and leaves the
         emulated EEPROM (PLCA id/count, IP, MAC settings) untouched, by design. This
         is the way to reach a true blank state for one probe, picked here rather than
-        assumed from bench.json - same reasoning as flash_from_release() above.
+        assumed from bench.json - same reasoning as flash_current_hex() above.
         """
         self._open_probe_picker("erase")
 
-    def _open_probe_picker(self, mode: str) -> None:
+    def _open_probe_picker(self, mode: str, hex_path: Optional[Path] = None) -> None:
         if not FLASH_SAME54_SCRIPT.is_file():
             messagebox.showerror("Not found", f"{FLASH_SAME54_SCRIPT} is missing.")
             return
@@ -1689,7 +1714,7 @@ Example commands:
                 "pyOCD",
                 "No connected probes found (check the USB connection, or pip install pyocd).")
             return
-        self._show_probe_picker(probes, mode)
+        self._show_probe_picker(probes, mode, hex_path)
 
     def _list_probes(self) -> List[tuple]:
         """Probes per pyOCD, via 'flash_same54.py --list' rather than importing pyocd
@@ -1705,14 +1730,35 @@ Example commands:
         except (OSError, subprocess.SubprocessError) as exc:
             messagebox.showerror("pyOCD", f"Could not list probes: {exc}")
             return []
+        port_by_serial = self._com_ports_by_probe_serial()
         probes = []
         for line in proc.stdout.splitlines():
             m = re.match(r"^(\S+)\s{2,}(.+)$", line.strip())
             if m:
-                probes.append((m.group(1), m.group(2)))
+                unique_id, desc = m.group(1), m.group(2)
+                port = port_by_serial.get(unique_id)
+                if port:
+                    desc = f"{desc}  ({port})"
+                probes.append((unique_id, desc))
         return probes
 
-    def _show_probe_picker(self, probes: List[tuple], mode: str) -> None:
+    def _com_ports_by_probe_serial(self) -> Dict[str, str]:
+        """Map an EDBG probe's serial (pyOCD's unique_id) to its own COM port, so the
+        probe picker can show which port the CLI/terminal would use for that same
+        board - not just an opaque serial number.
+
+        An EDBG probe exposes its debug (CMSIS-DAP) and virtual-COM (CDC) function as
+        separate USB interfaces of the SAME composite device, sharing one USB serial
+        descriptor - verified on this bench (2026-08-29): pyserial's serial_number and
+        pyOCD's unique_id came back byte-identical for all three connected probes.
+        """
+        if serial is None:
+            return {}
+        from serial.tools import list_ports
+        return {p.serial_number: p.device for p in list_ports.comports() if p.serial_number}
+
+    def _show_probe_picker(self, probes: List[tuple], mode: str,
+                            hex_path: Optional[Path] = None) -> None:
         """Modal dialog: pick ONE of the probes found, then go straight on - a second,
         generic confirmation dialog afterward would just repeat what already stands
         here in red. Erase still gets the typed-word prompt on top of this, the same
@@ -1727,7 +1773,7 @@ Example commands:
             action_label = "Erase..."
         else:
             title = "Select probe to flash"
-            heading = f"Flash {RELEASE_HEX.name} (from release/) onto:"
+            heading = f"Flash {hex_path.name} onto:"
             warning = "This erases and reprograms the selected board, then resets it."
             action_label = "Flash"
 
@@ -1759,7 +1805,7 @@ Example commands:
             if mode == "erase":
                 self._erase_probe(unique_id, desc)
             else:
-                self._flash_probe(unique_id, desc)
+                self._flash_probe(unique_id, desc, hex_path)
 
         ttk.Button(btn_frame, text=action_label, command=do_action).pack(side=tk.LEFT, padx=5)
         ttk.Button(btn_frame, text="Cancel", command=dialog.destroy).pack(side=tk.LEFT, padx=5)
@@ -1767,10 +1813,10 @@ Example commands:
         dialog.bind("<Escape>", lambda e: dialog.destroy())
         listbox.focus_set()
 
-    def _flash_probe(self, unique_id: str, description: str) -> None:
-        """Start the actual flash, for ONE explicitly chosen probe."""
+    def _flash_probe(self, unique_id: str, description: str, hex_path: Path) -> None:
+        """Start the actual flash, for ONE explicitly chosen probe and hex file."""
         self.set_status(f"Flashing probe {unique_id} ...")
-        self._run_pyocd_op("Flash", [str(RELEASE_HEX), "--probe", unique_id], description)
+        self._run_pyocd_op("Flash", [str(hex_path), "--probe", unique_id], description)
 
     def _erase_probe(self, unique_id: str, description: str) -> None:
         """Chip-erase ONE explicitly chosen probe - gated on the typed confirmation

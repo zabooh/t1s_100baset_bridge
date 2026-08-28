@@ -22,6 +22,27 @@ Regel: siehe `CLAUDE.md` Abschnitt 7 „Erkenntnisse festhalten". Neue Einträge
   Tastatur-Fallback, unabhängig von der fraglichen Zustellung — scrollt das gerade sichtbare Canvas,
   nachgeführt über `<<NotebookTabChanged>>` auf Haupt- und Register-Untertab-Notebook. Auf einer
   kompakten Dell-Tastatur ohne eigene PgUp/PgDn-Tasten: **Fn + Pfeil hoch/runter**.
+- **2026-08-28 — Auch ein Win32-Fensterprozedur-Hook (Subclassing) fängt die
+  Touchpad-Zwei-Finger-Geste nicht ab — Ursache ist eine Ebene unterhalb jeder
+  Fensternachricht.** Versuch, den Befund vom 2026-08-26 zu umgehen: `SetWindowLongPtrW`
+  tauscht die echte Win32-Fensterprozedur aus (Subclassing), noch vor Tk selbst.
+  Erster Anlauf hookte nur den äußeren Toplevel-„Wrapper" (via `GetParent`, wie in
+  `_apply_dark_titlebar`) und wertete nur `WM_POINTERWHEEL` aus — wirkungslos. Zweiter
+  Anlauf hookte zusätzlich das innere „Content"-HWND (`root.winfo_id()`, das HWND, auf
+  dem Tk selbst seine Fensterprozedur installiert und den Fokus hält), wertete zusätzlich
+  rohes `WM_MOUSEWHEEL` aus und loggte jede Nachricht aus der ganzen Touch-/Pointer-/
+  Gesten-Familie (`WM_GESTURE`, `WM_TOUCH`, `WM_POINTERUPDATE/-DOWN/-UP/-WHEEL`,
+  `WM_MOUSEHWHEEL`, …) auf beiden HWNDs mit. **Ergebnis: leeres Log — auf keinem der
+  beiden HWNDs kam während der ganzen Sitzung eine einzige Nachricht aus dieser Familie
+  an.** Das ist ein stärkerer Beweis als der von 2026-08-26 (der nur Tks virtuelle
+  Events prüfte): Die Geste erzeugt auf diesem Gerät gar keine klassische
+  Win32-Fensternachricht, sie läuft vermutlich über Direct Manipulation (eine
+  COM-Schnittstelle, an der Tk und auch ein Fensterprozedur-Hook vorbeigehen). **Nicht
+  nochmal versuchen** — ein Fix bräuchte volle `IDirectManipulationViewport`-COM-
+  Integration, Aufwand jenseits dessen, was für dieses Tool sinnvoll ist. Der Hook wurde
+  wieder entfernt (Datei ist wieder identisch mit dem committeten Stand). **Lösung bleibt
+  die vom 2026-08-26 eingebaute Kombination:** `Page Up`/`Page Down` (bzw. `Fn` +
+  Pfeil hoch/runter) und der Scrollbalken per Maus-Drag.
 - **2026-08-26 — `<<NotebookTabChanged>>` feuert nicht synchron, sondern erst beim nächsten
   Event-Loop-Durchlauf — eine explizite Zuweisung danach kann trotzdem zu spät sein.** Ein
   `ttk.Notebook` wählt beim Aufbau seinen ersten Tab automatisch aus und löst dabei sein eigenes
