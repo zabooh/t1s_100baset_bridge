@@ -8,11 +8,11 @@ disagree, the source wins:
 
 | Table | Group | Where |
 |---|---|---|
-| `msd_cmd_tbl` | `Test` | [app.c:640](firmware/src/app.c#L640) |
-| `env_cmd_tbl` | `env` | [env.c:304](firmware/src/env.c#L304) |
-| `lan_cmd_tbl` | `lan` | [lan865x_diag.c:555](firmware/src/lan865x_diag.c#L555) |
-| `noip_cmd_tbl` | `noip` | [noip_test.c:148](firmware/src/noip_test.c#L148) |
-| `mirror_cmd_tbl` | `mirror` | [port_mirror.c:142](firmware/src/port_mirror.c#L142) |
+| `msd_cmd_tbl` | `Test` | [app.c:640](../firmware/src/app.c#L640) |
+| `env_cmd_tbl` | `env` | [env.c:304](../firmware/src/env.c#L304) |
+| `lan_cmd_tbl` | `lan` | [lan865x_diag.c:555](../firmware/src/lan865x_diag.c#L555) |
+| `noip_cmd_tbl` | `noip` | [noip_test.c:148](../firmware/src/noip_test.c#L148) |
+| `mirror_cmd_tbl` | `mirror` | [port_mirror.c:142](../firmware/src/port_mirror.c#L142) |
 | `tcpipCmdTbl`, `iperfCmdTbl` | `tcpip`, `iperf` | Harmony TCP/IP stack (generated code) |
 
 That is **22 project commands** plus the stack's own two groups. Output shown below is taken from the
@@ -400,7 +400,7 @@ resetenv: restored compiled defaults, persisted and applied.
 ## 6. LAN865x diagnostics (`lan`)
 
 Generic register access to the LAN8651, the IEEE transmitter test modes, and the PLCA node ID. The
-module ([lan865x_diag.c](firmware/src/lan865x_diag.c)) is deliberately self-contained: two files, one
+module ([lan865x_diag.c](../firmware/src/lan865x_diag.c)) is deliberately self-contained: two files, one
 `LAN865X_DIAG_Initialize()` and one `LAN865X_DIAG_Tasks()` call, and it drops into any other LAN865x
 project.
 
@@ -731,7 +731,7 @@ The `iperf` group, for throughput:
 | `iperfi` | `iperfi -a <address> <-i index>` — pick the interface |
 | `iperfs` | `iperfs <-tx size> <-rx size> <-i index>` — buffer sizes |
 
-Worked iperf examples, including the host side, are in [README.md](README.md).
+Worked iperf examples, including the host side, are in [README.md](../README.md).
 
 ---
 
@@ -758,6 +758,6 @@ Worked iperf examples, including the host side, are in [README.md](README.md).
 
 | Question | File |
 |---|---|
-| Hardware, architecture, iperf and host setup | [README.md](README.md) |
+| Hardware, architecture, iperf and host setup | [README.md](../README.md) |
 | Test modes: what each qualifies, setup, protocol | [LAN8651_TEST_MODES.md](LAN8651_TEST_MODES.md) |
-| Build, flash, register access, known pitfalls (German) | [CLAUDE.md](CLAUDE.md) |
+| Build, flash, register access, known pitfalls (German) | [CLAUDE.md](../CLAUDE.md) |

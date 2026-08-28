@@ -95,7 +95,7 @@ void TESTSERVER_Tasks(void)
              * socket stays wedged after the first client and never accepts a
              * second one, even though IsConnected()/WasDisconnected() look fine.
              * Found empirically: every second connection attempt timed out until
-             * this was added - see FALLSTRICKE.md, 2026-08-27. */
+             * this was added - see docs/FALLSTRICKE.md, 2026-08-27. */
             (void)TCPIP_TCP_Disconnect(s_sock);
             s_pending_len = 0u;
             s_pending_off = 0u;
@@ -110,7 +110,7 @@ void TESTSERVER_Tasks(void)
          * below both what eth1 can carry and what iperf already showed this
          * same forwarding path sustaining one-way (~5.8 Mbps over T1S). Found
          * by the user's own back-of-envelope check against that iperf number -
-         * see FALLSTRICKE.md, 2026-08-27. The budget still bounds the loop so
+         * see docs/FALLSTRICKE.md, 2026-08-27. The budget still bounds the loop so
          * a fast client can't starve LAN865X_DIAG_Tasks()/the rest of
          * APP_STATE_IDLE for an entire call. */
         budget_left = TESTSERVER_BUDGET_PER_CALL;
@@ -121,7 +121,7 @@ void TESTSERVER_Tasks(void)
              * got queued. Treating the rest as "sent" and moving on silently drops
              * it: found empirically as real data loss (a C reference client with no
              * threads at all showed the identical loss talking straight to the
-             * bridge, no T1S/PLCA involved - see FALLSTRICKE.md, 2026-08-27), not
+             * bridge, no T1S/PLCA involved - see docs/FALLSTRICKE.md, 2026-08-27), not
              * just a throughput number that looked low. Retrying here provides the
              * backpressure ArrayPut's return value implies but does not enforce by
              * itself. */

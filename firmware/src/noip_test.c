@@ -42,7 +42,7 @@
 #define NOIP_MAX_FRAME_LEN 1518u /* standard max Ethernet frame (no FCS) - see the
                                    * optional [size] arg of noip_send, added for the
                                    * sniffer/mirror large-frame investigation
-                                   * (BANDWIDTH/FALLSTRICKE.md, 2026-08-27): lets a
+                                   * (BANDWIDTH/docs/FALLSTRICKE.md, 2026-08-27): lets a
                                    * follower push a controlled-size, controlled-rate
                                    * raw frame straight at the bridge's real RX mirror
                                    * path (MIRROR_Eth0Rx()), instead of relying on

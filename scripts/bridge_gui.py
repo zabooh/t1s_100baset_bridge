@@ -331,7 +331,7 @@ class BridgeGUI:
         # buttons): a style-level ttk.Style().configure() applies to every
         # button built afterwards, so setting it this early avoids a
         # resize/flash and survives sv-ttk's own idle-task restyle later -
-        # verified, see FALLSTRICKE.md (2026-08-26).
+        # verified, see docs/FALLSTRICKE.md (2026-08-26).
         self._dark = dark
         self._tighten_button_style()
         self.root = root
@@ -402,7 +402,7 @@ class BridgeGUI:
         # above carry real information: red errata/warning text, green
         # decoded bitfield values). Verified by testing both orders, not
         # assumed - patching before that idle task has fired gets silently
-        # reverted by it right afterwards. See FALLSTRICKE.md (2026-08-26).
+        # reverted by it right afterwards. See docs/FALLSTRICKE.md (2026-08-26).
         self.root.update_idletasks()
         self._restore_semantic_colors()
         self.update_connection_indicator()  # re-assert red/green now that it will stick
@@ -1175,7 +1175,7 @@ class BridgeGUI:
     # (mode, title, description) - description is the "ausführlich erklärt" text shown
     # in that mode's own group. Kept here as data, not spread across widget calls, so a
     # fifth mode is one more tuple. Longer background (setup notes, safety) stays in
-    # LAN8651_TEST_MODES.md; this is the summary worth having next to the button.
+    # docs/LAN8651_TEST_MODES.md; this is the summary worth having next to the button.
     TEST_MODES = [
         (1, "Output Voltage & Timing Jitter",
          "Drives the bus with the IEEE 802.3 §147.5.2 test pattern for amplitude and edge timing.\n"
@@ -1237,7 +1237,7 @@ class BridgeGUI:
         ttk.Label(
             scrollable_frame,
             text="⚠️  Test modes disconnect the T1S link - the bridge is unreachable while one is active.\n"
-                 "Register: T1STSTCTL (0x000308FB), bits 15:13. Background and measurement setup: LAN8651_TEST_MODES.md",
+                 "Register: T1STSTCTL (0x000308FB), bits 15:13. Background and measurement setup: docs/LAN8651_TEST_MODES.md",
             justify=tk.LEFT, foreground="red"
         ).grid(row=0, column=0, columnspan=2, sticky="w", padx=8, pady=8)
 
@@ -1516,7 +1516,7 @@ REGISTER ACCESS:
 TEST MODES:
 - Modes 1-4 disconnect the link during the test
 - Use testmode command for automatic readback and verification
-- See LAN8651_TEST_MODES.md for measurement setup
+- See docs/LAN8651_TEST_MODES.md for measurement setup
 
 CLI COMMAND:
 python cli.py --port COM8 --read 1 "<command>"

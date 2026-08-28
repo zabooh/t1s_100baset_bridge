@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-sniffer_noip_investigation.py - Implements T1-T4 from SNIFFER_2_TESTPLAN.md.
+sniffer_noip_investigation.py - Implements T1-T4 from docs/SNIFFER_2_TESTPLAN.md.
 
 Uses noip_send (Follower B -> Bridge, EtherType 0x88B5, raw T1S frames) and
 bigframe (Bridge -> eth1 directly) instead of iperf: no TCP/UDP overhead,

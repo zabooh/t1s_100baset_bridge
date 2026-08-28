@@ -297,7 +297,7 @@ DRV_PIC32CGMAC_RESULT DRV_PIC32CGMAC_LibRxBuffersAppend(DRV_GMAC_DRIVER* pMACDrv
         
         if(pMACDrv->sGmacData.gmac_queue[queueIdx].pRxPckt[desc_idx] == 0)
         {
-            /* Hand-patch, not generated (FALLSTRICKE.md, 2026-08-27 "PC-UDP-Flood legt
+            /* Hand-patch, not generated (docs/FALLSTRICKE.md, 2026-08-27 "PC-UDP-Flood legt
              * eth1-RX lahm", follow-up after the first fix only raised the threshold
              * instead of eliminating the race): this used to be TWO separate Lock/Unlock
              * windows - one around SingleListHeadRemove(), one around the descriptor
@@ -788,7 +788,7 @@ DRV_PIC32CGMAC_RESULT DRV_PIC32CGMAC_LibRxGetPacket(DRV_GMAC_DRIVER * pMACDrv, T
         return res;
     }
 
-    /* Hand-patch, not generated (FALLSTRICKE.md, 2026-08-27 "PC-UDP-Flood legt eth1-RX
+    /* Hand-patch, not generated (docs/FALLSTRICKE.md, 2026-08-27 "PC-UDP-Flood legt eth1-RX
      * lahm"): DRV_PIC32CGMAC_LibRxBuffersAppend() - the only place that refills an empty
      * descriptor slot from the free _RxQueue pool - was previously called ONLY as a side
      * effect further down in this function, after successfully finding+extracting a

@@ -102,7 +102,7 @@ SYS_TIME_HANDLE timerHandle;
 /* How fast the cooperative main loop actually spins - added to find out
  * whether the loop's own cadence, not the 100 Mbps eth1 link or the T1S
  * segment, is what capped testserver.c's echo throughput at ~4.3 Mbps
- * regardless of how much it drains per call (FALLSTRICKE.md, 2026-08-27).
+ * regardless of how much it drains per call (docs/FALLSTRICKE.md, 2026-08-27).
  * Incremented once per APP_STATE_IDLE iteration; BRIDGE_TimerCallback (1 Hz)
  * snapshots the delta into idle_cycles_per_sec, printed by 'stats'. */
 static volatile uint32_t s_idle_cycle_count = 0u;

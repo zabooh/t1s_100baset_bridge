@@ -379,7 +379,7 @@ Level 1 alone only proves the register latched a value. Levels 2 and 3 are what 
 PHY changed state, which is otherwise exactly the thing you would reach for an oscilloscope
 to confirm.
 
-**[`test_lan8651.py`](scripts/test_lan8651.py)** automates all three and exits non-zero on any
+**[`test_lan8651.py`](../scripts/test_lan8651.py)** automates all three and exits non-zero on any
 failure:
 
 ```text
@@ -445,8 +445,8 @@ Everything described here lives in **one self-contained module**, on purpose:
 
 | File | Contents |
 |---|---|
-| [`firmware/src/lan865x_diag.h`](firmware/src/lan865x_diag.h) | the interface, plus named register and bit constants |
-| [`firmware/src/lan865x_diag.c`](firmware/src/lan865x_diag.c) | the single-slot register state machine, the verify follow-up, the test-mode auto-revert, PLCA, and the console commands |
+| [`firmware/src/lan865x_diag.h`](../firmware/src/lan865x_diag.h) | the interface, plus named register and bit constants |
+| [`firmware/src/lan865x_diag.c`](../firmware/src/lan865x_diag.c) | the single-slot register state machine, the verify follow-up, the test-mode auto-revert, PLCA, and the console commands |
 
 Its only dependencies are the Harmony **LAN865x driver** (`DRV_LAN865X_*`), **`SYS_CMD`** for the
 command group, **`SYS_TIME`** for the operation timeouts and **`SYS_CONSOLE`** for output. It does
@@ -459,7 +459,7 @@ machine or data — so bringing it into a different LAN865x/LAN8651 project is t
 
 The console then offers `lan_read`, `lan_write`, `lan_rmw`, `testmode`, `plca_node` and `lanhelp`.
 In this project that integration is the two calls in
-[`app.c`](firmware/src/app.c) — nothing else.
+[`app.c`](../firmware/src/app.c) — nothing else.
 
 Beyond the CLI there is a programmatic interface, so a test fixture or a startup sequence can drive
 the same machinery without going through the console:
@@ -482,7 +482,7 @@ node-id/count shadow, seeded from `DRV_LAN865X_PLCA_NODE_ID_IDX0` /
 `DRV_LAN865X_PLCA_NODE_COUNT_IDX0`. That is what keeps it independent of any settings layer: call
 `LAN865X_DIAG_ApplyPlca(id, count)` from wherever your configuration is applied, and `plca_node <id>`
 will reuse the count you last supplied. In this project that call sits in `env_apply()`
-([`env.c`](firmware/src/env.c)).
+([`env.c`](../firmware/src/env.c)).
 
 ---
 
@@ -503,8 +503,8 @@ measurement setup, and the verification results obtained on this hardware.
 
 Related documents in this repository:
 
-- **[`README.md`](README.md)** — hardware bill of materials, architecture, the full CLI
+- **[`README.md`](../README.md)** — hardware bill of materials, architecture, the full CLI
   reference, `env` configuration, port mirroring and iperf.
-- **[`test_lan8651.py`](scripts/test_lan8651.py)** — the verification harness described in §8.
+- **[`test_lan8651.py`](../scripts/test_lan8651.py)** — the verification harness described in §8.
 - **`CLAUDE.md`** *(German)* — working notes for this repository, including the register-path
   pitfalls and corrected misconceptions worth knowing before touching that code.

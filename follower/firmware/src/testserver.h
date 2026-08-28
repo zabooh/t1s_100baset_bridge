@@ -15,7 +15,7 @@
     is entirely up to whichever client connects. That is deliberate: it lets
     a driving client characterize the actual achievable round-trip throughput
     of the L2 bridge itself, independent of the mirror feature this was
-    written alongside (see FALLSTRICKE.md, 2026-08-27 - the mirror/sniffer
+    written alongside (see docs/FALLSTRICKE.md, 2026-08-27 - the mirror/sniffer
     investigation that led to wanting a ground-truth throughput ceiling
     unrelated to that feature).
 

@@ -5,7 +5,7 @@ transmitter (T1SPMACTL.TXD) disturb OTHER nodes' traffic that has nothing to
 do with it?
 
 Complements test_txd_impact.py, which toggled the *coordinator's* transmitter
-and found it stalls the whole segment (FALLSTRICKE.md, 2026-08-26/27). Here
+and found it stalls the whole segment (docs/FALLSTRICKE.md, 2026-08-26/27). Here
 the bridge (node 0, coordinator) runs the iperf SERVER, follower A runs the
 iperf CLIENT, and follower B - not a party to that traffic at all, just a
 silent bystander on the shared bus - has its own transmitter toggled off and

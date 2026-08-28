@@ -22,5 +22,5 @@ pyocd==0.43.0
 # sv-ttk theme (Windows 11 Fluent look): bridge_gui.py, gui_term.py (used by: 2)
 # A hard dependency of both, not optional - they always run themed now, there
 # is no plain-ttk fallback build anymore (the separate "_modern" comparison
-# builds were merged into these two files, see FALLSTRICKE.md 2026-08-28).
+# builds were merged into these two files, see docs/FALLSTRICKE.md 2026-08-28).
 sv-ttk==2.6.1

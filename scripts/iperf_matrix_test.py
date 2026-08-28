@@ -13,10 +13,10 @@ for two things:
 
 Bridge and Follower A/B are controlled over their EDBG virtual COM port
 using the same "iperf"/"iperfk" CLI commands documented in this
-project's CLAUDE.md/FALLSTRICKE.md. The PC uses the real iperf2 binary
+project's CLAUDE.md/docs/FALLSTRICKE.md. The PC uses the real iperf2 binary
 (jperf-2.0.2/bin/iperf.exe).
 
-Trust rule (important, see FALLSTRICKE.md 2026-08-27): the embedded
+Trust rule (important, see docs/FALLSTRICKE.md 2026-08-27): the embedded
 iperf CLIENT's own self-reported UDP loss is meaningless - it never
 receives real feedback from the far end, so it always prints ~0% loss
 regardless of what actually arrived. Only a receiver (the destination,
@@ -42,9 +42,9 @@ Output:
       interrupted partway still leaves a usable log.
     - This script does NOT write the final Markdown report - hand the
       log file to Claude afterward to have the table filled in
-      (IPERF_TEST_MATRIX.md carries the empty table).
+      (docs/IPERF_TEST_MATRIX.md carries the empty table).
 
-Windows timer resolution (see FALLSTRICKE.md 2026-08-28): the real
+Windows timer resolution (see docs/FALLSTRICKE.md 2026-08-28): the real
 iperf.exe's UDP client paces packets via a sleep loop, and Windows'
 default ~15.6 ms timer resolution makes it fall behind and catch up in
 bursts of several packets within under a millisecond - the long-run
@@ -69,7 +69,7 @@ from pathlib import Path
 import serial  # pyserial
 
 # --- Node configuration -----------------------------------------------
-# COM ports / IPs as verified live on 2026-08-28 (see FALLSTRICKE.md /
+# COM ports / IPs as verified live on 2026-08-28 (see docs/FALLSTRICKE.md /
 # CLAUDE.md for the hardware setup). Override on the command line if
 # your bench differs (COM ports in particular are per-machine, see
 # bench.json).
@@ -270,7 +270,7 @@ class PCServerCapture(threading.Thread):
 
 def pc_run_client(iperf_exe, dest_ip, udp, rate_bps, duration):
     # -B pins the source address: this PC has more than one NIC in the
-    # 192.168.0.0/24 range (see FALLSTRICKE.md / memory "dual-NIC
+    # 192.168.0.0/24 range (see docs/FALLSTRICKE.md / memory "dual-NIC
     # situation") - without it Windows routing can silently pick the
     # wrong interface and the packets never reach the bridge/T1S segment
     # at all.
@@ -476,7 +476,7 @@ def main():
 
     pc_kill_stray_iperf()
 
-    # See the module docstring / FALLSTRICKE.md 2026-08-28: without this,
+    # See the module docstring / docs/FALLSTRICKE.md 2026-08-28: without this,
     # the real iperf.exe's UDP client bursts packets (Windows' coarse timer
     # makes its pacing sleep loop fall behind and catch up in bunches),
     # causing real loss unrelated to the bridge/T1S link. This applies

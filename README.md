@@ -145,7 +145,7 @@ raw-Ethernet loopback test (`noip_send`), LAN865x register peek/poke
   incremental build would otherwise report the older date for a new image.
 - **On-device command discovery** (`help`, `lanhelp`): the firmware lists its own
   commands; the complete reference with examples is
-  [`CLI_COMMANDS.md`](CLI_COMMANDS.md).
+  [`CLI_COMMANDS.md`](docs/CLI_COMMANDS.md).
 
 ### LAN8651 registers, IEEE test modes and PLCA (`lan865x_diag.c`, portable module)
 
@@ -158,7 +158,7 @@ raw-Ethernet loopback test (`noip_send`), LAN865x register peek/poke
   automatic readback verification (`[VERIFY] PASS/FAIL`), decoded mode display,
   and an optional auto-revert timeout so a forgotten test mode can't strand the
   link. Details in [§9](#9-transmitter-test-modes), measurement setup per mode in
-  [`LAN8651_TEST_MODES.md`](LAN8651_TEST_MODES.md).
+  [`LAN8651_TEST_MODES.md`](docs/LAN8651_TEST_MODES.md).
 - PLCA node-ID control (`plca_node [id]`, 0 = coordinator), volatile runtime
   path.
 - Self-contained and portable: two files, depends only on the LAN865x driver
@@ -201,7 +201,7 @@ raw-Ethernet loopback test (`noip_send`), LAN865x register peek/poke
 - Build summary after every build (flash/RAM usage, heap, interrupt handlers).
 - `cli.py` — send CLI commands and collect answers over the EDBG COM port
   (115200 8N1).
-- [`CLI_COMMANDS.md`](CLI_COMMANDS.md) — every command with syntax, description
+- [`CLI_COMMANDS.md`](docs/CLI_COMMANDS.md) — every command with syntax, description
   and example output, derived from the firmware's command tables and held against
   them by `cli_doc_check.py` (non-zero exit on drift: a command with no section, a
   section with no command, or a dead cross-reference).
@@ -403,7 +403,7 @@ superloop (`SYS_Tasks()` in `main.c`); no RTOS, no threads, no locks.
 > [`firmware/src/lan865x_diag.c`](firmware/src/lan865x_diag.c) / [`.h`](firmware/src/lan865x_diag.h),
 > which depends only on the LAN865x driver and `SYS_CMD`/`SYS_TIME`/`SYS_CONSOLE`
 > so it can be lifted into another project unchanged — see
-> [§10 of the test-mode guide](LAN8651_TEST_MODES.md#10-porting-this-to-another-project).
+> [§10 of the test-mode guide](docs/LAN8651_TEST_MODES.md#10-porting-this-to-another-project).
 > `app.c` contributes exactly two calls to it, listed below.
 
 `APP_Initialize` registers the Telnet auth + a 1 s timer, calls
@@ -459,7 +459,7 @@ end-to-end throughput across the bridge itself (PC → `eth1` → MAC bridge →
 
 ### CLI commands
 
-> **Complete reference: [`CLI_COMMANDS.md`](CLI_COMMANDS.md)** — all 22 commands with syntax,
+> **Complete reference: [`CLI_COMMANDS.md`](docs/CLI_COMMANDS.md)** — all 22 commands with syntax,
 > description and example output, plus the Harmony stack groups. That file is derived from the
 > firmware's command tables and held against them by `python scripts/cli_doc_check.py`. What follows here is
 > the short overview.
@@ -500,7 +500,7 @@ captures and for separating a bus problem from an IP-configuration problem:
 **`lan` group** — LAN865x registers, transmitter test modes and PLCA. Lives in the
 self-contained [`lan865x_diag.c`](firmware/src/lan865x_diag.c) module rather than in
 `app.c`, so it can be reused in another project
-(see [§10 of the test-mode guide](LAN8651_TEST_MODES.md#10-porting-this-to-another-project)):
+(see [§10 of the test-mode guide](docs/LAN8651_TEST_MODES.md#10-porting-this-to-another-project)):
 
 | Command | Description |
 |---|---|
@@ -945,7 +945,7 @@ The mirror is a separate module,
 [`.h`](firmware/src/port_mirror.h). `app.c` contributes two things only:
 `MIRROR_Initialize()` at startup and `MIRROR_Eth0Rx()` from `pktEth0Handler`.
 
-Unlike the test-mode module ([§10 there](LAN8651_TEST_MODES.md#10-porting-this-to-another-project)),
+Unlike the test-mode module ([§10 there](docs/LAN8651_TEST_MODES.md#10-porting-this-to-another-project)),
 this one is **not** free-standing: it needs the Harmony TCP/IP stack for packet
 allocation and `TCPIP_NET_IF` internals, `DRV_GMAC_PacketTx` specifically as the
 mirror destination, and the LAN865x driver patched to call into it. It is
@@ -1080,7 +1080,7 @@ the roles reversed — e.g. `iperf -s` on the board, then
 
 ## 9. Transmitter test modes
 
-> **Full guide: [`LAN8651_TEST_MODES.md`](LAN8651_TEST_MODES.md)** — what each mode
+> **Full guide: [`LAN8651_TEST_MODES.md`](docs/LAN8651_TEST_MODES.md)** — what each mode
 > qualifies, how to probe and set up the measurement on the bus, what to disconnect
 > first, and how the same thing is done with the generic `lan_read`/`lan_write`
 > commands versus the `testmode` convenience wrapper. This section is the summary.
@@ -1171,7 +1171,7 @@ analyser at the MDI.
 
 ### Further reading
 
-**[`LAN8651_TEST_MODES.md`](LAN8651_TEST_MODES.md)** is the full guide: what the four
+**[`LAN8651_TEST_MODES.md`](docs/LAN8651_TEST_MODES.md)** is the full guide: what the four
 modes are and what each one qualifies; probing, termination and instrument setup per
 mode; what to disconnect on a shared multidrop bus; the generic `lan_read`/`lan_write`
 register path versus the `testmode`/`lan_rmw` convenience commands; the `T1SPMACTL` bit

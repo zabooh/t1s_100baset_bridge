@@ -197,7 +197,7 @@ def save_config(path, entries, font_size, text_color):
 
     Serialize to a neighbor file and os.replace() over the target, rather than
     truncating it in place - a crash mid-write leaves the old file intact
-    instead of an empty one (see FALLSTRICKE.md in the bridge_gui.py project
+    instead of an empty one (see docs/FALLSTRICKE.md in the bridge_gui.py project
     for the incident that made this the habit here).
     """
     cfg = {
@@ -646,7 +646,7 @@ class App:
         # so setting it this early avoids a resize/flash and survives
         # sv-ttk's own idle-task restyle later - see bridge_gui.py's
         # BridgeGUI._tighten_button_style for the same reasoning, and
-        # FALLSTRICKE.md (2026-08-26).
+        # docs/FALLSTRICKE.md (2026-08-26).
         self._tighten_button_style()
         self.root = root
         self.config_path = config_path

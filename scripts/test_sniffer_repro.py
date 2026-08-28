@@ -48,7 +48,7 @@ FOLLOWER_B_PORT = "COM23"
 FOLLOWER_B_PROBE = "ATML3264031800001103"
 UDP_BANDWIDTH_BPS = 1000000  # rate-limit the UDP test, to check whether raw
                               # throughput itself is what trips the PC-side
-                              # capture (see FALLSTRICKE.md/this investigation)
+                              # capture (see docs/FALLSTRICKE.md/this investigation)
 BAUD = 115200
 TSHARK = r"C:\Program Files\Wireshark\tshark.exe"
 IFACE = "2"  # "Ethernet 8", per `tshark -D`

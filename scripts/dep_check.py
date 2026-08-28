@@ -7,7 +7,7 @@ dependency of both tools - they always run themed, there is no plain-ttk
 fallback anymore) would otherwise fail with an unconditional import at module
 load - and term.bat launches via pythonw with no exit-code check, so that
 import crash would produce no window and no error at all (see
-FALLSTRICKE.md, dated 2026-08-26, from when this first bit the separate
+docs/FALLSTRICKE.md, dated 2026-08-26, from when this first bit the separate
 "_modern" builds that have since been merged into these two files). This
 module runs BEFORE any of that: it checks with importlib.util.find_spec
 (never a real import, so it cannot itself crash), and if something required

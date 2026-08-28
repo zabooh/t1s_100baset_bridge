@@ -105,7 +105,7 @@ def run_step(fh, sock, target_bps, duration_s):
     # than a fixed grace window, which was undercounting "achieved" down to
     # near-zero even though the data was genuinely still arriving (found
     # empirically comparing this against the iperf-measured ~5.8 Mbps ceiling
-    # this same segment sustains - see FALLSTRICKE.md, 2026-08-27). Stop
+    # this same segment sustains - see docs/FALLSTRICKE.md, 2026-08-27). Stop
     # early once nothing new has arrived for a full second - that is "done",
     # not "still coming".
     grace_deadline = send_done + max(DRAIN_GRACE_S, interval * 3)

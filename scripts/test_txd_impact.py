@@ -5,7 +5,7 @@ test_txd_impact.py - How does disabling the PLCA coordinator's transmitter
 between two OTHER T1S nodes ("follower A"/"follower B") that never talk to
 the bridge at all?
 
-Reproduces the manual run recorded in FALLSTRICKE.md (2026-08-26): toggling
+Reproduces the manual run recorded in docs/FALLSTRICKE.md (2026-08-26): toggling
 TXD on the coordinator collapsed iperf throughput between two non-coordinator
 nodes to ~0.6% of normal and PLCA_STS.PST tracked the coordinator's TX state
 exactly, but it stayed open whether the residual traffic during the outage is

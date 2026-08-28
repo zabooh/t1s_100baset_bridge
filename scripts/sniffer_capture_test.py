@@ -3,7 +3,7 @@
 sniffer_capture_test.py - validate the bridge's "sniffer" mirror path.
 
 Enables `sniffer` on the bridge (mirrors every eth0/T1S frame to eth1, for
-the PC to capture - see CLAUDE.md/FALLSTRICKE.md), then runs real UDP and
+the PC to capture - see CLAUDE.md/docs/FALLSTRICKE.md), then runs real UDP and
 TCP traffic directly between Follower A and Follower B (both directions)
 while tshark records everything arriving on the PC's NIC. Afterward it
 checks whether the capture is actually complete:
@@ -21,7 +21,7 @@ checks whether the capture is actually complete:
       connection.
 
 Also checks for frame-length truncation (MIRROR_SAFE_FRAME_LEN, see
-FALLSTRICKE.md/SNIFFER_4_ERGEBNISSE.md): a captured frame shorter than what
+docs/FALLSTRICKE.md/docs/SNIFFER_4_ERGEBNISSE.md): a captured frame shorter than what
 its own IP/UDP header claims would mean real payload bytes are missing, not
 just harmless trailing padding.
 
@@ -51,7 +51,7 @@ from iperf_matrix_test import (
 )
 
 DEFAULT_TSHARK = r"C:\Program Files\Wireshark\tshark.exe"
-CAPTURE_IFACE = "2"  # "Ethernet 8" on this PC - verified in FALLSTRICKE.md
+CAPTURE_IFACE = "2"  # "Ethernet 8" on this PC - verified in docs/FALLSTRICKE.md
 IPERF_PORT = 5001
 
 PAIRS = [("FollowerA", "FollowerB"), ("FollowerB", "FollowerA")]
@@ -217,7 +217,7 @@ def run_udp_test(src, dst, duration, tshark_exe, cap_dir, rate_bps):
     # other iperf instance. "attempted" here is the client's own outgoing
     # packet-id counter (trustworthy - it's counting its own sends, not
     # anything requiring feedback from the far end), unlike "dropped" which
-    # would be meaningless for a pure sender (see FALLSTRICKE.md).
+    # would be meaningless for a pure sender (see docs/FALLSTRICKE.md).
     src_result = parse_device_report(client_out)
     sent_count = src_result["total"] if src_result else None
     dst_result = parse_device_report(server.output)
@@ -310,7 +310,7 @@ Examples:
                           "(default: 5.0). This is a fixed rate, not a search like "
                           "iperf_matrix_test.py's UDP Max - raise it to stress-test "
                           "the sniffer mirror path closer to the ~9.4 Mbit/s T1S "
-                          "ceiling (see IPERF_TEST_MATRIX.md).")
+                          "ceiling (see docs/IPERF_TEST_MATRIX.md).")
     ap.add_argument("--cap-dir", default=".",
                      help="directory to write the four .pcapng capture files into "
                           "(default: current directory). Created if it doesn't exist.")

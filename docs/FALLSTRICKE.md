@@ -949,3 +949,41 @@ Regel: siehe `CLAUDE.md` Abschnitt 7 „Erkenntnisse festhalten". Neue Einträge
   `check_env_model.py`, `gui_term.py --selftest`, `flash_same54.py --show-probe`,
   `flash_boards.py --list` liefen fehlerfrei, `build.bat` komplett durchgelaufen, Baum danach
   sauber (bis auf die erwarteten `git mv`/Edit-Änderungen).
+- **2026-08-28 — Alle Markdown-Dateien im Repo-Root außer `README.md` nach `docs\` verschoben
+  (`git mv`), auf Nutzerwunsch.** Betroffen: `BRIDGE_GUI_README.md`, `CLI_COMMANDS.md`,
+  `FALLSTRICKE.md` (diese Datei), `IPERF_TEST_MATRIX.md`, `LAN8651_TEST_MODES.md`,
+  `SNIFFER_1_HYPOTHESEN.md` … `SNIFFER_4_ERGEBNISSE.md`, `SNIFFER_CAPTURE_VALIDATION.md`.
+  **Zwei bewusste weitere Ausnahmen, vorher per Nachfrage geklärt statt geraten:**
+  `CLAUDE.md` bleibt im Root, weil es Claude Codes eigene, automatisch pro Session geladene
+  Projektanweisungsdatei ist — ein Umzug nach `docs\` hätte das automatische Laden beendet;
+  `json\README.md` (eigenes Verzeichnis-Readme für `json\`, nicht am Root) und
+  `follower\firmware\T1S_Follower.X\KEIN_MCC_MODELL.md` (gehört direkt neben das MPLAB-X-Projekt,
+  das es erklärt, analog zu `.main-meta\main.json`) blieben ebenfalls, wo sie waren.
+  **Ein echter Funktionsbruch, kein bloßer Kommentar:** `scripts\cli_doc_check.py` hatte
+  `DOC = 'CLI_COMMANDS.md'` als CWD-relative Konstante (nicht `Path(__file__)`-basiert wie die
+  meisten anderen Skripte — dieses eine erwartet von jeher CWD=Repo-Root beim Aufruf, genau wie
+  sein `SRC = os.path.join('firmware', 'src')`) — nach dem Umzug sofort mit
+  `FileNotFoundError: 'CLI_COMMANDS.md'` reproduziert, dann auf
+  `DOC = os.path.join('docs', 'CLI_COMMANDS.md')` korrigiert und erneut verifiziert (`PASS,
+  26/26 Kommandos`), auch über `follower\build.bat`s Aufruf (`..\scripts\cli_doc_check.py
+  --quiet`) hinweg. **Alle sonstigen Fundstellen waren reine Prosa-Verweise** („siehe
+  FALLSTRICKE.md, 2026-08-27" o. ä.) in Kommentaren/Docstrings über den ganzen Baum verteilt —
+  `firmware\src\*.c/.h`, `follower\firmware\src\*.c/.h`, `scripts\*.py`, `requirements.txt` —
+  jeweils um `docs\`/`docs/` ergänzt (Konvention der jeweiligen Datei beibehalten). **Eine
+  Ausnahme davon war kein Kommentar, sondern kompilierter Konsolentext:**
+  `port_mirror.c`s `SYS_CONSOLE_PRINT(...)` bei `dump`/`stats` enthält wörtlich „see
+  SNIFFER_4_ERGEBNISSE.md" im Format-String — dort auf `docs/SNIFFER_4_ERGEBNISSE.md` geändert,
+  **das braucht einen Neu-Flash**, um auf dem Gerät sichtbar zu werden (reines Kosmetikum, keine
+  Funktionsänderung). Interne Querverweise **zwischen** den verschobenen Dateien selbst
+  brauchten unterschiedliche Behandlung: `LAN8651_TEST_MODES.md` ↔ `CLI_COMMANDS.md`
+  (beide jetzt Geschwister in `docs\`) blieben unverändert bare Links; Links von dort auf
+  `README.md`/`CLAUDE.md` (am Root geblieben) sowie auf `firmware\...`/`scripts\...` bekamen
+  ein `../` davor. **Explizit NICHT angefasst:** `sniffer_capture_results.log` — enthält als
+  Testmitschnitt denselben „see SNIFFER_4_ERGEBNISSE.md"-String, aber als historisches Zitat
+  dessen, was eine ältere Firmware tatsächlich ausgegeben hat, nicht als lebender Verweis;
+  Ändern hätte das Protokoll verfälscht. Verifiziert: `cli_doc_check.py` (PASS),
+  `check_register_model.py`/`check_env_model.py` (0 Fehler), `build.bat` **und**
+  `follower\build.bat` liefen komplett durch (inkl. des `cli_doc_check.py`-Aufrufs am Ende von
+  `follower\build.bat`), abschließende Grep-Suche über `*.c`/`*.h`/`*.py`/`*.txt`/`*.bat` fand
+  keine unpräfixierten Treffer mehr außer der eigenen `os.path.join('docs', ...)`-Zeile (falsch
+  positiv der Grep-Suche selbst, keine echte Lücke).

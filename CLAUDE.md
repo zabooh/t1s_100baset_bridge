@@ -11,19 +11,19 @@
 |---|---|
 | `firmware\src\app.c` | App-Zustandsmaschine, Packet-Handler, Packet-Log (Ringpuffer + Drain), `stats`/`meminfo`/`dump`/`ipdump`/`logstat`/`uptime`/`history` |
 | `firmware\src\lan865x_diag.c` `.h` | **Registerzugriff, Testmodi, PLCA** — `lan_read`/`lan_write`/`lan_rmw`/`testmode`/`plca_node`. Eigenständig und in andere Projekte kopierbar: hängt nur am LAN865x-Treiber und an SYS_CMD/SYS_TIME/SYS_CONSOLE |
-| `firmware\src\port_mirror.c` `.h` | **Port-Mirror/SPAN** `eth0` → `eth1` — Kommando `mirror` (nur an die Bridge adressierte Frames) und `sniffer` (**alle** eth0-RX-Frames, auch zwischen zwei anderen Knoten — dieselbe RX-Hook ohne den Ziel-MAC-Filter, möglich weil der LAN865x-Treiber ohnehin promiscuous läuft; schaltet zusätzlich den T1S-Transmitter ab, passiver Tap), dazu `bigframe` (Einzelframe direkt auf `eth1`, Diagnose). Gespiegelte Frames > 1514 Byte werden gekürzt, nicht durchgereicht (PC-seitiger USB-Adapter/Npcap-Aussetzer sonst, siehe `FALLSTRICKE.md` 2026-08-27 und `SNIFFER_1…4_*.md`). **Nicht** frei portierbar: braucht den TCP/IP-Stack, `DRV_GMAC_PacketTx` und den gepatchten LAN865x-Treiber (siehe `FALLSTRICKE.md`) |
+| `firmware\src\port_mirror.c` `.h` | **Port-Mirror/SPAN** `eth0` → `eth1` — Kommando `mirror` (nur an die Bridge adressierte Frames) und `sniffer` (**alle** eth0-RX-Frames, auch zwischen zwei anderen Knoten — dieselbe RX-Hook ohne den Ziel-MAC-Filter, möglich weil der LAN865x-Treiber ohnehin promiscuous läuft; schaltet zusätzlich den T1S-Transmitter ab, passiver Tap), dazu `bigframe` (Einzelframe direkt auf `eth1`, Diagnose). Gespiegelte Frames > 1514 Byte werden gekürzt, nicht durchgereicht (PC-seitiger USB-Adapter/Npcap-Aussetzer sonst, siehe `docs\FALLSTRICKE.md` 2026-08-27 und `docs\SNIFFER_1…4_*.md`). **Nicht** frei portierbar: braucht den TCP/IP-Stack, `DRV_GMAC_PacketTx` und den gepatchten LAN865x-Treiber (siehe `docs\FALLSTRICKE.md`) |
 | `firmware\src\noip_test.c` `.h` | **Rohframe-Test** EtherType `0x88B5` ohne IP-Stack — `noip_send <n> [gap_ms] [size]`/`noip_stat`. Besitzt EtherType, Frameaufbau, Zähler und Ausgabetexte. **Teilweise gekoppelt:** der Ringpuffer des Packet-Logs bleibt in `app.c` (teilt ihn mit `ipdump`), deshalb ruft `pktEth0Handler()` beim Empfang `NOIP_IsNoIpFrame`/`NOIP_CountRx`/`NOIP_SeqFromFrame` und die Drain-Schleife `NOIP_PrintRxLine()` |
 | `firmware\src\env.c` | Persistente Konfiguration (IP/MAC/PLCA) im Emulated EEPROM |
 | `firmware\T1S_100BaseT_Bridge.X\` | MPLAB-X-Projekt (Makefiles, `dist\`) |
 | `README.md` | Ausführliche Projektdoku (**englisch**): Hardware-BOM, Architektur, CLI, Mirror, iperf, `env` |
-| `LAN8651_TEST_MODES.md` | **Vertiefung zu Abschnitt 3+4 dieser Datei** (**englisch**) — die vier Modi, Messaufbau am Bus, generischer Registerweg vs. `testmode`/`lan_rmw`, Messprotokoll |
-| `FALLSTRICKE.md` | **Ausgelagerter Abschnitt 6** (**deutsch**) — datierte Register-/Build-/GUI-/Env-Fallstricke, chronologisch. Vor Arbeiten an diesen Bereichen lesen, neue Erkenntnisse dort anhängen |
+| `docs\LAN8651_TEST_MODES.md` | **Vertiefung zu Abschnitt 3+4 dieser Datei** (**englisch**) — die vier Modi, Messaufbau am Bus, generischer Registerweg vs. `testmode`/`lan_rmw`, Messprotokoll |
+| `docs\FALLSTRICKE.md` | **Ausgelagerter Abschnitt 6** (**deutsch**) — datierte Register-/Build-/GUI-/Env-Fallstricke, chronologisch. Vor Arbeiten an diesen Bereichen lesen, neue Erkenntnisse dort anhängen |
 | `scripts\cli.py` | Kommandos über COM-Port schicken und Antworten einsammeln |
-| `scripts\bridge_gui.py` / `run_gui.bat` | **Bedien-GUI** (tkinter, sv-ttk-Theme/Windows-11-Fluent-Optik fest eingebaut, kein Standard-ttk-Fallback mehr seit 2026-08-28): Bridge-Parameter, alle 183 LAN8651-Register mit Bitfeldern, Testmodi, Terminal, dazu Flash/Erase über die EDBG-Sonde (SWD, unabhängig vom COM-Port) — „Flash from release/" spielt `release/*.hex` über `flash_same54.py` auf eine per Dialog gewählte Sonde, „Erase chip..." löscht Firmware **und** EEPROM-Environment komplett und verlangt dafür ein eingetipptes Bestätigungswort (`ERASE_CONFIRM_WORD`). Braucht `sv-ttk` (Pflicht) und `pyserial` (optional, `requirements.txt`), dazu `lan8651_model.json` und `bridge_config.json`, ruft weder `cli.py` noch `test_lan8651.py` auf. sv-ttk löscht beim Aktivieren die roten/grünen Warn-/Erfolgsfarben (Errata-Warnungen, dekodierte Bitfeld-Werte) — `_restore_semantic_colors()` baut sie anhand des Label-Texts wieder auf, siehe `FALLSTRICKE.md` für die Mechanik. `--light` für die helle Variante, sonst dunkel |
+| `scripts\bridge_gui.py` / `run_gui.bat` | **Bedien-GUI** (tkinter, sv-ttk-Theme/Windows-11-Fluent-Optik fest eingebaut, kein Standard-ttk-Fallback mehr seit 2026-08-28): Bridge-Parameter, alle 183 LAN8651-Register mit Bitfeldern, Testmodi, Terminal, dazu Flash/Erase über die EDBG-Sonde (SWD, unabhängig vom COM-Port) — „Flash from release/" spielt `release/*.hex` über `flash_same54.py` auf eine per Dialog gewählte Sonde, „Erase chip..." löscht Firmware **und** EEPROM-Environment komplett und verlangt dafür ein eingetipptes Bestätigungswort (`ERASE_CONFIRM_WORD`). Braucht `sv-ttk` (Pflicht) und `pyserial` (optional, `requirements.txt`), dazu `lan8651_model.json` und `bridge_config.json`, ruft weder `cli.py` noch `test_lan8651.py` auf. sv-ttk löscht beim Aktivieren die roten/grünen Warn-/Erfolgsfarben (Errata-Warnungen, dekodierte Bitfeld-Werte) — `_restore_semantic_colors()` baut sie anhand des Label-Texts wieder auf, siehe `docs\FALLSTRICKE.md` für die Mechanik. `--light` für die helle Variante, sonst dunkel |
 | `scripts\gui_term.py` / `term.bat` | **Drei serielle Konsolen in einem Fenster** (dasselbe feste sv-ttk-Theme wie `bridge_gui.py`), ein Klick verbindet alle — Portierung aus dem `t1s_ptp_bridge`-Schwesterprojekt, ohne dessen Sonden-Seriennummer-Auflösung. Welcher COM-Port zu welchem der drei Terminal-Slots gehört, steht in `json\term_ports.json` (gitignored) und wird über das Menü „Setup → Configure Ports" im Tool selbst gepflegt, nicht von Hand. Titelbalken-Dunkelmodus und die Wiederherstellung der (auch vom Nutzer über „Display" gewählten!) Pane-Terminalfarbe und der Verbindungs-Punkt-Farbe laufen einmal nach dem Aufbau der drei Startpanes — ein später (z. B. per Setup-Dialog) geöffnetes Fenster ist davon **nicht** betroffen, sv-ttks Idle-Task-Neufärbung läuft nur einmal, vor dem ersten `root.update()`. `--light` für die helle Variante, sonst dunkel |
 | `json\env_model.json` | **Das Environment-Modell** — je Kennung+Version: welche Felder der EEPROM-Datensatz hat, mit welchem Muster sie aus `showenv` gelesen und mit welchem `setenv`-Schlüssel sie geschrieben werden. Die GUI liest die Kennung vom Gerät und deutet die Werte **nur**, wenn sie dazu einen Eintrag findet |
 | `scripts\check_gui_language.py` | Prüft, dass **alle sichtbaren Texte** in `bridge_gui.py`, `gui_term.py` und `dep_check.py` englisch sind — über den Syntaxbaum, damit Kommentare unberührt bleiben |
-| `scripts\dep_check.py` | **Von beiden GUI-Tools aus `main()` aufgerufen**, bevor irgendetwas gebaut wird — prüft mit `importlib.util.find_spec` (kein echter Import), ob `sv-ttk`/`pyserial` fehlen, und bietet bei einer Lücke einen Tk-Dialog mit „Install now" an (führt `install_dependencies.bat` aus, Ausgabe live gestreamt). `sv-ttk` ist **hart** (kein Weiterlaufen ohne, seit die früheren separaten `_modern`-Varianten am 2026-08-28 in diese beiden Dateien verschmolzen wurden), `pyserial` **optional** (Tool bleibt nutzbar, nur ohne COM-Port). Grund: siehe `FALLSTRICKE.md`, 2026-08-26 |
+| `scripts\dep_check.py` | **Von beiden GUI-Tools aus `main()` aufgerufen**, bevor irgendetwas gebaut wird — prüft mit `importlib.util.find_spec` (kein echter Import), ob `sv-ttk`/`pyserial` fehlen, und bietet bei einer Lücke einen Tk-Dialog mit „Install now" an (führt `install_dependencies.bat` aus, Ausgabe live gestreamt). `sv-ttk` ist **hart** (kein Weiterlaufen ohne, seit die früheren separaten `_modern`-Varianten am 2026-08-28 in diese beiden Dateien verschmolzen wurden), `pyserial` **optional** (Tool bleibt nutzbar, nur ohne COM-Port). Grund: siehe `docs\FALLSTRICKE.md`, 2026-08-26 |
 | `scripts\check_env_model.py` | Prüft das Environment-Modell — und gleicht jeden `cli_key` gegen die `setenv`-Schlüssel in `env.c` ab (beide Richtungen: unbekannter Schlüssel = Fehler, unerreichbare Einstellung = Warnung) |
 | `json\lan8651_model.json` | **Das Registermodell** — 183 Register, 538 Bitfelder, je mit Abschnitt und Seite im Datenblatt, dazu Errata-Anmerkungen sowie Access/Reset je Bitfeld. Die GUI **liest** es und schreibt es nie. Fehler werden **hier** korrigiert, nicht im Python-Quelltext, danach `python scripts\check_register_model.py` |
 | `scripts\check_register_model.py` | Prüft das Modell gegen sich selbst: MMS gegen Gruppe, doppelte Adressen und Mnemonics, Bitbereiche verdreht/über 31/überlappend, fehlende Namen. Exitcode ≠ 0 bei Fehlern |
@@ -89,7 +89,7 @@ setup.bat                 :: einmalig pro Rechner
   lässt den Baum dagegen clean (2026-08-10 nachgemessen), und die neuen Artefakte unter
   `dist\…\image\` sind sauber ignoriert. Offen, ob die drei Altlasten getrackt bleiben sollen; solange
   es so ist, mitcommitten. **Frühere Fassung dieser Zeile behauptete das Gegenteil** — Ursache in
-  `FALLSTRICKE.md` (`git check-ignore` schweigt bei getrackten Pfaden).
+  `docs\FALLSTRICKE.md` (`git check-ignore` schweigt bei getrackten Pfaden).
 - Nach dem Build läuft `build_summary.py` (Flash/RAM, Heap, Interrupt-Handler).
 - **Konsole:** EDBG-COM-Port, **115200 8N1**. Host-seitig: `python scripts\cli.py --port COM8 --read 1 "<cmd>"`.
 
@@ -176,7 +176,7 @@ anderen Knoten** von `1` auf `0` fallen — unmittelbar, im Log kein wahrnehmbar
 `TXD=0` setzt es ebenso zurück auf `1`. Ein parallel laufender TCP-iperf zwischen zwei
 Nicht-Coordinator-Knoten (node1↔node2, node0 nicht beteiligt) brach dabei auf ~0,6 % der
 Nennrate ein und erholte sich erst 4–15 s nach dem Revert — TXD auf dem Coordinator wirkt also
-netzweit, nicht nur lokal. Details: `FALLSTRICKE.md`, 2026-08-26.
+netzweit, nicht nur lokal. Details: `docs\FALLSTRICKE.md`, 2026-08-26.
 
 ### T1STSTCTL — `0x000308FB`, Bits 15:13, Reset `0x0000`
 
@@ -230,7 +230,7 @@ Stufen — Readback, „Verkehr des T1S-Endpoints hört auf", „Verkehr kommt n
 endet bei jeder Abweichung mit Exitcode ≠ 0. Setzt voraus, dass die Bridge PLCA-Coordinator ist
 (Node-ID 0), sonst ist Stufe 2 wertlos; das Skript prüft es und bricht sonst ab. Stand 2026-08-10:
 alle vier Modi bestehen alle drei Stufen (19 Prüfungen). Messprotokoll und Messaufbau in
-`LAN8651_TEST_MODES.md` §7–§8.
+`docs\LAN8651_TEST_MODES.md` §7–§8.
 
 **Readback nach jedem Wechsel.** Weicht er ab, hat der PHY den Modus nicht übernommen — das sieht
 man sofort am Register, während man es am Oszilloskop leicht für ein Messproblem hält.
@@ -263,7 +263,7 @@ Verkabelungsproblem. Vorbedingungen:
 
 Vertiefung — was die vier Modi qualifizieren, Sondierung/Terminierung/Instrument je Modus, was man
 vorher abklemmt, generischer Registerweg gegenüber den Komfort-Kommandos, Messprotokoll:
-**`LAN8651_TEST_MODES.md`** (englisch)
+**`docs\LAN8651_TEST_MODES.md`** (englisch)
 
 ---
 
@@ -275,10 +275,10 @@ vorher abklemmt, generischer Registerweg gegenüber den Komfort-Kommandos, Messp
 | Einzelne Bits setzen | `lan_rmw <addr> <mask> <val>` | `neu = (alt & ~mask) \| val`, danach maskierter Verify |
 | Test-Modi automatisch prüfen | `python scripts\test_lan8651.py --port COM8` | Readback + Verkehr-stoppt + Verkehr-kommt-wieder, Exitcode ≠ 0 bei Abweichung |
 | Endpoint-Verkehr zählen | `tshark` auf dem `eth1`-Adapter | der Endpoint sendet SOME/IP-SD mit 1 Hz von selbst — bestes Oracle ohne Messgerät |
-| Rohe Ethernet-Frames | `noip_send <n> [gap_ms] [size]` / `noip_stat` | EtherType `0x88B5`, umgeht den TCP/IP-Stack, `size` (Gesamtlänge, 60..1518, Default 60) seit 2026-08-27 — **bestes Mittel für reproduzierbare Scope-Bilder**. Bei `count > 1` teilen sich alle Frames einen Puffer (nur ein Zeiger wird eingereiht) — für saubere Wiederholung `noip_send 1 0 <size>` einzeln aufrufen, nicht auf die eingebaute Schleife verlassen (siehe `FALLSTRICKE.md`) |
+| Rohe Ethernet-Frames | `noip_send <n> [gap_ms] [size]` / `noip_stat` | EtherType `0x88B5`, umgeht den TCP/IP-Stack, `size` (Gesamtlänge, 60..1518, Default 60) seit 2026-08-27 — **bestes Mittel für reproduzierbare Scope-Bilder**. Bei `count > 1` teilen sich alle Frames einen Puffer (nur ein Zeiger wird eingereiht) — für saubere Wiederholung `noip_send 1 0 <size>` einzeln aufrufen, nicht auf die eingebaute Schleife verlassen (siehe `docs\FALLSTRICKE.md`) |
 | Einzelner Rohframe direkt auf `eth1` | `bigframe <total_len>` (Bridge, 60..9000) | Diagnose, umgeht T1S/Mirror-Pool komplett — Ziel Broadcast, EtherType `0xFEED` |
 | SPAN nach `eth1` | `mirror [0\|1]` | Bridge-eigener T1S-Verkehr (RX+TX) in Wireshark mitlesen |
-| Passiver Bus-Tap | `sniffer [0\|1]` | wie `mirror`, aber ALLER `eth0`-Verkehr inkl. fremder Knoten; schaltet zusätzlich den T1S-Transmitter ab (`T1SPMACTL.TXD`) — Bridge sendet währenddessen selbst nichts, auch kein Forwarding. Frames > 1514 Byte werden vor dem Spiegeln auf 1514 gekürzt (PC-seitiger USB-Adapter/Npcap-Aussetzer bei größeren Frames, siehe `FALLSTRICKE.md` 2026-08-27) |
+| Passiver Bus-Tap | `sniffer [0\|1]` | wie `mirror`, aber ALLER `eth0`-Verkehr inkl. fremder Knoten; schaltet zusätzlich den T1S-Transmitter ab (`T1SPMACTL.TXD`) — Bridge sendet währenddessen selbst nichts, auch kein Forwarding. Frames > 1514 Byte werden vor dem Spiegeln auf 1514 gekürzt (PC-seitiger USB-Adapter/Npcap-Aussetzer bei größeren Frames, siehe `docs\FALLSTRICKE.md` 2026-08-27) |
 | Zähler | `stats` | belastet den SPI-Pfad nicht |
 | Durchsatz | `iperf …` / `iperfk` | Dauerlast |
 | Laufzeit seit Boot | `uptime` | erkennt einen stillen Neustart (Watchdog/Assert-Loop/`pyocd reset`), den sonst nichts anzeigt |
@@ -294,7 +294,7 @@ unterbrochen. Erst zurückstellen, dann Verkehr messen.
 
 ## 6. Fallstricke
 
-Ausgelagert nach **`FALLSTRICKE.md`** (Token-Kosten pro Session; die vielen datierten
+Ausgelagert nach **`docs\FALLSTRICKE.md`** (Token-Kosten pro Session; die vielen datierten
 Register-/Build-/GUI-/Env-Erkenntnisse werden nicht in jeder Session gebraucht). Vor Arbeiten an
 Registerzugriff (`lan865x_diag.c`), Build/Flash-Toolchain, `bridge_gui.py`/`env.c`/`env_model.json`
 oder dem Registermodell (`lan8651_model.json`) dort nachlesen — konkrete Fehler samt Lösung und
@@ -308,13 +308,13 @@ Sackgassen, chronologisch. Neue Erkenntnisse aus diesen Bereichen dort anhängen
 das Projekt um, verwaist er. **Dauerhaft Wertvolles deshalb in Dateien im Repo ablegen, nicht nur
 ins Memory** (dann reist es auch mit einem Klon auf einen anderen Rechner):
 
-- **Test-Modi und Messverfahren** (was gemessen wird, wie der Aufbau aussieht) → `LAN8651_TEST_MODES.md`
+- **Test-Modi und Messverfahren** (was gemessen wird, wie der Aufbau aussieht) → `docs\LAN8651_TEST_MODES.md`
   (englisch).
-- **Register-/Callback-/Treiber-/Build-/GUI-/Env-Fallstricke, korrigierte Irrtümer** → **`FALLSTRICKE.md`**
+- **Register-/Callback-/Treiber-/Build-/GUI-/Env-Fallstricke, korrigierte Irrtümer** → **`docs\FALLSTRICKE.md`**
   (deutsch). Dort chronologisch anhängen, nicht in diese Datei zurückschreiben — Zweck von Abschnitt 6
   war genau, diese Liste aus der Haupt-Datei herauszuhalten.
 - **Kurze, stabile Build-/Flash-Grundlagen** (Befehle, `bench.json`-Mechanik) → Abschnitt 2 **dieser**
-  Datei; Fallstricke dazu trotzdem in `FALLSTRICKE.md`.
+  Datei; Fallstricke dazu trotzdem in `docs\FALLSTRICKE.md`.
 - **Architektur, Hardware, Bedienung** → `README.md` (englisch).
 
 Format: knapp, ein bis zwei Sätze je Erkenntnis, bei Bedarf ein Snippet, datiert
@@ -322,6 +322,6 @@ Format: knapp, ein bis zwei Sätze je Erkenntnis, bei Bedarf ein Snippet, datier
 Besonders festhalten: **Fehler samt richtiger Lösung** und **Sackgassen** („Weg A geht nicht, weil …
 → nicht nochmal versuchen").
 
-**Sprachstand:** `README.md` und `LAN8651_TEST_MODES.md` sind englisch, **diese Datei und
-`FALLSTRICKE.md`** sind deutsch (beide AI-/Dev-intern, keine Nutzerdokumentation). Beim Ergänzen
+**Sprachstand:** `README.md` und `docs\LAN8651_TEST_MODES.md` sind englisch, **diese Datei und
+`docs\FALLSTRICKE.md`** sind deutsch (beide AI-/Dev-intern, keine Nutzerdokumentation). Beim Ergänzen
 die Sprache der jeweiligen Datei beibehalten.

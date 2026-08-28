@@ -1,4 +1,4 @@
-"""Hold CLI_COMMANDS.md against the firmware, mechanically.
+"""Hold docs/CLI_COMMANDS.md against the firmware, mechanically.
 
     python cli_doc_check.py            check, exit code 0 or 1
     python cli_doc_check.py --list     just print what the firmware registers
@@ -21,7 +21,7 @@ import re
 import sys
 
 SRC = os.path.join('firmware', 'src')
-DOC = 'CLI_COMMANDS.md'
+DOC = os.path.join('docs', 'CLI_COMMANDS.md')
 # The project's own tables. The Harmony stack groups (tcpip, iperf) are deliberately
 # not checked here: which of those exist depends on the MCC configuration, so the
 # device's own `help` is the authority for them, not this repo.

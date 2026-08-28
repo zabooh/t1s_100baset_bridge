@@ -43,7 +43,7 @@
 #define NOIP_MAX_FRAME_LEN 1518u /* standard max Ethernet frame (no FCS) - see the
                                    * optional [size] arg of noip_send, added for the
                                    * sniffer/mirror large-frame investigation
-                                   * (BANDWIDTH/FALLSTRICKE.md, 2026-08-27). NOIP_SendOne()
+                                   * (BANDWIDTH/docs/FALLSTRICKE.md, 2026-08-27). NOIP_SendOne()
                                    * (the PTP-trigger path) always sends NOIP_FRAME_LEN
                                    * regardless - unaffected by this. */
 #define NOIP_MAX_COUNT   1000u

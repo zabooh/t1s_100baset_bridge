@@ -543,7 +543,7 @@ static __inline__ void __attribute__((always_inline)) _DRV_GMAC_RxDelete(DRV_GMA
 {
 }
 
-/* Hand-patch, not generated (FALLSTRICKE.md, 2026-08-27 "PC-UDP-Flood legt eth1-RX lahm"):
+/* Hand-patch, not generated (docs/FALLSTRICKE.md, 2026-08-27 "PC-UDP-Flood legt eth1-RX lahm"):
  * with no RTOS, _synchF is never set on this project, so the two branches below were a
  * COMPLETE NO-OP - _RxQueue (the pool of freed RX packet buffers, singly-linked,
  * manipulated by both this driver's own refill code and _MacRxPacketAck() when the

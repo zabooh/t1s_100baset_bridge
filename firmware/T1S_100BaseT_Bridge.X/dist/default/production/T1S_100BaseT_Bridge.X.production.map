@@ -403,71 +403,70 @@ section                    address  length [bytes]      (dec)  Description
 .rodata._Command_HeapIn    0x16c48          0x110         272   
 .text.NET_PRES_SocketRe    0x16d58          0x110         272   
 .text.EMU_EEPROM_Buffer    0x16e68          0x10c         268   
-.rodata                    0x16f74          0x10a         266  Read-only const 
-.text.DRV_MIIM_ScanDisa    0x1707e            0x2           2   
-.text._DRV_MIIM_ClientD    0x17080          0x108         264   
-.rodata.TCPIP_TELNET_Ta    0x17188          0x108         264   
-.rodata.mirror_print_db    0x17290          0x108         264   
-.text.DRV_PIC32CGMAC_Li    0x17398          0x104         260   
-.text._OnExtendedBlock     0x1749c          0x104         260   
-.rodata._CommandBridgeE    0x175a0          0x104         260   
-.rodata.cmd_sniffer.str    0x176a4          0x104         260   
-.text.DRV_GMAC_Tasks       0x177a8          0x100         256   
-.text.EMU_EEPROM_PageMa    0x178a8          0x100         256   
-.rodata.K                  0x179a8          0x100         256   
-.text.wc_Md5Update         0x17aa8          0x100         256   
-.text.PktLog_Write         0x17ba8          0x100         256   
-.text._Command_HeapInfo    0x17ca8           0xfc         252   
-.text.CLOCK_Initialize     0x17da4           0xfc         252   
-.rodata.str1.4             0x17ea0           0xfc         252   
-.text.accessRegisters      0x17f9c           0xfa         250   
-.text.DRV_MIIM_Reinitia    0x18096            0x2           2   
-.text._MAC_Bridge_GetFw    0x18098           0xf8         248   
-.rodata.GenericTxEnd.st    0x18190           0xf8         248   
-.text.read_rx_ctrl_buff    0x18288           0xf4         244   
-.rodata.TC6_CB_OnError.    0x1837c           0xf4         244   
-.text.TCPIP_UDP_SocketI    0x18470           0xf2         242   
-.text._TCPIP_HEAP_Buffe    0x18562            0x2           2   
-.text.TCPIP_UDP_Initial    0x18564           0xf0         240   
-.text._DRV_MIIM_Schedul    0x18654           0xec         236   
-.text.DRV_SPI_Initializ    0x18740           0xec         236   
-.text._ARPProbeAddress     0x1882c           0xec         236   
-.text.LAN865X_DIAG_Test    0x18918           0xec         236   
-.text._DRV_ETHPHY_NegRe    0x18a04           0xe8         232   
-.text.DRV_GMAC_Statisti    0x18aec           0xe8         232   
-.rodata.CommandIperfSiz    0x18bd4           0xe8         232   
-.text.DMAC_ChannelTrans    0x18cbc           0xe8         232   
-.text.cmd_bigframe         0x18da4           0xe8         232   
-.text._DRV_ETHPHY_Setup    0x18e8c           0xe4         228   
-.rodata.TCPIP_STACK_Tas    0x18f70           0xe4         228   
-.text._Command_IPAddres    0x19054           0xe4         228   
-.rodata.tcpipCmdTbl        0x19138           0xe4         228   
-.rodata.CommandIperfNet    0x1921c           0xe4         228   
-.text.pktEth0Handler       0x19300           0xe4         228   
-.text.lDRV_SPI_PlibCall    0x193e4           0xe0         224   
-.text.EMU_EEPROM_Buffer    0x194c4           0xe0         224   
-.text.TCPIP_HEAP_Create    0x195a4           0xe0         224   
-.rodata.cmd_bigframe.st    0x19684           0xe0         224   
-.text.TCPIP_UDP_ArrayGe    0x19764           0xde         222   
-.text.EVSYS_Initialize     0x19842            0x2           2   
-.text.SYS_TIME_PLIBCall    0x19844           0xdc         220   
-.text.__scan_x             0x19920           0xdc         220   
-.text._Tcpv4TxAckFnc       0x199fc           0xd8         216   
-.text.SERCOM1_USART_Wri    0x19ad4           0xd8         216   
-.text.DRV_EXTPHY_MDIXCo    0x19bac           0xd4         212   
-.text.DRV_ETHPHY_Open      0x19c80           0xd4         212   
-.rodata.LAN865X_DIAG_Te    0x19d54           0xd4         212   
-.text.mk_secure_ctrl_re    0x19e28           0xd0         208   
-.text.lDRV_SPI_UpdateTr    0x19ef8           0xd0         208   
-.text.TCPIP_Commands_In    0x19fc8           0xd0         208   
-.text._TCPIP_HEAP_Mallo    0x1a098           0xd0         208   
-.text.DumpMem              0x1a168           0xd0         208   
-.text.lDRV_SPI_Resource    0x1a238           0xce         206   
-.text.Console_UART_Task    0x1a306            0x2           2   
-.text.TC6_Init             0x1a308           0xcc         204   
-.text._Command_Tcp         0x1a3d4           0xcc         204   
-.text.TCPIP_TCP_ArrayGe    0x1a4a0           0xcc         204   
-.text.DRV_PIC32CGMAC_Li    0x1a56c            0x4           4   
+.rodata.mirror_print_db    0x16f74          0x10c         268   
+.rodata                    0x17080          0x10a         266  Read-only const 
+.text.DRV_MIIM_ScanDisa    0x1718a            0x2           2   
+.text._DRV_MIIM_ClientD    0x1718c          0x108         264   
+.rodata.TCPIP_TELNET_Ta    0x17294          0x108         264   
+.text.DRV_PIC32CGMAC_Li    0x1739c          0x104         260   
+.text._OnExtendedBlock     0x174a0          0x104         260   
+.rodata._CommandBridgeE    0x175a4          0x104         260   
+.rodata.cmd_sniffer.str    0x176a8          0x104         260   
+.text.DRV_GMAC_Tasks       0x177ac          0x100         256   
+.text.EMU_EEPROM_PageMa    0x178ac          0x100         256   
+.rodata.K                  0x179ac          0x100         256   
+.text.wc_Md5Update         0x17aac          0x100         256   
+.text.PktLog_Write         0x17bac          0x100         256   
+.text._Command_HeapInfo    0x17cac           0xfc         252   
+.text.CLOCK_Initialize     0x17da8           0xfc         252   
+.rodata.str1.4             0x17ea4           0xfc         252   
+.text.accessRegisters      0x17fa0           0xfa         250   
+.text.DRV_MIIM_Reinitia    0x1809a            0x2           2   
+.text._MAC_Bridge_GetFw    0x1809c           0xf8         248   
+.rodata.GenericTxEnd.st    0x18194           0xf8         248   
+.text.read_rx_ctrl_buff    0x1828c           0xf4         244   
+.rodata.TC6_CB_OnError.    0x18380           0xf4         244   
+.text.TCPIP_UDP_SocketI    0x18474           0xf2         242   
+.text._TCPIP_HEAP_Buffe    0x18566            0x2           2   
+.text.TCPIP_UDP_Initial    0x18568           0xf0         240   
+.text._DRV_MIIM_Schedul    0x18658           0xec         236   
+.text.DRV_SPI_Initializ    0x18744           0xec         236   
+.text._ARPProbeAddress     0x18830           0xec         236   
+.text.LAN865X_DIAG_Test    0x1891c           0xec         236   
+.text._DRV_ETHPHY_NegRe    0x18a08           0xe8         232   
+.text.DRV_GMAC_Statisti    0x18af0           0xe8         232   
+.rodata.CommandIperfSiz    0x18bd8           0xe8         232   
+.text.DMAC_ChannelTrans    0x18cc0           0xe8         232   
+.text.cmd_bigframe         0x18da8           0xe8         232   
+.text._DRV_ETHPHY_Setup    0x18e90           0xe4         228   
+.rodata.TCPIP_STACK_Tas    0x18f74           0xe4         228   
+.text._Command_IPAddres    0x19058           0xe4         228   
+.rodata.tcpipCmdTbl        0x1913c           0xe4         228   
+.rodata.CommandIperfNet    0x19220           0xe4         228   
+.text.pktEth0Handler       0x19304           0xe4         228   
+.text.lDRV_SPI_PlibCall    0x193e8           0xe0         224   
+.text.EMU_EEPROM_Buffer    0x194c8           0xe0         224   
+.text.TCPIP_HEAP_Create    0x195a8           0xe0         224   
+.rodata.cmd_bigframe.st    0x19688           0xe0         224   
+.text.TCPIP_UDP_ArrayGe    0x19768           0xde         222   
+.text.EVSYS_Initialize     0x19846            0x2           2   
+.text.SYS_TIME_PLIBCall    0x19848           0xdc         220   
+.text.__scan_x             0x19924           0xdc         220   
+.text._Tcpv4TxAckFnc       0x19a00           0xd8         216   
+.text.SERCOM1_USART_Wri    0x19ad8           0xd8         216   
+.text.DRV_EXTPHY_MDIXCo    0x19bb0           0xd4         212   
+.text.DRV_ETHPHY_Open      0x19c84           0xd4         212   
+.rodata.LAN865X_DIAG_Te    0x19d58           0xd4         212   
+.text.mk_secure_ctrl_re    0x19e2c           0xd0         208   
+.text.lDRV_SPI_UpdateTr    0x19efc           0xd0         208   
+.text.TCPIP_Commands_In    0x19fcc           0xd0         208   
+.text._TCPIP_HEAP_Mallo    0x1a09c           0xd0         208   
+.text.DumpMem              0x1a16c           0xd0         208   
+.text.lDRV_SPI_Resource    0x1a23c           0xce         206   
+.text.Console_UART_Task    0x1a30a            0x2           2   
+.text.TC6_Init             0x1a30c           0xcc         204   
+.text._Command_Tcp         0x1a3d8           0xcc         204   
+.text.TCPIP_TCP_ArrayGe    0x1a4a4           0xcc         204   
 .text.SYS_TIME_Initiali    0x1a570           0xcc         204   
 .rodata.cmd_noip_send.s    0x1a63c           0xcc         204   
 .text.floor                0x1a708           0xcc         204   
@@ -1575,28 +1574,29 @@ section                    address  length [bytes]      (dec)  Description
 .text.CRYPT_WCCB_Callba    0x2ac0c            0x6           6   
 .text.wc_CryptoCb_Defau    0x2ac12            0x6           6   
 .text.DRV_PIC32CGMAC_Li    0x2ac18            0x4           4   
-.text.DRV_LAN865X_LinkC    0x2ac1c            0x4           4   
-.text.DRV_LAN865X_Power    0x2ac20            0x4           4   
-.text.DRV_MIIM_ScanEnab    0x2ac24            0x4           4   
-.text.DRV_MIIM_GetScanD    0x2ac28            0x4           4   
-.text.TCPIP_PKT_GapDcpt    0x2ac2c            0x4           4   
-.text.TCPIP_IPv4_ArpSta    0x2ac30            0x4           4   
-.text.TCPIP_IPV4_IsFrag    0x2ac34            0x4           4   
-.text.TCPIP_TCP_SocketT    0x2ac38            0x4           4   
-.text.PORT_GroupRead       0x2ac3c            0x4           4   
-.text.PORT_GroupSet        0x2ac40            0x4           4   
-.text.PORT_GroupClear      0x2ac44            0x4           4   
-.rodata.StringToArgs.st    0x2ac48            0x4           4   
-.text.Console_UART_Flus    0x2ac4c            0x4           4   
-.rodata.sysConsole0UART    0x2ac50            0x4           4   
-.text.__dummy_decompres    0x2ac54            0x4           4   
-.text.__dummy_scan         0x2ac58            0x4           4   
-.text.__dummy_scan_s       0x2ac5c            0x4           4   
-.text.do_read              0x2ac60            0x4           4   
-.text                      0x2ac64            0x4           4  App's exec code 
-      Total ROM used  :     0x2ac55      175189  17.0% of 0xfc000
+.text.DRV_PIC32CGMAC_Li    0x2ac1c            0x4           4   
+.text.DRV_LAN865X_LinkC    0x2ac20            0x4           4   
+.text.DRV_LAN865X_Power    0x2ac24            0x4           4   
+.text.DRV_MIIM_ScanEnab    0x2ac28            0x4           4   
+.text.DRV_MIIM_GetScanD    0x2ac2c            0x4           4   
+.text.TCPIP_PKT_GapDcpt    0x2ac30            0x4           4   
+.text.TCPIP_IPv4_ArpSta    0x2ac34            0x4           4   
+.text.TCPIP_IPV4_IsFrag    0x2ac38            0x4           4   
+.text.TCPIP_TCP_SocketT    0x2ac3c            0x4           4   
+.text.PORT_GroupRead       0x2ac40            0x4           4   
+.text.PORT_GroupSet        0x2ac44            0x4           4   
+.text.PORT_GroupClear      0x2ac48            0x4           4   
+.rodata.StringToArgs.st    0x2ac4c            0x4           4   
+.text.Console_UART_Flus    0x2ac50            0x4           4   
+.rodata.sysConsole0UART    0x2ac54            0x4           4   
+.text.__dummy_decompres    0x2ac58            0x4           4   
+.text.__dummy_scan         0x2ac5c            0x4           4   
+.text.__dummy_scan_s       0x2ac60            0x4           4   
+.text.do_read              0x2ac64            0x4           4   
+.text                      0x2ac68            0x4           4  App's exec code 
+      Total ROM used  :     0x2ac59      175193  17.0% of 0xfc000
         --------------------------------------------------------------------------
-         Total Program Memory used  :     0x2ac55      175189  17.0% of 0xfc000
+         Total Program Memory used  :     0x2ac59      175193  17.0% of 0xfc000
         --------------------------------------------------------------------------
 
 
@@ -1901,7 +1901,7 @@ Microchip PIC32 Memory-Usage Report By Module
         2898           0           0        2898         b52    random.o                 build/default/production/_ext/1664057780/random.o
         2798           6          72        2876         b3c    arp.o                    build/default/production/_ext/1033058136/arp.o
         2788           0          69        2857         b29    ipv4.o                   build/default/production/_ext/1033058136/ipv4.o
-        2642           0          55        2697         a89    port_mirror.o            build/default/production/_ext/1360937237/port_mirror.o
+        2646           0          55        2701         a8d    port_mirror.o            build/default/production/_ext/1360937237/port_mirror.o
         1164           0        1532        2696         a88    noip_test.o              build/default/production/_ext/1360937237/noip_test.o
          536           0        2062        2598         a26    sys_console.o            build/default/production/_ext/1832805299/sys_console.o
         2496           0           0        2496         9c0    data_init                data_init
@@ -2037,7 +2037,7 @@ Microchip PIC32 Memory-Usage Report By Module
            4           0           0           4           4    _dvmd_tls.o              libgcc.a
            2           0           0           2           2    plib_evsys.o             build/default/production/_ext/1986646378/plib_evsys.o
 --------------------------------------------------------------------------------
-      175201         365       53304      228870       37e06    dist/default/production/T1S_100BaseT_Bridge.X.production.elf
+      175205         365       53304      228874       37e0a    dist/default/production/T1S_100BaseT_Bridge.X.production.elf
 
 
 Discarded input sections
@@ -11076,317 +11076,317 @@ __xc_reference_data
                 0x0000000000016e68      0x10c build/default/production/_ext/1478185593/emulated_eeprom.o
                 0x0000000000016e68                EMU_EEPROM_BufferWrite
 
-.rodata%410     0x0000000000016f74      0x10a
- .rodata        0x0000000000016f74      0x10a c:/program files/microchip/xc32/v4.60/bin/bin/../../lib/gcc/pic32c/8.3.1/../../../../pic32c/lib/thumb/v7e-m+fp/hard\libc-musl.a(intscan.o)
-
-.text._DRV_MIIM_ClientDeallocate%411
-                0x0000000000017080      0x108
- .text._DRV_MIIM_ClientDeallocate
-                0x0000000000017080      0x108 build/default/production/_ext/438849557/drv_miim.o
-
-.rodata.TCPIP_TELNET_Task.str1.4%412
-                0x0000000000017188      0x108
- .rodata.TCPIP_TELNET_Task.str1.4
-                0x0000000000017188      0x108 build/default/production/_ext/1033058136/telnet.o
-
-.rodata.mirror_print_dbg_counters.str1.4%413
-                0x0000000000017290      0x108
+.rodata.mirror_print_dbg_counters.str1.4%410
+                0x0000000000016f74      0x10c
  .rodata.mirror_print_dbg_counters.str1.4
-                0x0000000000017290      0x108 build/default/production/_ext/1360937237/port_mirror.o
+                0x0000000000016f74      0x10c build/default/production/_ext/1360937237/port_mirror.o
+
+.rodata%411     0x0000000000017080      0x10a
+ .rodata        0x0000000000017080      0x10a c:/program files/microchip/xc32/v4.60/bin/bin/../../lib/gcc/pic32c/8.3.1/../../../../pic32c/lib/thumb/v7e-m+fp/hard\libc-musl.a(intscan.o)
+
+.text._DRV_MIIM_ClientDeallocate%412
+                0x000000000001718c      0x108
+ .text._DRV_MIIM_ClientDeallocate
+                0x000000000001718c      0x108 build/default/production/_ext/438849557/drv_miim.o
+
+.rodata.TCPIP_TELNET_Task.str1.4%413
+                0x0000000000017294      0x108
+ .rodata.TCPIP_TELNET_Task.str1.4
+                0x0000000000017294      0x108 build/default/production/_ext/1033058136/telnet.o
 
 .text.DRV_PIC32CGMAC_LibTxInit%414
-                0x0000000000017398      0x104
+                0x000000000001739c      0x104
  .text.DRV_PIC32CGMAC_LibTxInit
-                0x0000000000017398      0x104 build/default/production/_ext/1546807373/drv_gmac_lib_samE5x.o
-                0x0000000000017398                DRV_PIC32CGMAC_LibTxInit
+                0x000000000001739c      0x104 build/default/production/_ext/1546807373/drv_gmac_lib_samE5x.o
+                0x000000000001739c                DRV_PIC32CGMAC_LibTxInit
 
 .text._OnExtendedBlock%415
-                0x000000000001749c      0x104
+                0x00000000000174a0      0x104
  .text._OnExtendedBlock
-                0x000000000001749c      0x104 build/default/production/_ext/181894553/drv_lan865x_api.o
+                0x00000000000174a0      0x104 build/default/production/_ext/181894553/drv_lan865x_api.o
 
 .rodata._CommandBridgeEventHandler.str1.4%416
-                0x00000000000175a0      0x104
+                0x00000000000175a4      0x104
  .rodata._CommandBridgeEventHandler.str1.4
-                0x00000000000175a0      0x104 build/default/production/_ext/1033058136/tcpip_commands.o
+                0x00000000000175a4      0x104 build/default/production/_ext/1033058136/tcpip_commands.o
 
 .rodata.cmd_sniffer.str1.4%417
-                0x00000000000176a4      0x104
+                0x00000000000176a8      0x104
  .rodata.cmd_sniffer.str1.4
-                0x00000000000176a4      0x104 build/default/production/_ext/1360937237/port_mirror.o
+                0x00000000000176a8      0x104 build/default/production/_ext/1360937237/port_mirror.o
 
 .text.DRV_GMAC_Tasks%418
-                0x00000000000177a8      0x100
+                0x00000000000177ac      0x100
  .text.DRV_GMAC_Tasks
-                0x00000000000177a8      0x100 build/default/production/_ext/1546807373/drv_gmac.o
-                0x00000000000177a8                DRV_GMAC_Tasks
+                0x00000000000177ac      0x100 build/default/production/_ext/1546807373/drv_gmac.o
+                0x00000000000177ac                DRV_GMAC_Tasks
 
 .text.EMU_EEPROM_PageMappingUpdate%419
-                0x00000000000178a8      0x100
+                0x00000000000178ac      0x100
  .text.EMU_EEPROM_PageMappingUpdate
-                0x00000000000178a8      0x100 build/default/production/_ext/1478185593/emulated_eeprom.o
+                0x00000000000178ac      0x100 build/default/production/_ext/1478185593/emulated_eeprom.o
 
-.rodata.K%420   0x00000000000179a8      0x100
- .rodata.K      0x00000000000179a8      0x100 build/default/production/_ext/1664057780/sha256.o
+.rodata.K%420   0x00000000000179ac      0x100
+ .rodata.K      0x00000000000179ac      0x100 build/default/production/_ext/1664057780/sha256.o
 
 .text.wc_Md5Update%421
-                0x0000000000017aa8      0x100
+                0x0000000000017aac      0x100
  .text.wc_Md5Update
-                0x0000000000017aa8      0x100 build/default/production/_ext/1664057780/md5.o
-                0x0000000000017aa8                wc_Md5Update
+                0x0000000000017aac      0x100 build/default/production/_ext/1664057780/md5.o
+                0x0000000000017aac                wc_Md5Update
 
 .text.PktLog_Write%422
-                0x0000000000017ba8      0x100
+                0x0000000000017bac      0x100
  .text.PktLog_Write
-                0x0000000000017ba8      0x100 build/default/production/_ext/1360937237/app.o
+                0x0000000000017bac      0x100 build/default/production/_ext/1360937237/app.o
 
 .text._Command_HeapInfo%423
-                0x0000000000017ca8       0xfc
+                0x0000000000017cac       0xfc
  .text._Command_HeapInfo
-                0x0000000000017ca8       0xfc build/default/production/_ext/1033058136/tcpip_commands.o
+                0x0000000000017cac       0xfc build/default/production/_ext/1033058136/tcpip_commands.o
 
 .text.CLOCK_Initialize%424
-                0x0000000000017da4       0xfc
+                0x0000000000017da8       0xfc
  .text.CLOCK_Initialize
-                0x0000000000017da4       0xfc build/default/production/_ext/1984496892/plib_clock.o
-                0x0000000000017da4                CLOCK_Initialize
+                0x0000000000017da8       0xfc build/default/production/_ext/1984496892/plib_clock.o
+                0x0000000000017da8                CLOCK_Initialize
 
 .rodata.str1.4%425
-                0x0000000000017ea0       0xfc
+                0x0000000000017ea4       0xfc
  .rodata.str1.4
-                0x0000000000017ea0       0xfc build/default/production/_ext/1360937237/port_mirror.o
+                0x0000000000017ea4       0xfc build/default/production/_ext/1360937237/port_mirror.o
 
 .text.accessRegisters%426
-                0x0000000000017f9c       0xfa
+                0x0000000000017fa0       0xfa
  .text.accessRegisters
-                0x0000000000017f9c       0xfa build/default/production/_ext/1319885263/tc6.o
+                0x0000000000017fa0       0xfa build/default/production/_ext/1319885263/tc6.o
 
 .text._MAC_Bridge_GetFwdPkt%427
-                0x0000000000018098       0xf8
+                0x000000000001809c       0xf8
  .text._MAC_Bridge_GetFwdPkt
-                0x0000000000018098       0xf8 build/default/production/_ext/1033058136/tcpip_mac_bridge.o
+                0x000000000001809c       0xf8 build/default/production/_ext/1033058136/tcpip_mac_bridge.o
 
 .rodata.GenericTxEnd.str1.4%428
-                0x0000000000018190       0xf8
+                0x0000000000018194       0xf8
  .rodata.GenericTxEnd.str1.4
-                0x0000000000018190       0xf8 build/default/production/_ext/1033058136/iperf.o
+                0x0000000000018194       0xf8 build/default/production/_ext/1033058136/iperf.o
 
 .text.read_rx_ctrl_buffer%429
-                0x0000000000018288       0xf4
+                0x000000000001828c       0xf4
  .text.read_rx_ctrl_buffer
-                0x0000000000018288       0xf4 build/default/production/_ext/1319885263/tc6.o
+                0x000000000001828c       0xf4 build/default/production/_ext/1319885263/tc6.o
 
 .rodata.TC6_CB_OnError.str1.4%430
-                0x000000000001837c       0xf4
+                0x0000000000018380       0xf4
  .rodata.TC6_CB_OnError.str1.4
-                0x000000000001837c       0xf4 build/default/production/_ext/181894553/drv_lan865x_api.o
+                0x0000000000018380       0xf4 build/default/production/_ext/181894553/drv_lan865x_api.o
 
 .text.TCPIP_UDP_SocketInfoGet%431
-                0x0000000000018470       0xf2
+                0x0000000000018474       0xf2
  .text.TCPIP_UDP_SocketInfoGet
-                0x0000000000018470       0xf2 build/default/production/_ext/1033058136/udp.o
-                0x0000000000018470                TCPIP_UDP_SocketInfoGet
+                0x0000000000018474       0xf2 build/default/production/_ext/1033058136/udp.o
+                0x0000000000018474                TCPIP_UDP_SocketInfoGet
 
 .text.TCPIP_UDP_Initialize%432
-                0x0000000000018564       0xf0
+                0x0000000000018568       0xf0
  .text.TCPIP_UDP_Initialize
-                0x0000000000018564       0xf0 build/default/production/_ext/1033058136/udp.o
-                0x0000000000018564                TCPIP_UDP_Initialize
+                0x0000000000018568       0xf0 build/default/production/_ext/1033058136/udp.o
+                0x0000000000018568                TCPIP_UDP_Initialize
 
 .text._DRV_MIIM_ScheduleOp%433
-                0x0000000000018654       0xec
+                0x0000000000018658       0xec
  .text._DRV_MIIM_ScheduleOp
-                0x0000000000018654       0xec build/default/production/_ext/438849557/drv_miim.o
+                0x0000000000018658       0xec build/default/production/_ext/438849557/drv_miim.o
 
 .text.DRV_SPI_Initialize%434
-                0x0000000000018740       0xec
+                0x0000000000018744       0xec
  .text.DRV_SPI_Initialize
-                0x0000000000018740       0xec build/default/production/_ext/2070931557/drv_spi.o
-                0x0000000000018740                DRV_SPI_Initialize
+                0x0000000000018744       0xec build/default/production/_ext/2070931557/drv_spi.o
+                0x0000000000018744                DRV_SPI_Initialize
 
 .text._ARPProbeAddress%435
-                0x000000000001882c       0xec
+                0x0000000000018830       0xec
  .text._ARPProbeAddress
-                0x000000000001882c       0xec build/default/production/_ext/1033058136/arp.o
+                0x0000000000018830       0xec build/default/production/_ext/1033058136/arp.o
 
 .text.LAN865X_DIAG_TestMode%436
-                0x0000000000018918       0xec
+                0x000000000001891c       0xec
  .text.LAN865X_DIAG_TestMode
-                0x0000000000018918       0xec build/default/production/_ext/1360937237/lan865x_diag.o
-                0x0000000000018918                LAN865X_DIAG_TestMode
+                0x000000000001891c       0xec build/default/production/_ext/1360937237/lan865x_diag.o
+                0x000000000001891c                LAN865X_DIAG_TestMode
 
 .text._DRV_ETHPHY_NegResultPhase_ANAD%437
-                0x0000000000018a04       0xe8
+                0x0000000000018a08       0xe8
  .text._DRV_ETHPHY_NegResultPhase_ANAD
-                0x0000000000018a04       0xe8 build/default/production/_ext/444070925/drv_ethphy.o
+                0x0000000000018a08       0xe8 build/default/production/_ext/444070925/drv_ethphy.o
 
 .text.DRV_GMAC_StatisticsGet%438
-                0x0000000000018aec       0xe8
+                0x0000000000018af0       0xe8
  .text.DRV_GMAC_StatisticsGet
-                0x0000000000018aec       0xe8 build/default/production/_ext/1546807373/drv_gmac.o
-                0x0000000000018aec                DRV_GMAC_StatisticsGet
+                0x0000000000018af0       0xe8 build/default/production/_ext/1546807373/drv_gmac.o
+                0x0000000000018af0                DRV_GMAC_StatisticsGet
 
 .rodata.CommandIperfSize.str1.4%439
-                0x0000000000018bd4       0xe8
+                0x0000000000018bd8       0xe8
  .rodata.CommandIperfSize.str1.4
-                0x0000000000018bd4       0xe8 build/default/production/_ext/1033058136/iperf.o
+                0x0000000000018bd8       0xe8 build/default/production/_ext/1033058136/iperf.o
 
 .text.DMAC_ChannelTransfer%440
-                0x0000000000018cbc       0xe8
+                0x0000000000018cc0       0xe8
  .text.DMAC_ChannelTransfer
-                0x0000000000018cbc       0xe8 build/default/production/_ext/1865161661/plib_dmac.o
-                0x0000000000018cbc                DMAC_ChannelTransfer
+                0x0000000000018cc0       0xe8 build/default/production/_ext/1865161661/plib_dmac.o
+                0x0000000000018cc0                DMAC_ChannelTransfer
 
 .text.cmd_bigframe%441
-                0x0000000000018da4       0xe8
+                0x0000000000018da8       0xe8
  .text.cmd_bigframe
-                0x0000000000018da4       0xe8 build/default/production/_ext/1360937237/port_mirror.o
+                0x0000000000018da8       0xe8 build/default/production/_ext/1360937237/port_mirror.o
 
 .text._DRV_ETHPHY_SetupPhaseNegotiate_SubPhase_Read_Std_Status%442
-                0x0000000000018e8c       0xe4
+                0x0000000000018e90       0xe4
  .text._DRV_ETHPHY_SetupPhaseNegotiate_SubPhase_Read_Std_Status
-                0x0000000000018e8c       0xe4 build/default/production/_ext/444070925/drv_ethphy.o
+                0x0000000000018e90       0xe4 build/default/production/_ext/444070925/drv_ethphy.o
 
 .rodata.TCPIP_STACK_Task.str1.4%443
-                0x0000000000018f70       0xe4
+                0x0000000000018f74       0xe4
  .rodata.TCPIP_STACK_Task.str1.4
-                0x0000000000018f70       0xe4 build/default/production/_ext/1033058136/tcpip_manager.o
+                0x0000000000018f74       0xe4 build/default/production/_ext/1033058136/tcpip_manager.o
 
 .text._Command_IPAddressSet%444
-                0x0000000000019054       0xe4
+                0x0000000000019058       0xe4
  .text._Command_IPAddressSet
-                0x0000000000019054       0xe4 build/default/production/_ext/1033058136/tcpip_commands.o
+                0x0000000000019058       0xe4 build/default/production/_ext/1033058136/tcpip_commands.o
 
 .rodata.tcpipCmdTbl%445
-                0x0000000000019138       0xe4
+                0x000000000001913c       0xe4
  .rodata.tcpipCmdTbl
-                0x0000000000019138       0xe4 build/default/production/_ext/1033058136/tcpip_commands.o
+                0x000000000001913c       0xe4 build/default/production/_ext/1033058136/tcpip_commands.o
 
 .rodata.CommandIperfNetIf.str1.4%446
-                0x000000000001921c       0xe4
+                0x0000000000019220       0xe4
  .rodata.CommandIperfNetIf.str1.4
-                0x000000000001921c       0xe4 build/default/production/_ext/1033058136/iperf.o
+                0x0000000000019220       0xe4 build/default/production/_ext/1033058136/iperf.o
 
 .text.pktEth0Handler%447
-                0x0000000000019300       0xe4
+                0x0000000000019304       0xe4
  .text.pktEth0Handler
-                0x0000000000019300       0xe4 build/default/production/_ext/1360937237/app.o
-                0x0000000000019300                pktEth0Handler
+                0x0000000000019304       0xe4 build/default/production/_ext/1360937237/app.o
+                0x0000000000019304                pktEth0Handler
 
 .text.lDRV_SPI_PlibCallbackHandler%448
-                0x00000000000193e4       0xe0
+                0x00000000000193e8       0xe0
  .text.lDRV_SPI_PlibCallbackHandler
-                0x00000000000193e4       0xe0 build/default/production/_ext/2070931557/drv_spi.o
+                0x00000000000193e8       0xe0 build/default/production/_ext/2070931557/drv_spi.o
 
 .text.EMU_EEPROM_BufferRead%449
-                0x00000000000194c4       0xe0
+                0x00000000000194c8       0xe0
  .text.EMU_EEPROM_BufferRead
-                0x00000000000194c4       0xe0 build/default/production/_ext/1478185593/emulated_eeprom.o
-                0x00000000000194c4                EMU_EEPROM_BufferRead
+                0x00000000000194c8       0xe0 build/default/production/_ext/1478185593/emulated_eeprom.o
+                0x00000000000194c8                EMU_EEPROM_BufferRead
 
 .text.TCPIP_HEAP_CreateInternal%450
-                0x00000000000195a4       0xe0
+                0x00000000000195a8       0xe0
  .text.TCPIP_HEAP_CreateInternal
-                0x00000000000195a4       0xe0 build/default/production/_ext/1033058136/tcpip_heap_internal.o
-                0x00000000000195a4                TCPIP_HEAP_CreateInternal
+                0x00000000000195a8       0xe0 build/default/production/_ext/1033058136/tcpip_heap_internal.o
+                0x00000000000195a8                TCPIP_HEAP_CreateInternal
 
 .rodata.cmd_bigframe.str1.4%451
-                0x0000000000019684       0xe0
+                0x0000000000019688       0xe0
  .rodata.cmd_bigframe.str1.4
-                0x0000000000019684       0xe0 build/default/production/_ext/1360937237/port_mirror.o
+                0x0000000000019688       0xe0 build/default/production/_ext/1360937237/port_mirror.o
 
 .text.TCPIP_UDP_ArrayGet%452
-                0x0000000000019764       0xde
+                0x0000000000019768       0xde
  .text.TCPIP_UDP_ArrayGet
-                0x0000000000019764       0xde build/default/production/_ext/1033058136/udp.o
-                0x0000000000019764                TCPIP_UDP_ArrayGet
+                0x0000000000019768       0xde build/default/production/_ext/1033058136/udp.o
+                0x0000000000019768                TCPIP_UDP_ArrayGet
 
 .text.SYS_TIME_PLIBCallback%453
-                0x0000000000019844       0xdc
+                0x0000000000019848       0xdc
  .text.SYS_TIME_PLIBCallback
-                0x0000000000019844       0xdc build/default/production/_ext/101884895/sys_time.o
+                0x0000000000019848       0xdc build/default/production/_ext/101884895/sys_time.o
 
 .text.__scan_x%454
-                0x0000000000019920       0xdc
+                0x0000000000019924       0xdc
  .text.__scan_x
-                0x0000000000019920       0xdc c:/program files/microchip/xc32/v4.60/bin/bin/../../lib/gcc/pic32c/8.3.1/../../../../pic32c/lib/thumb/v7e-m+fp/hard\libc-musl.a(__scan_x.o)
-                0x0000000000019920                __scan_x
-                0x0000000000019920                __scan_x_needed
+                0x0000000000019924       0xdc c:/program files/microchip/xc32/v4.60/bin/bin/../../lib/gcc/pic32c/8.3.1/../../../../pic32c/lib/thumb/v7e-m+fp/hard\libc-musl.a(__scan_x.o)
+                0x0000000000019924                __scan_x
+                0x0000000000019924                __scan_x_needed
 
 .text._Tcpv4TxAckFnc%455
-                0x00000000000199fc       0xd8
+                0x0000000000019a00       0xd8
  .text._Tcpv4TxAckFnc
-                0x00000000000199fc       0xd8 build/default/production/_ext/1033058136/tcp.o
+                0x0000000000019a00       0xd8 build/default/production/_ext/1033058136/tcp.o
 
 .text.SERCOM1_USART_Write%456
-                0x0000000000019ad4       0xd8
+                0x0000000000019ad8       0xd8
  .text.SERCOM1_USART_Write
-                0x0000000000019ad4       0xd8 build/default/production/_ext/504274921/plib_sercom1_usart.o
-                0x0000000000019ad4                SERCOM1_USART_Write
+                0x0000000000019ad8       0xd8 build/default/production/_ext/504274921/plib_sercom1_usart.o
+                0x0000000000019ad8                SERCOM1_USART_Write
 
 .text.DRV_EXTPHY_MDIXConfigure%457
-                0x0000000000019bac       0xd4
+                0x0000000000019bb0       0xd4
  .text.DRV_EXTPHY_MDIXConfigure
-                0x0000000000019bac       0xd4 build/default/production/_ext/444070925/drv_extphy_lan8740.o
+                0x0000000000019bb0       0xd4 build/default/production/_ext/444070925/drv_extphy_lan8740.o
 
 .text.DRV_ETHPHY_Open%458
-                0x0000000000019c80       0xd4
+                0x0000000000019c84       0xd4
  .text.DRV_ETHPHY_Open
-                0x0000000000019c80       0xd4 build/default/production/_ext/444070925/drv_ethphy.o
-                0x0000000000019c80                DRV_ETHPHY_Open
+                0x0000000000019c84       0xd4 build/default/production/_ext/444070925/drv_ethphy.o
+                0x0000000000019c84                DRV_ETHPHY_Open
 
 .rodata.LAN865X_DIAG_TestMode.str1.4%459
-                0x0000000000019d54       0xd4
+                0x0000000000019d58       0xd4
  .rodata.LAN865X_DIAG_TestMode.str1.4
-                0x0000000000019d54       0xd4 build/default/production/_ext/1360937237/lan865x_diag.o
+                0x0000000000019d58       0xd4 build/default/production/_ext/1360937237/lan865x_diag.o
 
 .text.mk_secure_ctrl_req%460
-                0x0000000000019e28       0xd0
+                0x0000000000019e2c       0xd0
  .text.mk_secure_ctrl_req
-                0x0000000000019e28       0xd0 build/default/production/_ext/1319885263/tc6.o
+                0x0000000000019e2c       0xd0 build/default/production/_ext/1319885263/tc6.o
 
 .text.lDRV_SPI_UpdateTransferSetupAndAssertCS%461
-                0x0000000000019ef8       0xd0
+                0x0000000000019efc       0xd0
  .text.lDRV_SPI_UpdateTransferSetupAndAssertCS
-                0x0000000000019ef8       0xd0 build/default/production/_ext/2070931557/drv_spi.o
+                0x0000000000019efc       0xd0 build/default/production/_ext/2070931557/drv_spi.o
 
 .text.TCPIP_Commands_Initialize%462
-                0x0000000000019fc8       0xd0
+                0x0000000000019fcc       0xd0
  .text.TCPIP_Commands_Initialize
-                0x0000000000019fc8       0xd0 build/default/production/_ext/1033058136/tcpip_commands.o
-                0x0000000000019fc8                TCPIP_Commands_Initialize
+                0x0000000000019fcc       0xd0 build/default/production/_ext/1033058136/tcpip_commands.o
+                0x0000000000019fcc                TCPIP_Commands_Initialize
 
 .text._TCPIP_HEAP_Malloc%463
-                0x000000000001a098       0xd0
+                0x000000000001a09c       0xd0
  .text._TCPIP_HEAP_Malloc
-                0x000000000001a098       0xd0 build/default/production/_ext/1033058136/tcpip_heap_internal.o
+                0x000000000001a09c       0xd0 build/default/production/_ext/1033058136/tcpip_heap_internal.o
 
 .text.DumpMem%464
-                0x000000000001a168       0xd0
- .text.DumpMem  0x000000000001a168       0xd0 build/default/production/_ext/1360937237/app.o
-                0x000000000001a168                DumpMem
+                0x000000000001a16c       0xd0
+ .text.DumpMem  0x000000000001a16c       0xd0 build/default/production/_ext/1360937237/app.o
+                0x000000000001a16c                DumpMem
 
 .text.lDRV_SPI_ResourceLock%465
-                0x000000000001a238       0xce
+                0x000000000001a23c       0xce
  .text.lDRV_SPI_ResourceLock
-                0x000000000001a238       0xce build/default/production/_ext/2070931557/drv_spi.o
+                0x000000000001a23c       0xce build/default/production/_ext/2070931557/drv_spi.o
 
 .text.TC6_Init%466
-                0x000000000001a308       0xcc
+                0x000000000001a30c       0xcc
  .text.TC6_Init
-                0x000000000001a308       0xcc build/default/production/_ext/1319885263/tc6.o
-                0x000000000001a308                TC6_Init
+                0x000000000001a30c       0xcc build/default/production/_ext/1319885263/tc6.o
+                0x000000000001a30c                TC6_Init
 
 .text._Command_Tcp%467
-                0x000000000001a3d4       0xcc
+                0x000000000001a3d8       0xcc
  .text._Command_Tcp
-                0x000000000001a3d4       0xcc build/default/production/_ext/1033058136/tcpip_commands.o
+                0x000000000001a3d8       0xcc build/default/production/_ext/1033058136/tcpip_commands.o
 
 .text.TCPIP_TCP_ArrayGet%468
-                0x000000000001a4a0       0xcc
+                0x000000000001a4a4       0xcc
  .text.TCPIP_TCP_ArrayGet
-                0x000000000001a4a0       0xcc build/default/production/_ext/1033058136/tcp.o
-                0x000000000001a4a0                TCPIP_TCP_ArrayGet
+                0x000000000001a4a4       0xcc build/default/production/_ext/1033058136/tcp.o
+                0x000000000001a4a4                TCPIP_TCP_ArrayGet
 
 .text.SYS_TIME_Initialize%469
                 0x000000000001a570       0xcc
@@ -17472,132 +17472,132 @@ __xc_reference_data
                 0x0000000000005c24                DRV_GMAC_PowerMode
 
 .text.DRV_PIC32CGMAC_LibRxQueFilterInit%1564
-                0x000000000001a56c        0x4
+                0x000000000002ac18        0x4
  .text.DRV_PIC32CGMAC_LibRxQueFilterInit
-                0x000000000001a56c        0x4 build/default/production/_ext/1546807373/drv_gmac_lib_samE5x.o
-                0x000000000001a56c                DRV_PIC32CGMAC_LibRxQueFilterInit
+                0x000000000002ac18        0x4 build/default/production/_ext/1546807373/drv_gmac_lib_samE5x.o
+                0x000000000002ac18                DRV_PIC32CGMAC_LibRxQueFilterInit
 
 .text.DRV_PIC32CGMAC_LibGetPriorityFromQueueNum%1565
-                0x000000000002ac18        0x4
+                0x000000000002ac1c        0x4
  .text.DRV_PIC32CGMAC_LibGetPriorityFromQueueNum
-                0x000000000002ac18        0x4 build/default/production/_ext/1546807373/drv_gmac_lib_samE5x.o
-                0x000000000002ac18                DRV_PIC32CGMAC_LibGetPriorityFromQueueNum
+                0x000000000002ac1c        0x4 build/default/production/_ext/1546807373/drv_gmac_lib_samE5x.o
+                0x000000000002ac1c                DRV_PIC32CGMAC_LibGetPriorityFromQueueNum
 
 .text.DRV_LAN865X_LinkCheck%1566
-                0x000000000002ac1c        0x4
+                0x000000000002ac20        0x4
  .text.DRV_LAN865X_LinkCheck
-                0x000000000002ac1c        0x4 build/default/production/_ext/181894553/drv_lan865x_api.o
-                0x000000000002ac1c                DRV_LAN865X_LinkCheck
+                0x000000000002ac20        0x4 build/default/production/_ext/181894553/drv_lan865x_api.o
+                0x000000000002ac20                DRV_LAN865X_LinkCheck
 
 .text.DRV_LAN865X_PowerMode%1567
-                0x000000000002ac20        0x4
+                0x000000000002ac24        0x4
  .text.DRV_LAN865X_PowerMode
-                0x000000000002ac20        0x4 build/default/production/_ext/181894553/drv_lan865x_api.o
-                0x000000000002ac20                DRV_LAN865X_PowerMode
+                0x000000000002ac24        0x4 build/default/production/_ext/181894553/drv_lan865x_api.o
+                0x000000000002ac24                DRV_LAN865X_PowerMode
 
 .text.DRV_MIIM_ScanEnable%1568
-                0x000000000002ac24        0x4
+                0x000000000002ac28        0x4
  .text.DRV_MIIM_ScanEnable
-                0x000000000002ac24        0x4 build/default/production/_ext/438849557/drv_miim_gmac.o
-                0x000000000002ac24                DRV_MIIM_ScanEnable
+                0x000000000002ac28        0x4 build/default/production/_ext/438849557/drv_miim_gmac.o
+                0x000000000002ac28                DRV_MIIM_ScanEnable
 
 .text.DRV_MIIM_GetScanData%1569
-                0x000000000002ac28        0x4
+                0x000000000002ac2c        0x4
  .text.DRV_MIIM_GetScanData
-                0x000000000002ac28        0x4 build/default/production/_ext/438849557/drv_miim_gmac.o
-                0x000000000002ac28                DRV_MIIM_GetScanData
+                0x000000000002ac2c        0x4 build/default/production/_ext/438849557/drv_miim_gmac.o
+                0x000000000002ac2c                DRV_MIIM_GetScanData
 
 .text.TCPIP_PKT_GapDcptSize%1570
-                0x000000000002ac2c        0x4
+                0x000000000002ac30        0x4
  .text.TCPIP_PKT_GapDcptSize
-                0x000000000002ac2c        0x4 build/default/production/_ext/1033058136/tcpip_packet.o
-                0x000000000002ac2c                TCPIP_PKT_GapDcptSize
+                0x000000000002ac30        0x4 build/default/production/_ext/1033058136/tcpip_packet.o
+                0x000000000002ac30                TCPIP_PKT_GapDcptSize
 
 .text.TCPIP_IPv4_ArpStatGet%1571
-                0x000000000002ac30        0x4
+                0x000000000002ac34        0x4
  .text.TCPIP_IPv4_ArpStatGet
-                0x000000000002ac30        0x4 build/default/production/_ext/1033058136/ipv4.o
-                0x000000000002ac30                TCPIP_IPv4_ArpStatGet
+                0x000000000002ac34        0x4 build/default/production/_ext/1033058136/ipv4.o
+                0x000000000002ac34                TCPIP_IPv4_ArpStatGet
 
 .text.TCPIP_IPV4_IsFragmentationEnabled%1572
-                0x000000000002ac34        0x4
+                0x000000000002ac38        0x4
  .text.TCPIP_IPV4_IsFragmentationEnabled
-                0x000000000002ac34        0x4 build/default/production/_ext/1033058136/ipv4.o
-                0x000000000002ac34                TCPIP_IPV4_IsFragmentationEnabled
+                0x000000000002ac38        0x4 build/default/production/_ext/1033058136/ipv4.o
+                0x000000000002ac38                TCPIP_IPV4_IsFragmentationEnabled
 
 .text.TCPIP_TCP_SocketTraceSet%1573
-                0x000000000002ac38        0x4
+                0x000000000002ac3c        0x4
  .text.TCPIP_TCP_SocketTraceSet
-                0x000000000002ac38        0x4 build/default/production/_ext/1033058136/tcp.o
-                0x000000000002ac38                TCPIP_TCP_SocketTraceSet
+                0x000000000002ac3c        0x4 build/default/production/_ext/1033058136/tcp.o
+                0x000000000002ac3c                TCPIP_TCP_SocketTraceSet
 
 .text.PORT_GroupRead%1574
-                0x000000000002ac3c        0x4
+                0x000000000002ac40        0x4
  .text.PORT_GroupRead
-                0x000000000002ac3c        0x4 build/default/production/_ext/1865521619/plib_port.o
-                0x000000000002ac3c                PORT_GroupRead
+                0x000000000002ac40        0x4 build/default/production/_ext/1865521619/plib_port.o
+                0x000000000002ac40                PORT_GroupRead
 
 .text.PORT_GroupSet%1575
-                0x000000000002ac40        0x4
+                0x000000000002ac44        0x4
  .text.PORT_GroupSet
-                0x000000000002ac40        0x4 build/default/production/_ext/1865521619/plib_port.o
-                0x000000000002ac40                PORT_GroupSet
+                0x000000000002ac44        0x4 build/default/production/_ext/1865521619/plib_port.o
+                0x000000000002ac44                PORT_GroupSet
 
 .text.PORT_GroupClear%1576
-                0x000000000002ac44        0x4
+                0x000000000002ac48        0x4
  .text.PORT_GroupClear
-                0x000000000002ac44        0x4 build/default/production/_ext/1865521619/plib_port.o
-                0x000000000002ac44                PORT_GroupClear
+                0x000000000002ac48        0x4 build/default/production/_ext/1865521619/plib_port.o
+                0x000000000002ac48                PORT_GroupClear
 
 .rodata.StringToArgs.str1.4%1577
-                0x000000000002ac48        0x4
+                0x000000000002ac4c        0x4
  .rodata.StringToArgs.str1.4
-                0x000000000002ac48        0x4 build/default/production/_ext/1376093119/sys_command.o
+                0x000000000002ac4c        0x4 build/default/production/_ext/1376093119/sys_command.o
 
 .text.Console_UART_Flush%1578
-                0x000000000002ac4c        0x4
+                0x000000000002ac50        0x4
  .text.Console_UART_Flush
-                0x000000000002ac4c        0x4 build/default/production/_ext/1832805299/sys_console_uart.o
-                0x000000000002ac4c                Console_UART_Flush
+                0x000000000002ac50        0x4 build/default/production/_ext/1832805299/sys_console_uart.o
+                0x000000000002ac50                Console_UART_Flush
 
 .rodata.sysConsole0UARTInitData%1579
-                0x000000000002ac50        0x4
+                0x000000000002ac54        0x4
  .rodata.sysConsole0UARTInitData
-                0x000000000002ac50        0x4 build/default/production/_ext/1171490990/initialization.o
+                0x000000000002ac54        0x4 build/default/production/_ext/1171490990/initialization.o
 
 .text.__dummy_decompress%1580
-                0x000000000002ac54        0x4
+                0x000000000002ac58        0x4
  .text.__dummy_decompress
-                0x000000000002ac54        0x4 c:/program files/microchip/xc32/v4.60/bin/bin/../../lib/gcc/pic32c/8.3.1/../../../../pic32c/lib/thumb/v7e-m+fp/hard\libpic32c.a(data_init.o)
-                0x000000000002ac54                __dinit_decompress
-                0x000000000002ac54                __dinit_copy_val_data
-                0x000000000002ac54                __dinit_copy_emb
+                0x000000000002ac58        0x4 c:/program files/microchip/xc32/v4.60/bin/bin/../../lib/gcc/pic32c/8.3.1/../../../../pic32c/lib/thumb/v7e-m+fp/hard\libpic32c.a(data_init.o)
+                0x000000000002ac58                __dinit_decompress
+                0x000000000002ac58                __dinit_copy_val_data
+                0x000000000002ac58                __dinit_copy_emb
 
 .text.__dummy_scan%1581
-                0x000000000002ac58        0x4
+                0x000000000002ac5c        0x4
  .text.__dummy_scan
-                0x000000000002ac58        0x4 c:/program files/microchip/xc32/v4.60/bin/bin/../../lib/gcc/pic32c/8.3.1/../../../../pic32c/lib/thumb/v7e-m+fp/hard\libc-musl.a(__scanf_core.o)
-                0x000000000002ac58                __scan_i
-                0x000000000002ac58                __scan_o
-                0x000000000002ac58                __scan_d
-                0x000000000002ac58                __scan_a
-                0x000000000002ac58                __scan_fp
-                0x000000000002ac58                __scan_u
+                0x000000000002ac5c        0x4 c:/program files/microchip/xc32/v4.60/bin/bin/../../lib/gcc/pic32c/8.3.1/../../../../pic32c/lib/thumb/v7e-m+fp/hard\libc-musl.a(__scanf_core.o)
+                0x000000000002ac5c                __scan_i
+                0x000000000002ac5c                __scan_o
+                0x000000000002ac5c                __scan_d
+                0x000000000002ac5c                __scan_a
+                0x000000000002ac5c                __scan_fp
+                0x000000000002ac5c                __scan_u
 
 .text.__dummy_scan_s%1582
-                0x000000000002ac5c        0x4
+                0x000000000002ac60        0x4
  .text.__dummy_scan_s
-                0x000000000002ac5c        0x4 c:/program files/microchip/xc32/v4.60/bin/bin/../../lib/gcc/pic32c/8.3.1/../../../../pic32c/lib/thumb/v7e-m+fp/hard\libc-musl.a(__scanf_core.o)
-                0x000000000002ac5c                __scan_s
+                0x000000000002ac60        0x4 c:/program files/microchip/xc32/v4.60/bin/bin/../../lib/gcc/pic32c/8.3.1/../../../../pic32c/lib/thumb/v7e-m+fp/hard\libc-musl.a(__scanf_core.o)
+                0x000000000002ac60                __scan_s
 
 .text.do_read%1583
-                0x000000000002ac60        0x4
- .text.do_read  0x000000000002ac60        0x4 c:/program files/microchip/xc32/v4.60/bin/bin/../../lib/gcc/pic32c/8.3.1/../../../../pic32c/lib/thumb/v7e-m+fp/hard\libc-musl.a(__int_vsscanf.o)
+                0x000000000002ac64        0x4
+ .text.do_read  0x000000000002ac64        0x4 c:/program files/microchip/xc32/v4.60/bin/bin/../../lib/gcc/pic32c/8.3.1/../../../../pic32c/lib/thumb/v7e-m+fp/hard\libc-musl.a(__int_vsscanf.o)
 
-.text%1584      0x000000000002ac64        0x4
- .text          0x000000000002ac64        0x4 c:/program files/microchip/xc32/v4.60/bin/bin/../../lib/gcc/pic32c/8.3.1/thumb/v7e-m+fp/hard\libgcc.a(_dvmd_tls.o)
-                0x000000000002ac64                __aeabi_idiv0
-                0x000000000002ac64                __aeabi_ldiv0
+.text%1584      0x000000000002ac68        0x4
+ .text          0x000000000002ac68        0x4 c:/program files/microchip/xc32/v4.60/bin/bin/../../lib/gcc/pic32c/8.3.1/thumb/v7e-m+fp/hard\libgcc.a(_dvmd_tls.o)
+                0x000000000002ac68                __aeabi_idiv0
+                0x000000000002ac68                __aeabi_ldiv0
 
 .text._DRV_ETHPHY_ClientOpNone%1585
                 0x000000000000eed6        0x2
@@ -17628,34 +17628,34 @@ __xc_reference_data
                 0x00000000000163aa        0x2 build/default/production/_ext/181894553/drv_lan865x_api.o
 
 .text.DRV_MIIM_ScanDisable%1590
-                0x000000000001707e        0x2
+                0x000000000001718a        0x2
  .text.DRV_MIIM_ScanDisable
-                0x000000000001707e        0x2 build/default/production/_ext/438849557/drv_miim_gmac.o
-                0x000000000001707e                DRV_MIIM_ScanDisable
+                0x000000000001718a        0x2 build/default/production/_ext/438849557/drv_miim_gmac.o
+                0x000000000001718a                DRV_MIIM_ScanDisable
 
 .text.DRV_MIIM_Reinitialize%1591
-                0x0000000000018096        0x2
+                0x000000000001809a        0x2
  .text.DRV_MIIM_Reinitialize
-                0x0000000000018096        0x2 build/default/production/_ext/438849557/drv_miim.o
-                0x0000000000018096                DRV_MIIM_Reinitialize
+                0x000000000001809a        0x2 build/default/production/_ext/438849557/drv_miim.o
+                0x000000000001809a                DRV_MIIM_Reinitialize
 
 .text._TCPIP_HEAP_BufferMapNonCached%1592
-                0x0000000000018562        0x2
+                0x0000000000018566        0x2
  .text._TCPIP_HEAP_BufferMapNonCached
-                0x0000000000018562        0x2 build/default/production/_ext/1033058136/tcpip_heap_alloc.o
-                0x0000000000018562                _TCPIP_HEAP_BufferMapNonCached
+                0x0000000000018566        0x2 build/default/production/_ext/1033058136/tcpip_heap_alloc.o
+                0x0000000000018566                _TCPIP_HEAP_BufferMapNonCached
 
 .text.EVSYS_Initialize%1593
-                0x0000000000019842        0x2
+                0x0000000000019846        0x2
  .text.EVSYS_Initialize
-                0x0000000000019842        0x2 build/default/production/_ext/1986646378/plib_evsys.o
-                0x0000000000019842                EVSYS_Initialize
+                0x0000000000019846        0x2 build/default/production/_ext/1986646378/plib_evsys.o
+                0x0000000000019846                EVSYS_Initialize
 
 .text.Console_UART_Tasks%1594
-                0x000000000001a306        0x2
+                0x000000000001a30a        0x2
  .text.Console_UART_Tasks
-                0x000000000001a306        0x2 build/default/production/_ext/1832805299/sys_console_uart.o
-                0x000000000001a306                Console_UART_Tasks
+                0x000000000001a30a        0x2 build/default/production/_ext/1832805299/sys_console_uart.o
+                0x000000000001a30a                Console_UART_Tasks
 
 .text.Dummy_App_Func%1595
                 0x000000000001a89e        0x2

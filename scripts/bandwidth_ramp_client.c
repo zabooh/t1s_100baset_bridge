@@ -4,7 +4,7 @@
   Same test as test_bandwidth_ramp.py, deliberately re-implemented in plain C
   with Winsock2 and a single select()-driven loop instead of Python threads -
   written specifically because the Python version's numbers were not trusted
-  (FALLSTRICKE.md, 2026-08-27: identical-looking data loss showed up talking
+  (docs/FALLSTRICKE.md, 2026-08-27: identical-looking data loss showed up talking
   directly to the bridge's own testserver, no T1S/PLCA involved at all, which
   could point at the Python client's receiver-thread timing just as easily as
   at the C server). No threads here - one loop, one select() call, nothing to
