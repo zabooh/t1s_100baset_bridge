@@ -19,7 +19,8 @@ pyserial==3.5
 # install it that way; this line only makes the plain pip route complete.
 pyocd==0.43.0
 
-# Modern-theme (sv-ttk) builds: bridge_gui_modern.py, gui_term_modern.py (used by: 2)
-# bridge_gui.py and gui_term.py themselves need only tkinter (stdlib) - this is
-# only for the side-by-side modern-theme builds.
+# sv-ttk theme (Windows 11 Fluent look): bridge_gui.py, gui_term.py (used by: 2)
+# A hard dependency of both, not optional - they always run themed now, there
+# is no plain-ttk fallback build anymore (the separate "_modern" comparison
+# builds were merged into these two files, see FALLSTRICKE.md 2026-08-28).
 sv-ttk==2.6.1

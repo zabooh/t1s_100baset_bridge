@@ -5,14 +5,19 @@ Bridge Status & Configuration GUI
 Bedient die T1S/100BASE-T-Bridge über den EDBG-COM-Port (115200 8N1):
 Bridge-Parameter, LAN8651-Register, IEEE-Testmodi und ein Terminal.
 
-Standalone. Gebraucht werden nur pyserial und bridge_config.json (liegt
-daneben). Kein cli.py, kein test_lan8651.py -- die öffnen den COM-Port selbst
-und kollidieren mit der Verbindung dieser GUI, weil der Port unter Windows
-exklusiv ist. Alle Kommandos laufen über den einen offenen Link.
+Standalone bis auf zwei pip-Pakete: sv-ttk (Pflicht, fürs Theme) und pyserial
+(optional, ohne COM-Port-Zugriff läuft das Tool trotzdem) - dep_check.py
+prüft beides beim Start und bietet bei Bedarf install_dependencies.bat an.
+Dazu bridge_config.json (liegt daneben). Kein cli.py, kein test_lan8651.py --
+die öffnen den COM-Port selbst und kollidieren mit der Verbindung dieser GUI,
+weil der Port unter Windows exklusiv ist. Alle Kommandos laufen über den
+einen offenen Link.
 """
 
 import tkinter as tk
 from tkinter import ttk, messagebox, scrolledtext, simpledialog
+import argparse
+import ctypes
 import json
 import os
 import subprocess
@@ -304,8 +309,27 @@ class ResponseParser:
         return None
 
 
+# sv-ttk semantic colors, chosen for legibility on its dark background
+# (#1c1c1c); the light variant reuses the colors this file used before the
+# sv-ttk theme existed, already tuned for a light background. See
+# BridgeGUI._restore_semantic_colors for why these are needed at all.
+RED_DARK = "#ff6b6b"
+GREEN_DARK = "#4ac94a"
+MUTED_DARK = "#9a9a9a"
+RED_LIGHT = "#b00000"
+GREEN_LIGHT = "#009900"
+MUTED_LIGHT = "#555555"
+
+
 class BridgeGUI:
-    def __init__(self, root: tk.Tk):
+    def __init__(self, root: tk.Tk, dark: bool = True):
+        # Before self.setup_ui() below (which builds the top bar's ~8
+        # buttons): a style-level ttk.Style().configure() applies to every
+        # button built afterwards, so setting it this early avoids a
+        # resize/flash and survives sv-ttk's own idle-task restyle later -
+        # verified, see FALLSTRICKE.md (2026-08-26).
+        self._dark = dark
+        self._tighten_button_style()
         self.root = root
         self.root.title("Bridge Status & Configuration")
         # 1000 px was enough until the bulk buttons moved into the top bar; that row
@@ -366,6 +390,114 @@ class BridgeGUI:
         self.root.after(BLINK_MS, self._blink_loop)
 
         self.process_queue()
+
+        # Forces sv-ttk's own idle-task restyle to run NOW, before trying to
+        # fix anything it just broke - it reapplies its palette via an idle
+        # task the first time the event loop turns, which steamrolls every
+        # ttk.Label's construction-time foreground= (the ones just built
+        # above carry real information: red errata/warning text, green
+        # decoded bitfield values). Verified by testing both orders, not
+        # assumed - patching before that idle task has fired gets silently
+        # reverted by it right afterwards. See FALLSTRICKE.md (2026-08-26).
+        self.root.update_idletasks()
+        self._restore_semantic_colors()
+        self.update_connection_indicator()  # re-assert red/green now that it will stick
+        # AFTER the window has its final size (root.state("zoomed") above),
+        # not before: the DWM attribute alone was set correctly (return code
+        # 0 = S_OK) but the title bar visibly stayed light without a stable
+        # window to repaint yet.
+        self._apply_dark_titlebar(self._dark)
+
+    def _apply_dark_titlebar(self, dark: bool) -> None:
+        """Color the native Windows title bar to match - sv-ttk (and ttk in
+        general) only reaches ttk/tk widgets, the title bar is the OS's own
+        window chrome and has no tkinter API at all. Windows 10 (2004+) and
+        Windows 11 expose it through the DWM, called here directly via ctypes.
+
+        root.winfo_id() is the embedded CHILD window Tk hands out, not the
+        real top-level HWND the title bar belongs to - GetParent() walks up
+        to the one DWM actually needs; skipping that step is why naive
+        versions of this recipe silently do nothing. Attribute 20 is
+        DWMWA_USE_IMMERSIVE_DARK_MODE on Windows 11 and Windows 10 20H1+; 19
+        was the same attribute's number on the two Windows 10 builds just
+        before that, tried as a fallback.
+
+        Setting the attribute is not enough by itself - confirmed
+        first-hand: DwmSetWindowAttribute returned 0 (S_OK) yet the title
+        bar stayed light. DWM only repaints the non-client area (the title
+        bar) on its own schedule; SetWindowPos with SWP_FRAMECHANGED forces
+        that repaint now instead of waiting for one to happen on its own
+        (a resize, a focus change, ...).
+        """
+        try:
+            hwnd = ctypes.windll.user32.GetParent(self.root.winfo_id())
+            value = ctypes.c_int(1 if dark else 0)
+            for attribute in (20, 19):
+                ctypes.windll.dwmapi.DwmSetWindowAttribute(
+                    hwnd, attribute, ctypes.byref(value), ctypes.sizeof(value))
+            SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER, SWP_FRAMECHANGED = 0x2, 0x1, 0x4, 0x20
+            ctypes.windll.user32.SetWindowPos(
+                hwnd, None, 0, 0, 0, 0,
+                SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_FRAMECHANGED)
+        except OSError:
+            pass  # Windows build without this DWM attribute - title bar stays light
+
+    @staticmethod
+    def _tighten_button_style() -> None:
+        """sv-ttk's own TButton padding ({8 2 8 3}, see theme/dark.tcl) plus
+        its SunValleyBodyFont (~14px, noticeably bigger than the default ttk
+        theme's font) make each button meaningfully wider than this top bar
+        was ever sized for - measured: the ~8-button top bar grows from
+        ~1250px to ~1580px required width. That is enough to push the
+        connection indicator and status label (packed on the right) off the
+        edge of a window that isn't extra wide. Tightened back down; still
+        legible, no longer silently clips the status area."""
+        style = ttk.Style()
+        style.configure("TButton", padding=(4, 2), font=("Segoe UI", 9))
+
+    def _restore_semantic_colors(self) -> None:
+        """Reconstruct the warning/success colors sv-ttk's idle-task recolor
+        erases from each label's TEXT content instead (the only thing still
+        available once that happens - color info, not just style, is gone).
+        Fragile in the sense that it silently stops matching if a label's
+        wording changes elsewhere in this file - the trade-off for not
+        threading an explicit "this label is a warning" flag through every
+        call site that builds one."""
+        red = RED_DARK if self._dark else RED_LIGHT
+        green = GREEN_DARK if self._dark else GREEN_LIGHT
+        muted = MUTED_DARK if self._dark else MUTED_LIGHT
+
+        env_widget = getattr(self, "_env_identity_widget", None)
+        if env_widget is not None:
+            env_widget.configure(foreground=muted)
+
+        def walk(widget):
+            labels = [c for c in widget.winfo_children() if isinstance(c, ttk.Label)]
+            for i, label in enumerate(labels):
+                text = str(label.cget("text")).strip()
+                if text.startswith("⚠") or text.startswith("->"):
+                    # "⚠ <errata items>" (register row) and the errata summary/
+                    # implication lines in the bitfield section - all warning-red.
+                    label.configure(foreground=red)
+                elif text in ("AFTER RESET", "NEXT BOOT"):
+                    # The "applies" hint next to mac0/mac1/mirror in Bridge Parameters.
+                    label.configure(foreground=red)
+                elif text.startswith("\U0001f4cb"):
+                    # The bitfield section's register-description line.
+                    label.configure(foreground=muted)
+                elif text.startswith("["):
+                    # "[bits] meaning" - the label right after it in the same row is
+                    # the decoded VALUE (a StringVar, usually empty here, so it can't
+                    # be matched by its own text) - identified structurally instead.
+                    label.configure(foreground=muted)
+                    if i + 1 < len(labels):
+                        labels[i + 1].configure(foreground=green)
+                elif text.startswith("Model:") or text == "no register model loaded":
+                    label.configure(foreground=muted)
+            for child in widget.winfo_children():
+                walk(child)
+
+        walk(self.root)
 
     def _register_wheel_canvas(self, canvas: tk.Canvas) -> None:
         """Ein scrollbares Canvas fuer den globalen Mausrad-Handler eintragen."""
@@ -2304,12 +2436,19 @@ Example commands:
 
 
 def main():
+    ap = argparse.ArgumentParser(description=__doc__)
+    ap.add_argument("--light", action="store_true", help="use the light variant instead of dark")
+    args = ap.parse_args()
+
     import dep_check
-    if not dep_check.ensure_dependencies(optional=[("serial", "pyserial")]):
+    if not dep_check.ensure_dependencies(
+            hard=[("sv_ttk", "sv-ttk")], optional=[("serial", "pyserial")]):
         sys.exit(0)
+    import sv_ttk
 
     root = tk.Tk()
-    gui = BridgeGUI(root)
+    sv_ttk.set_theme("light" if args.light else "dark")
+    gui = BridgeGUI(root, dark=not args.light)
     root.mainloop()
 
 

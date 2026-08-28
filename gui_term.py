@@ -64,6 +64,7 @@ the window would freeze in the main thread while that happens.
 """
 
 import argparse
+import ctypes
 import json
 import os
 import queue
@@ -638,6 +639,13 @@ class ConfigDialog(tk.Toplevel):
 class App:
     def __init__(self, root, config_path, slot_list, font_size=DEFAULT_FONT_SIZE,
                  text_color=DEFAULT_TEXT_COLOR, columns=False, height=HEIGHT):
+        # Before the bar/buttons below are built: a style-level
+        # ttk.Style().configure() applies to every button built afterwards,
+        # so setting it this early avoids a resize/flash and survives
+        # sv-ttk's own idle-task restyle later - see bridge_gui.py's
+        # BridgeGUI._tighten_button_style for the same reasoning, and
+        # FALLSTRICKE.md (2026-08-26).
+        self._tighten_button_style()
         self.root = root
         self.config_path = config_path
         self.q = queue.Queue()
@@ -649,11 +657,24 @@ class App:
 
         font = ("Consolas", font_size)
 
-        menubar = tk.Menu(root)
-        setup_menu = tk.Menu(menubar, tearoff=0)
+        # A native tk.Menu strip ignores its color options entirely on
+        # Windows - confirmed on screen: background/foreground set on it and
+        # on the "Setup" submenu had no visible effect at all. Not a
+        # color-choice bug, a Tk-on-Windows limitation with no config-option
+        # workaround; the strip is drawn by the OS's own themed menu bar
+        # renderer, which Tk's Menu widget does not control. Built directly
+        # as a ttk.Menubutton in its own bar instead, which sv-ttk does
+        # style like any other ttk widget - the dropdown list that appears
+        # on click is still a native tk.Menu popup (unavoidable, Tk has no
+        # ttk-based dropdown menu), so it may still show with native
+        # styling; far less noticeable than the always-visible strip.
+        menu_bar = ttk.Frame(root)
+        menu_bar.pack(side="top", fill="x")
+        menu_button = ttk.Menubutton(menu_bar, text="Setup")
+        menu_button.pack(side="left", padx=4, pady=2)
+        setup_menu = tk.Menu(menu_button, tearoff=0)
         setup_menu.add_command(label="Configure Ports...", command=self.open_config_dialog)
-        menubar.add_cascade(label="Setup", menu=setup_menu)
-        root.config(menu=menubar)
+        menu_button["menu"] = setup_menu
 
         bar = ttk.Frame(root)
         bar.pack(side="top", fill="x")
@@ -682,9 +703,100 @@ class App:
         if first:
             self.panes[first].text.focus_set()
 
+        # Forces sv-ttk's own idle-task restyle to run NOW, before undoing
+        # what it just did to the three panes built above - it reapplies its
+        # palette via an idle task the first time the event loop turns, and
+        # that pass only touches widgets that already existed before then
+        # (a dialog opened later, e.g. Setup > Configure Ports, is
+        # unaffected and needs no restoration - verified directly).
+        self.root.update_idletasks()
+        self._restore_pane_colors()
+        self._replace_pane_scrollbars()
+        self._apply_dark_titlebar(self.root, dark=self._is_dark())
+
+    @staticmethod
+    def _is_dark() -> bool:
+        return ttk.Style().theme_use() == "sun-valley-dark"
+
+    @staticmethod
+    def _tighten_button_style() -> None:
+        """sv-ttk's own TButton padding/font make buttons noticeably wider
+        than the default ttk theme's - this bar was never at risk of
+        overflowing on its own, this is purely for visual consistency with
+        bridge_gui.py's tighter buttons."""
+        style = ttk.Style()
+        style.configure("TButton", padding=(4, 2), font=("Segoe UI", 9))
+
+    def _restore_pane_colors(self) -> None:
+        """sv-ttk's idle-task recolor pass overwrites each pane's terminal
+        text color - which is the exact setting Setup > Configure Ports'
+        "Display" section lets the user pick, so leaving it overwritten
+        would silently undo that feature - and each pane's connect-state dot
+        (DOT_ON/DOT_OFF), otherwise stuck showing the theme's plain text
+        color regardless of whether that board is actually connected."""
+        for key, pane in self.panes.items():
+            pane.text.configure(foreground=self.text_color)
+            pane.dot.configure(foreground=DOT_ON if self.connected(key) else DOT_OFF)
+
+    def _replace_pane_scrollbars(self) -> None:
+        """Each pane's scrolledtext.ScrolledText bundles its own plain
+        tk.Scrollbar (see cpython's tkinter/scrolledtext.py - it builds one
+        in its own __init__ and keeps it as .vbar). On Windows that renders
+        as a native scrollbar control and ignores every Tk color option -
+        unlike tk.Canvas/tk.Text, sv-ttk cannot recolor it either, confirmed
+        by it staying visibly white after everything else went dark.
+        Swapped for a ttk.Scrollbar bound to the same Text widget, which
+        sv-ttk does reach."""
+        for pane in self.panes.values():
+            old = pane.text.vbar
+            frame = old.master
+            old.destroy()
+            pane.text.pack_forget()
+            new = ttk.Scrollbar(frame, orient="vertical", command=pane.text.yview)
+            new.pack(side="right", fill="y")
+            pane.text.configure(yscrollcommand=new.set)
+            pane.text.pack(side="left", fill="both", expand=True)
+            pane.text.vbar = new
+
+    @staticmethod
+    def _apply_dark_titlebar(window, dark: bool) -> None:
+        """Color a native Windows title bar to match - sv-ttk (and ttk in
+        general) only reaches ttk/tk widgets, the title bar is the OS's own
+        window chrome and has no tkinter API at all. Windows 10 (2004+) and
+        Windows 11 expose it through the DWM, called here directly via
+        ctypes. GetParent() walks up from the embedded child window Tk hands
+        out to the real top-level HWND the title bar belongs to - skipping
+        that step is why naive versions of this recipe silently do nothing.
+        Setting the DWM attribute alone measurably succeeds (returns S_OK)
+        but does not visibly repaint the title bar on its own; SetWindowPos
+        with SWP_FRAMECHANGED forces that repaint now. Takes `window` rather
+        than always using self.root because the Setup dialog is its own
+        top-level window with its own title bar."""
+        try:
+            hwnd = ctypes.windll.user32.GetParent(window.winfo_id())
+            value = ctypes.c_int(1 if dark else 0)
+            for attribute in (20, 19):
+                ctypes.windll.dwmapi.DwmSetWindowAttribute(
+                    hwnd, attribute, ctypes.byref(value), ctypes.sizeof(value))
+            SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER, SWP_FRAMECHANGED = 0x2, 0x1, 0x4, 0x20
+            ctypes.windll.user32.SetWindowPos(
+                hwnd, None, 0, 0, 0, 0,
+                SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_FRAMECHANGED)
+        except OSError:
+            pass  # Windows build without this DWM attribute - title bar stays light
+
     # -- setup dialog -------------------------------------------------
     def open_config_dialog(self):
-        ConfigDialog(self)
+        """Opens well after startup, past sv-ttk's one-time recolor pass -
+        its ttk widgets pick up the theme normally and its raw tk widgets
+        (the color swatch) keep whatever color they were given, no
+        restoration needed. Only its own native title bar needs the same
+        treatment as the main window - it is a separate top-level window
+        with a title bar of its own."""
+        dlg = ConfigDialog(self)
+        dlg.update_idletasks()
+        self._apply_dark_titlebar(dlg, dark=self._is_dark())
+        return dlg
 
     def apply_slots(self, entries):
         """Re-point the panes at a fresh (key, name, port) list, live.
@@ -947,6 +1059,7 @@ def main():
                     help="lines per pane at startup")
     ap.add_argument("--selftest", action="store_true",
                     help="no window: check the screen model and the assignment")
+    ap.add_argument("--light", action="store_true", help="use the light variant instead of dark")
     args = ap.parse_args()
 
     if args.selftest:
@@ -957,14 +1070,17 @@ def main():
         return 2
 
     import dep_check
-    if not dep_check.ensure_dependencies(optional=[("serial", "pyserial")]):
+    if not dep_check.ensure_dependencies(
+            hard=[("sv_ttk", "sv-ttk")], optional=[("serial", "pyserial")]):
         return 0
+    import sv_ttk
 
     slot_list, font_size, text_color = load_config(args.config)
     if args.font_size is not None:
         font_size = args.font_size
 
     root = tk.Tk()
+    sv_ttk.set_theme("light" if args.light else "dark")
     app = App(root, args.config, slot_list, font_size=font_size, text_color=text_color,
               columns=args.columns, height=args.height)
     if args.connect:

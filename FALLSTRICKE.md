@@ -863,3 +863,23 @@ Regel: siehe `CLAUDE.md` Abschnitt 7 „Erkenntnisse festhalten". Neue Einträge
   Laufzeit auf (`ctypes.WinDLL("winmm").timeBeginPeriod(1)`/`timeEndPeriod(1)`) — betrifft
   auch den `iperf.exe`-Subprozess, weil die Wirkung maschinenweit gilt. `PC -> Follower A/B`
   UDP erreicht damit jetzt ebenfalls ~8 Mbit/s statt 2 Mbit/s, siehe `IPERF_TEST_MATRIX.md`.
+- **2026-08-28 — `bridge_gui_modern.py`/`gui_term_modern.py` (die separaten sv-ttk-Vergleichsbauten)
+  in `bridge_gui.py`/`gui_term.py` verschmolzen und gelöscht, auf Nutzerentscheidung: kein
+  Vergleich mehr nötig, sv-ttk ist jetzt fester Bestandteil beider Tools.** Die
+  `BridgeGUIModern(BridgeGUI)`/`AppModern(App)`-Unterklassen konnten nicht einfach verschwinden —
+  sie erbten von den jetzt-zu-löschenden Dateien, also mussten `_apply_dark_titlebar()`,
+  `_tighten_button_style()`, `_restore_semantic_colors()` (bzw. `_restore_pane_colors()`,
+  `_replace_pane_scrollbars()`) als normale Methoden in die Basisklassen wandern, `main()`
+  bekam `--light` plus den harten `sv-ttk`-Dependency-Check, den vorher nur die
+  `_modern`-Varianten hatten. Bei `gui_term.py` zusätzlich die Menüleiste **direkt** als
+  `ttk.Menubutton`-Leiste gebaut statt (wie in `AppModern`) erst ein natives `tk.Menu` zu
+  bauen und es danach durch `_replace_menu_bar()` zu ersetzen — der nachträgliche
+  Umbau-Schritt hatte nur Sinn, solange `App.__init__` unverändert von `AppModern` geerbt
+  wurde. Alle hart erarbeiteten sv-ttk-Eigenheiten aus den `_modern`-Dateien (Idle-Task-Reihenfolge,
+  DWM-Titelleisten-Dunkelmodus, native Scrollbar/Menüleiste ignorieren Tk-Farboptionen unter
+  Windows) sind dabei unverändert übernommen, nicht neu hergeleitet — siehe die
+  ausführlichen Docstrings/Methodenkommentare direkt in `bridge_gui.py`/`gui_term.py` für die
+  Details, die vorher in den jetzt gelöschten Dateien standen. `check_gui_language.py`,
+  `dep_check.py`, `requirements.txt` und `CLAUDE.md` entsprechend nachgezogen. Verifiziert:
+  beide Tools starten fehlerfrei mit dem Theme (kein Traceback) — die tatsächliche Optik
+  nicht per Screenshot geprüft, nur die Abwesenheit eines Absturzes.

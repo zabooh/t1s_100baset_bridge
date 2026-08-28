@@ -18,8 +18,6 @@ from pathlib import Path
 DEFAULT_FILES = [
     Path(__file__).parent / "bridge_gui.py",
     Path(__file__).parent / "gui_term.py",
-    Path(__file__).parent / "bridge_gui_modern.py",
-    Path(__file__).parent / "gui_term_modern.py",
     Path(__file__).parent / "dep_check.py",
 ]
 
