@@ -8,8 +8,8 @@ Bridge-Parameter, LAN8651-Register, IEEE-Testmodi und ein Terminal.
 Standalone bis auf zwei pip-Pakete: sv-ttk (Pflicht, fürs Theme) und pyserial
 (optional, ohne COM-Port-Zugriff läuft das Tool trotzdem) - dep_check.py
 prüft beides beim Start und bietet bei Bedarf install_dependencies.bat an.
-Dazu bridge_config.json (liegt im Repo-Root, eine Ebene über diesem Skript).
-Kein cli.py, kein test_lan8651.py --
+Dazu bridge_config.json (liegt im json-Ordner im Repo-Root, zwei Ebenen über
+diesem Skript). Kein cli.py, kein test_lan8651.py --
 die öffnen den COM-Port selbst und kollidieren mit der Verbindung dieser GUI,
 weil der Port unter Windows exklusiv ist. Alle Kommandos laufen über den
 einen offenen Link.
@@ -59,8 +59,9 @@ def _console_python() -> str:
 
 PYOCD_PYTHON = _console_python()
 
-# Configuration file path - bridge_config.json is a repo-root file, not next to this script.
-CONFIG_FILE = Path(__file__).parent.parent / "bridge_config.json"
+# Configuration file path - bridge_config.json lives in json/ (repo root), not
+# next to this script.
+CONFIG_FILE = Path(__file__).parent.parent / "json" / "bridge_config.json"
 
 # Flash/Erase over the EDBG probe (SWD), independent of the open serial link - see
 # flash_from_release()/erase_chip(). RELEASE_HEX is the same file build.bat copies
@@ -78,16 +79,16 @@ ERASE_CONFIRM_WORD = "ERASE"
 # Referenz, auf die sich jemand verlaesst, der einen Fehler sucht. Die GUI liest es
 # und schreibt es NIE; Werte und Sitzungszustand gehoeren in bridge_config.json.
 # Stimmt etwas nicht, wird diese Datei korrigiert, nicht dieser Quelltext -- danach
-# "python scripts\check_register_model.py". lan8651_model.json ist eine
-# Repo-Root-Datei, nicht neben diesem Skript.
-MODEL_FILE = Path(__file__).parent.parent / "lan8651_model.json"
+# "python scripts\check_register_model.py". lan8651_model.json liegt in json\
+# (Repo-Root), nicht neben diesem Skript.
+MODEL_FILE = Path(__file__).parent.parent / "json" / "lan8651_model.json"
 
 # Das Environment-Modell: welche Felder der EEPROM-Datensatz hat, wie sie aus showenv
 # gelesen und mit welchem CLI-Kommando sie geschrieben werden -- je Kennung und Version.
 # Firmware-Varianten teilen sich den EEPROM-Offset, aber nicht das Layout; deshalb wird
 # die Kennung vom Geraet gelesen und gegen dieses Modell gehalten, statt sie zu raten.
-# env_model.json ist ebenfalls eine Repo-Root-Datei.
-ENV_MODEL_FILE = Path(__file__).parent.parent / "env_model.json"
+# env_model.json liegt ebenfalls in json\ (Repo-Root).
+ENV_MODEL_FILE = Path(__file__).parent.parent / "json" / "env_model.json"
 
 # Default configuration
 # Vorgaben, falls bridge_config.json fehlt. Die Registerkarte kommt dann NICHT

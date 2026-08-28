@@ -20,14 +20,15 @@
 | `FALLSTRICKE.md` | **Ausgelagerter Abschnitt 6** (**deutsch**) — datierte Register-/Build-/GUI-/Env-Fallstricke, chronologisch. Vor Arbeiten an diesen Bereichen lesen, neue Erkenntnisse dort anhängen |
 | `scripts\cli.py` | Kommandos über COM-Port schicken und Antworten einsammeln |
 | `scripts\bridge_gui.py` / `run_gui.bat` | **Bedien-GUI** (tkinter, sv-ttk-Theme/Windows-11-Fluent-Optik fest eingebaut, kein Standard-ttk-Fallback mehr seit 2026-08-28): Bridge-Parameter, alle 183 LAN8651-Register mit Bitfeldern, Testmodi, Terminal, dazu Flash/Erase über die EDBG-Sonde (SWD, unabhängig vom COM-Port) — „Flash from release/" spielt `release/*.hex` über `flash_same54.py` auf eine per Dialog gewählte Sonde, „Erase chip..." löscht Firmware **und** EEPROM-Environment komplett und verlangt dafür ein eingetipptes Bestätigungswort (`ERASE_CONFIRM_WORD`). Braucht `sv-ttk` (Pflicht) und `pyserial` (optional, `requirements.txt`), dazu `lan8651_model.json` und `bridge_config.json`, ruft weder `cli.py` noch `test_lan8651.py` auf. sv-ttk löscht beim Aktivieren die roten/grünen Warn-/Erfolgsfarben (Errata-Warnungen, dekodierte Bitfeld-Werte) — `_restore_semantic_colors()` baut sie anhand des Label-Texts wieder auf, siehe `FALLSTRICKE.md` für die Mechanik. `--light` für die helle Variante, sonst dunkel |
-| `scripts\gui_term.py` / `term.bat` | **Drei serielle Konsolen in einem Fenster** (dasselbe feste sv-ttk-Theme wie `bridge_gui.py`), ein Klick verbindet alle — Portierung aus dem `t1s_ptp_bridge`-Schwesterprojekt, ohne dessen Sonden-Seriennummer-Auflösung. Welcher COM-Port zu welchem der drei Terminal-Slots gehört, steht in `term_ports.json` (gitignored) und wird über das Menü „Setup → Configure Ports" im Tool selbst gepflegt, nicht von Hand. Titelbalken-Dunkelmodus und die Wiederherstellung der (auch vom Nutzer über „Display" gewählten!) Pane-Terminalfarbe und der Verbindungs-Punkt-Farbe laufen einmal nach dem Aufbau der drei Startpanes — ein später (z. B. per Setup-Dialog) geöffnetes Fenster ist davon **nicht** betroffen, sv-ttks Idle-Task-Neufärbung läuft nur einmal, vor dem ersten `root.update()`. `--light` für die helle Variante, sonst dunkel |
-| `env_model.json` | **Das Environment-Modell** — je Kennung+Version: welche Felder der EEPROM-Datensatz hat, mit welchem Muster sie aus `showenv` gelesen und mit welchem `setenv`-Schlüssel sie geschrieben werden. Die GUI liest die Kennung vom Gerät und deutet die Werte **nur**, wenn sie dazu einen Eintrag findet |
+| `scripts\gui_term.py` / `term.bat` | **Drei serielle Konsolen in einem Fenster** (dasselbe feste sv-ttk-Theme wie `bridge_gui.py`), ein Klick verbindet alle — Portierung aus dem `t1s_ptp_bridge`-Schwesterprojekt, ohne dessen Sonden-Seriennummer-Auflösung. Welcher COM-Port zu welchem der drei Terminal-Slots gehört, steht in `json\term_ports.json` (gitignored) und wird über das Menü „Setup → Configure Ports" im Tool selbst gepflegt, nicht von Hand. Titelbalken-Dunkelmodus und die Wiederherstellung der (auch vom Nutzer über „Display" gewählten!) Pane-Terminalfarbe und der Verbindungs-Punkt-Farbe laufen einmal nach dem Aufbau der drei Startpanes — ein später (z. B. per Setup-Dialog) geöffnetes Fenster ist davon **nicht** betroffen, sv-ttks Idle-Task-Neufärbung läuft nur einmal, vor dem ersten `root.update()`. `--light` für die helle Variante, sonst dunkel |
+| `json\env_model.json` | **Das Environment-Modell** — je Kennung+Version: welche Felder der EEPROM-Datensatz hat, mit welchem Muster sie aus `showenv` gelesen und mit welchem `setenv`-Schlüssel sie geschrieben werden. Die GUI liest die Kennung vom Gerät und deutet die Werte **nur**, wenn sie dazu einen Eintrag findet |
 | `scripts\check_gui_language.py` | Prüft, dass **alle sichtbaren Texte** in `bridge_gui.py`, `gui_term.py` und `dep_check.py` englisch sind — über den Syntaxbaum, damit Kommentare unberührt bleiben |
 | `scripts\dep_check.py` | **Von beiden GUI-Tools aus `main()` aufgerufen**, bevor irgendetwas gebaut wird — prüft mit `importlib.util.find_spec` (kein echter Import), ob `sv-ttk`/`pyserial` fehlen, und bietet bei einer Lücke einen Tk-Dialog mit „Install now" an (führt `install_dependencies.bat` aus, Ausgabe live gestreamt). `sv-ttk` ist **hart** (kein Weiterlaufen ohne, seit die früheren separaten `_modern`-Varianten am 2026-08-28 in diese beiden Dateien verschmolzen wurden), `pyserial` **optional** (Tool bleibt nutzbar, nur ohne COM-Port). Grund: siehe `FALLSTRICKE.md`, 2026-08-26 |
 | `scripts\check_env_model.py` | Prüft das Environment-Modell — und gleicht jeden `cli_key` gegen die `setenv`-Schlüssel in `env.c` ab (beide Richtungen: unbekannter Schlüssel = Fehler, unerreichbare Einstellung = Warnung) |
-| `lan8651_model.json` | **Das Registermodell** — 183 Register, 538 Bitfelder, je mit Abschnitt und Seite im Datenblatt, dazu Errata-Anmerkungen sowie Access/Reset je Bitfeld. Die GUI **liest** es und schreibt es nie. Fehler werden **hier** korrigiert, nicht im Python-Quelltext, danach `python scripts\check_register_model.py` |
+| `json\lan8651_model.json` | **Das Registermodell** — 183 Register, 538 Bitfelder, je mit Abschnitt und Seite im Datenblatt, dazu Errata-Anmerkungen sowie Access/Reset je Bitfeld. Die GUI **liest** es und schreibt es nie. Fehler werden **hier** korrigiert, nicht im Python-Quelltext, danach `python scripts\check_register_model.py` |
 | `scripts\check_register_model.py` | Prüft das Modell gegen sich selbst: MMS gegen Gruppe, doppelte Adressen und Mnemonics, Bitbereiche verdreht/über 31/überlappend, fehlende Namen. Exitcode ≠ 0 bei Fehlern |
-| `bridge_config.json` | **Nur Sitzungszustand**: COM-Port, Bridge-Parameter, zuletzt gelesene Registerwerte (`values`). Trägt seit 2026-08-25 **keine** Registerkarte mehr |
+| `json\bridge_config.json` | **Nur Sitzungszustand**: COM-Port, Bridge-Parameter, zuletzt gelesene Registerwerte (`values`). Trägt seit 2026-08-25 **keine** Registerkarte mehr |
+| `json\README.md` | **Übersicht aller JSON-Dateien** (**englisch**) — je Datei: wer schreibt, wer liest, Zweck; getrackt vs. gitignored getrennt |
 
 **Hardware:** SAM E54 Curiosity Ultra (DM320210) + LAN8740A PHY Daughter Board (AC320004-3) an
 `eth1` + MikroElektronika Two-Wire ETH Click mit **LAN8651** (MIKROE-5543) an `eth0`, SPI CS = PC15,
@@ -53,7 +54,7 @@ build.bat clean
 flash.bat                 :: pyOCD über den EDBG-Probe
 flash.bat --dry-run
 flash.bat --list          :: angeschlossene Probes
-install.bat --select      :: welches Board flash.bat programmiert (-> bench.json)
+install.bat --select      :: welches Board flash.bat programmiert (-> json\bench.json)
 setup.bat                 :: einmalig pro Rechner
 ```
 
@@ -61,7 +62,7 @@ setup.bat                 :: einmalig pro Rechner
   Rechner 2 m 02 s → 35 s bei 14 Kernen). `BUILD_JOBS=n` übersteuert, `BUILD_JOBS=1` stellt einen
   Fehler seriell nach. Die Kernzahl kommt aus der Umgebung, damit nichts pro Rechner konfiguriert
   werden muss und nichts veraltet.
-- **Welches Board `flash.bat` programmiert, steht in `bench.json`** (gitignoriert, pro Rechner):
+- **Welches Board `flash.bat` programmiert, steht in `json\bench.json`** (gitignoriert, pro Rechner):
   `install.bat` fragt bei jedem Lauf, listet die angesteckten Sonden nummeriert auf, Enter behält die
   aktuelle. `flash.bat` liest die Seriennummer über `flash_same54.py --show-probe` und reicht sie als
   `-u` an pyOCD. Ohne Eintrag sucht pyOCD selbst — das geht nur mit **einer** Sonde am USB, und an

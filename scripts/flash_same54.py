@@ -25,8 +25,9 @@ from pathlib import Path
 DEFAULT_TARGET = "atsame54p20a"
 PACK_CACHE = Path.home() / ".mchp_packs" / "Microchip" / "SAME54_DFP"
 MPLABX_ROOT = Path("C:/Program Files/Microchip/MPLABX")
-# bench.json is a repo-root file (per-machine, gitignored), not next to this script.
-BENCH_PATH = Path(__file__).parent.parent / "bench.json"
+# bench.json is a per-machine, gitignored file that lives in json/ (repo root),
+# not next to this script.
+BENCH_PATH = Path(__file__).parent.parent / "json" / "bench.json"
 
 
 def _version_key(name):

@@ -9,7 +9,7 @@
     python flash_boards.py --list          show configured roles, their probe, connected or not
     python flash_boards.py <role> --dry-run
 
-boards.json (repo root) maps each role to a probe serial - that part is the single
+json/boards.json maps each role to a probe serial - that part is the single
 source of truth and this script never duplicates it. Which *image* belongs to a role
 is the one thing boards.json deliberately does not say (it stays "which physical
 board is this", not "which firmware last shipped to it"), so ROLE_IMAGES below is that
@@ -26,7 +26,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT))
 import flash_same54  # noqa: E402 (needs REPO_ROOT on sys.path first)
 
-BOARDS_JSON = REPO_ROOT / "boards.json"
+BOARDS_JSON = REPO_ROOT / "json" / "boards.json"
 
 # boards.json role -> firmware image, relative to REPO_ROOT.
 ROLE_IMAGES = {

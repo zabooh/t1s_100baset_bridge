@@ -76,7 +76,9 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 if HERE not in sys.path:
     sys.path.insert(0, HERE)
 
-CONFIG = os.path.join(HERE, "term_ports.json")
+# term_ports.json lives in json/ (repo root), not next to this script - see the
+# repo-wide "all JSON files live under json/" convention.
+CONFIG = os.path.join(os.path.dirname(HERE), "json", "term_ports.json")
 
 # Fixed order, not derived from the JSON - a slot with no port assigned yet
 # still gets a pane, so "Setup > Configure Ports" has somewhere to point.
@@ -1048,7 +1050,7 @@ def main():
         description=__doc__,
         formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--config", default=CONFIG,
-                    help="port assignment file (default: term_ports.json in this folder)")
+                    help="port assignment file (default: json/term_ports.json in the repo root)")
     ap.add_argument("--connect", action="store_true",
                     help="open all three ports right at startup (default: no)")
     ap.add_argument("--columns", action="store_true",

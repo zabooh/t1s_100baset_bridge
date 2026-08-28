@@ -21,9 +21,10 @@ import re
 import sys
 from pathlib import Path
 
-# env_model.json and firmware/ are repo-root, not next to this script.
+# env_model.json lives in json/ (repo root); firmware/ is repo-root too. Neither
+# is next to this script.
 REPO_ROOT = Path(__file__).parent.parent
-MODEL_PATH = REPO_ROOT / "env_model.json"
+MODEL_PATH = REPO_ROOT / "json" / "env_model.json"
 ENV_C = REPO_ROOT / "firmware" / "src" / "env.c"
 
 # Same conservative list as check_register_model.py - see the note there about "die".

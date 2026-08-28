@@ -85,7 +85,7 @@ Organized into **multiple sub-tabs by category** for better organization:
 - **Individual Read/Write**: Access single registers with automatic readback
 - **Save/Open JSON**: Persist register values by category
 
-Pre-configured registers can be expanded in `bridge_config.json`:
+Pre-configured registers can be expanded in `json/bridge_config.json`:
 ```json
 "registers": {
   "Test Mode": {
@@ -160,7 +160,7 @@ Quick reference, keyboard shortcuts, and usage guide for all tabs.
 
 ## Configuration File
 
-Settings are stored in `bridge_config.json` in the same directory as the script.
+Settings are stored in `json/bridge_config.json` in the repo root.
 
 ### Example Structure
 
@@ -243,7 +243,7 @@ Settings are stored in `bridge_config.json` in the same directory as the script.
 2. Click **Save to JSON** (saves bridge params)
 3. Go to **LAN8651 Registers**, edit register values
 4. Click **Save to JSON** (saves registers by category)
-5. Configuration persisted in `bridge_config.json`
+5. Configuration persisted in `json/bridge_config.json`
 
 **Restore:**
 1. Go to **Bridge Parameters** tab, click **Open from JSON**
@@ -317,7 +317,7 @@ python scripts/bridge_gui.py -v  # Run with verbose output
 
 ### Add Bridge Parameter
 
-Edit `bridge_config.json`:
+Edit `json/bridge_config.json`:
 ```json
 "bridge": {
   "my_new_param": "default_value"
@@ -328,7 +328,7 @@ The GUI will automatically create a read/write field.
 
 ### Add LAN8651 Register
 
-Edit `bridge_config.json` to add a register to an existing category:
+Edit `json/bridge_config.json` to add a register to an existing category:
 ```json
 "registers": {
   "Test Mode": {

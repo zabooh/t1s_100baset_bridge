@@ -14,9 +14,9 @@ Usage:
     python install_prereqs.py --select   # only pick the probe, skip the checks
 
 Every run ends with the probe question - Enter keeps the current choice. The answer is
-stored in bench.json in the repo root (see flash_same54.py's BENCH_PATH), keyed on the
-probe's serial number, and read back by flash.bat, so a plain "flash.bat" always
-programs the same board even when several are plugged in.
+stored in json/bench.json (see flash_same54.py's BENCH_PATH), keyed on the probe's
+serial number, and read back by flash.bat, so a plain "flash.bat" always programs the
+same board even when several are plugged in.
 """
 
 import argparse

@@ -910,3 +910,42 @@ Regel: siehe `CLAUDE.md` Abschnitt 7 „Erkenntnisse festhalten". Neue Einträge
   `check_gui_language.py` (0 Fehler), `gui_term.py --selftest` (14/14) und `flash_same54.py
   --show-probe`/`--list` liefen fehlerfrei aus `scripts\` heraus, `build.bat` lief komplett durch
   (inkl. `scripts\build_summary.py`-Aufruf am Ende) und hinterließ einen sauberen Baum.
+- **2026-08-28 — Alle JSON-Dateien im Repo-Root (auch die per-Rechner-gitignorten) nach `json\`
+  verschoben, auf Nutzerwunsch ("alle json dateien müssen in einen unterordner json").**
+  Getrackt: `boards.json`, `bridge_config.json`, `env_model.json`, `lan8651_model.json`
+  (`git mv`). Gitignored/temporär: `bench.json`, `term_ports.json` (plain `mv` — waren nie
+  getrackt, die unverankerten `.gitignore`-Muster (`bench.json`/`term_ports.json` ohne
+  führenden `/`) greifen unverändert auch unter `json\`, per `git check-ignore -v` bestätigt).
+  **Bewusst NICHT verschoben:** `.main-meta\main.json` in den beiden `.X`-MPLAB-Projektordnern
+  — von MPLAB X selbst an fester Stelle relativ zum Projekt erzeugt/gelesen, kein eigenes
+  Tooling-Artefakt (analog zu `nbproject\`, das ebenfalls unangetastet bleibt). Ebenfalls NICHT
+  verschoben: `setup_compiler.config` — enthält zwar JSON, trägt aber bewusst eine andere
+  Endung, und der Nutzerwunsch war wörtlich "json dateien" (Erweiterung, nicht Inhalt).
+  Betroffene `Path(__file__)`-Referenzen bekamen ein zusätzliches `/ "json"` eingefügt
+  (`bridge_gui.py`: `CONFIG_FILE`, `MODEL_FILE`, `ENV_MODEL_FILE`; `check_env_model.py`:
+  `MODEL_PATH`; `check_register_model.py`: `MODEL_PATH`; `flash_same54.py`: `BENCH_PATH`;
+  `flash_boards.py`: `BOARDS_JSON`). **`gui_term.py`s `term_ports.json` war die einzige
+  Ausnahme mit echtem Verhaltenswechsel:** es lag bisher `HERE`-relativ (neben dem Skript
+  selbst, siehe Eintrag oben vom selben Tag), jetzt zeigt `CONFIG` auf
+  `os.path.dirname(HERE)/json/term_ports.json` — ein Repo-Root-Pfad wie die anderen fünf.
+  **Nebenbefund dabei:** die physische `term_ports.json` war seit dem `scripts\`-Umzug (Eintrag
+  oben) verwaist — `gui_term.py` suchte sie schon unter `scripts\term_ports.json`, die reale
+  Datei lag aber noch unverändert im Root, weil nur Python-Dateien verschoben wurden. Fiel nicht
+  auf, weil eine fehlende `term_ports.json` von `gui_term.py` als "noch nicht konfiguriert"
+  behandelt wird (leere Zuweisung, kein Fehler) — der `--selftest`-Lauf direkt nach dem
+  `scripts\`-Umzug zeigte entsprechend `1=-(-), 2=-(-), 3=-(-)` statt der echten, gespeicherten
+  Portbelegung, ohne dass das als Fehlschlag auffiel. Mit dem `json\`-Umzug jetzt behoben und
+  verifiziert: derselbe `--selftest`-Lauf zeigt wieder die echte Belegung
+  (`1=Bridge 192.168.0.210(COM8), 2=Follower A ..., 3=Follower B ...`). **Lehre:** ein
+  Pfad-Umzug, der eine Konfigurationsdatei "verliert", muss nicht als Fehler auffallen, wenn der
+  Aufrufer eine fehlende Datei still als Erstlauf interpretiert — nach jedem Pfad-Umzug den
+  *Inhalt* einer geladenen Konfiguration prüfen, nicht nur den Exitcode. Eine `\ ` (Backslash
+  gefolgt von Leerzeichen) in einem Python-Docstring erzeugte dabei eine `SyntaxWarning:
+  invalid escape sequence` (`bridge_gui.py`s Modul-Docstring, "liegt in json\ im Repo-Root") —
+  in `#`-Kommentaren harmlos, in echten String-Literalen (Docstrings, `"..."`) nicht: mit einem
+  Wort statt Backslash umschrieben ("liegt im json-Ordner"). Alle 25 Skripte in `scripts\`
+  danach mit `py_compile.compile(..., doraise=True)` unter `warnings.simplefilter("error")`
+  gegengeprüft — keine weiteren Treffer. Verifiziert: `check_register_model.py`,
+  `check_env_model.py`, `gui_term.py --selftest`, `flash_same54.py --show-probe`,
+  `flash_boards.py --list` liefen fehlerfrei, `build.bat` komplett durchgelaufen, Baum danach
+  sauber (bis auf die erwarteten `git mv`/Edit-Änderungen).
