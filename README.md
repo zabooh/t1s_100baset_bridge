@@ -549,6 +549,24 @@ needed just to program the board).
 | **Python 3.9+** | `pyserial` for `cli.py`/`smoketest.py`, `pyocd` for `flash.bat` (installed by setup) |
 | **Terminal** | the board's EDBG virtual COM port, 115200 8N1 |
 
+### Which `.bat` do I actually run?
+
+The repo root only holds the `.bat` files you're meant to type yourself.
+Everything called automatically underneath them lives in `batch\`, out of the
+way:
+
+| You run this | When |
+|---|---|
+| `setup.bat` | once per machine, right after cloning |
+| `install.bat --select` | whenever you switch which probe/board `flash.bat` targets |
+| `build.bat` / `flash.bat` / `run_gui.bat` / `run_term.bat` | as needed, day to day |
+
+| `batch\...` — runs automatically, never call directly | Called by |
+|---|---|
+| `batch\setup_venv.bat` | `setup.bat`, or the GUI's "Install now" dialog if a dependency is missing |
+| `install.bat --install` | `setup.bat` |
+| `batch\genmk.bat` | `setup.bat`, or `build.bat` itself if the MPLAB X Makefiles are missing |
+
 ### 5.2 One-time setup after cloning
 
 ```bat
@@ -558,17 +576,20 @@ setup.bat
 ```
 
 `setup.bat` runs five independent steps (a failure in one is reported but does
-not abort the rest): Python deps (`pyserial`, `pyocd`), XC32 version selection
+not abort the rest): a Python virtual environment at `.venv\` with `pyserial`/
+`pyocd`/`sv-ttk` installed into it (`batch\setup_venv.bat` - never the
+machine's global Python, and nothing to `activate`/`deactivate`, every other
+`.bat` resolves `.venv\Scripts\python.exe` itself), XC32 version selection
 (`setup_compiler.py`), pyOCD + probe/pack check (`install.bat --install`), the
 SAME54_DFP VS Code debug fix (`setup_debug.py`), and the project Makefiles
-(`genmk.bat`).
+(`batch\genmk.bat`).
 
 **No IDE session is needed.** A fresh checkout has no `nbproject/Makefile-*.mk`
 fragments — they are gitignored on purpose, because they hold absolute paths of
 the machine that generated them, and committed they would be wrong everywhere
 else in the expensive way (the link succeeds, then `xc32-bin2hex` fails with
 "file not found"). They are generated instead from the **tracked**
-`nbproject/configurations.xml` by `genmk.bat`, which wraps
+`nbproject/configurations.xml` by `batch\genmk.bat`, which wraps
 `prjMakefilesGenerator.bat` — the tool MPLAB X ships for exactly this.
 
 `build.bat` calls it by itself when the fragments are missing, so even without
@@ -576,7 +597,7 @@ else in the expensive way (the link succeeds, then `xc32-bin2hex` fails with
 **installed**, but it never has to be opened.
 
 ```bat
-genmk.bat firmware\T1S_100BaseT_Bridge.X    :: only if you want to do it by hand
+batch\genmk.bat firmware\T1S_100BaseT_Bridge.X    :: only if you want to do it by hand
 ```
 
 ### 5.3 Build and flash

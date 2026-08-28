@@ -89,7 +89,7 @@ def send(port, cmd, wait=1.0):
 
 def reset_board(probe, label):
     print(f"=== reset {label} ({probe}) ===")
-    subprocess.run(["python", "-m", "pyocd", "reset", "-t", "atsame54p20a",
+    subprocess.run([sys.executable, "-m", "pyocd", "reset", "-t", "atsame54p20a",
                      "-u", probe], check=False,
                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 

@@ -20,6 +20,11 @@ rem  ..\flash_boards.py, damit es nur EINE Quelle davon gibt.
 rem ===========================================================================
 setlocal
 
+rem Der venv liegt im Repo-Root (von setup.bat angelegt), eine Ebene ueber
+rem diesem follower\-Verzeichnis; ..\scripts\ wird mit dem Bridge-Projekt geteilt.
+set "PY=%~dp0..\.venv\Scripts\python.exe"
+if not exist "%PY%" set "PY=python"
+
 set "TOOL=%~dp0..\scripts\flash_boards.py"
 if not exist "%TOOL%" (
     echo ERROR: %TOOL% missing.
@@ -29,13 +34,13 @@ if not exist "%TOOL%" (
 rem Ohne Argument: beide Follower. Mit Argument wird es durchgereicht, damit
 rem `follower\flash.bat follower_a` und `--list` weiter gehen.
 if "%~1"=="" (
-    python "%TOOL%" followers
+    "%PY%" "%TOOL%" followers
 ) else (
-    python "%TOOL%" %*
+    "%PY%" "%TOOL%" %*
 )
 set "RC=%errorlevel%"
 if not "%RC%"=="0" (
     echo.
-    echo         Voraussetzungen pruefen: python ..\scripts\install_prereqs.py
+    echo         Voraussetzungen pruefen: install.bat --install
 )
 endlocal & exit /b %RC%

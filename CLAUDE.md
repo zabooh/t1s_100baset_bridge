@@ -20,10 +20,10 @@
 | `docs\FALLSTRICKE.md` | **Ausgelagerter Abschnitt 6** (**deutsch**) — datierte Register-/Build-/GUI-/Env-Fallstricke, chronologisch. Vor Arbeiten an diesen Bereichen lesen, neue Erkenntnisse dort anhängen |
 | `scripts\cli.py` | Kommandos über COM-Port schicken und Antworten einsammeln |
 | `scripts\bridge_gui.py` / `run_gui.bat` | **Bedien-GUI** (tkinter, sv-ttk-Theme/Windows-11-Fluent-Optik fest eingebaut, kein Standard-ttk-Fallback mehr seit 2026-08-28): Bridge-Parameter, alle 183 LAN8651-Register mit Bitfeldern, Testmodi, Terminal, dazu Flash/Erase über die EDBG-Sonde (SWD, unabhängig vom COM-Port) — „Flash from release/" spielt `release/*.hex` über `flash_same54.py` auf eine per Dialog gewählte Sonde, „Erase chip..." löscht Firmware **und** EEPROM-Environment komplett und verlangt dafür ein eingetipptes Bestätigungswort (`ERASE_CONFIRM_WORD`). Braucht `sv-ttk` (Pflicht) und `pyserial` (optional, `scripts\requirements.txt`), dazu `lan8651_model.json` und `bridge_config.json`, ruft weder `cli.py` noch `test_lan8651.py` auf. sv-ttk löscht beim Aktivieren die roten/grünen Warn-/Erfolgsfarben (Errata-Warnungen, dekodierte Bitfeld-Werte) — `_restore_semantic_colors()` baut sie anhand des Label-Texts wieder auf, siehe `docs\FALLSTRICKE.md` für die Mechanik. `--light` für die helle Variante, sonst dunkel |
-| `scripts\gui_term.py` / `term.bat` | **Drei serielle Konsolen in einem Fenster** (dasselbe feste sv-ttk-Theme wie `bridge_gui.py`), ein Klick verbindet alle — Portierung aus dem `t1s_ptp_bridge`-Schwesterprojekt, ohne dessen Sonden-Seriennummer-Auflösung. Welcher COM-Port zu welchem der drei Terminal-Slots gehört, steht in `json\term_ports.json` (gitignored) und wird über das Menü „Setup → Configure Ports" im Tool selbst gepflegt, nicht von Hand. Titelbalken-Dunkelmodus und die Wiederherstellung der (auch vom Nutzer über „Display" gewählten!) Pane-Terminalfarbe und der Verbindungs-Punkt-Farbe laufen einmal nach dem Aufbau der drei Startpanes — ein später (z. B. per Setup-Dialog) geöffnetes Fenster ist davon **nicht** betroffen, sv-ttks Idle-Task-Neufärbung läuft nur einmal, vor dem ersten `root.update()`. `--light` für die helle Variante, sonst dunkel |
+| `scripts\gui_term.py` / `run_term.bat` | **Drei serielle Konsolen in einem Fenster** (dasselbe feste sv-ttk-Theme wie `bridge_gui.py`), ein Klick verbindet alle — Portierung aus dem `t1s_ptp_bridge`-Schwesterprojekt, ohne dessen Sonden-Seriennummer-Auflösung. Welcher COM-Port zu welchem der drei Terminal-Slots gehört, steht in `json\term_ports.json` (gitignored) und wird über das Menü „Setup → Configure Ports" im Tool selbst gepflegt, nicht von Hand. Titelbalken-Dunkelmodus und die Wiederherstellung der (auch vom Nutzer über „Display" gewählten!) Pane-Terminalfarbe und der Verbindungs-Punkt-Farbe laufen einmal nach dem Aufbau der drei Startpanes — ein später (z. B. per Setup-Dialog) geöffnetes Fenster ist davon **nicht** betroffen, sv-ttks Idle-Task-Neufärbung läuft nur einmal, vor dem ersten `root.update()`. `--light` für die helle Variante, sonst dunkel |
 | `json\env_model.json` | **Das Environment-Modell** — je Kennung+Version: welche Felder der EEPROM-Datensatz hat, mit welchem Muster sie aus `showenv` gelesen und mit welchem `setenv`-Schlüssel sie geschrieben werden. Die GUI liest die Kennung vom Gerät und deutet die Werte **nur**, wenn sie dazu einen Eintrag findet |
 | `scripts\check_gui_language.py` | Prüft, dass **alle sichtbaren Texte** in `bridge_gui.py`, `gui_term.py` und `dep_check.py` englisch sind — über den Syntaxbaum, damit Kommentare unberührt bleiben |
-| `scripts\dep_check.py` | **Von beiden GUI-Tools aus `main()` aufgerufen**, bevor irgendetwas gebaut wird — prüft mit `importlib.util.find_spec` (kein echter Import), ob `sv-ttk`/`pyserial` fehlen, und bietet bei einer Lücke einen Tk-Dialog mit „Install now" an (führt `install_dependencies.bat` aus, Ausgabe live gestreamt). `sv-ttk` ist **hart** (kein Weiterlaufen ohne, seit die früheren separaten `_modern`-Varianten am 2026-08-28 in diese beiden Dateien verschmolzen wurden), `pyserial` **optional** (Tool bleibt nutzbar, nur ohne COM-Port). Grund: siehe `docs\FALLSTRICKE.md`, 2026-08-26 |
+| `scripts\dep_check.py` | **Von beiden GUI-Tools aus `main()` aufgerufen**, bevor irgendetwas gebaut wird — prüft mit `importlib.util.find_spec` (kein echter Import), ob `sv-ttk`/`pyserial` fehlen, und bietet bei einer Lücke einen Tk-Dialog mit „Install now" an (führt `batch\setup_venv.bat` aus, Ausgabe live gestreamt). `sv-ttk` ist **hart** (kein Weiterlaufen ohne, seit die früheren separaten `_modern`-Varianten am 2026-08-28 in diese beiden Dateien verschmolzen wurden), `pyserial` **optional** (Tool bleibt nutzbar, nur ohne COM-Port). Grund: siehe `docs\FALLSTRICKE.md`, 2026-08-26 |
 | `scripts\check_env_model.py` | Prüft das Environment-Modell — und gleicht jeden `cli_key` gegen die `setenv`-Schlüssel in `env.c` ab (beide Richtungen: unbekannter Schlüssel = Fehler, unerreichbare Einstellung = Warnung) |
 | `json\lan8651_model.json` | **Das Registermodell** — 183 Register, 538 Bitfelder, je mit Abschnitt und Seite im Datenblatt, dazu Errata-Anmerkungen sowie Access/Reset je Bitfeld. Die GUI **liest** es und schreibt es nie. Fehler werden **hier** korrigiert, nicht im Python-Quelltext, danach `python scripts\check_register_model.py` |
 | `scripts\check_register_model.py` | Prüft das Modell gegen sich selbst: MMS gegen Gruppe, doppelte Adressen und Mnemonics, Bitbereiche verdreht/über 31/überlappend, fehlende Namen. Exitcode ≠ 0 bei Fehlern |
@@ -72,7 +72,7 @@ setup.bat                 :: einmalig pro Rechner
   gitignoriert (sie tragen absolute Pfade *dieses* Rechners, eingecheckt wären sie anderswo falsch,
   und zwar auf die teure Art: der Link läuft durch, dann scheitert `xc32-bin2hex`). Erzeugt werden
   sie aus der **getrackten** `nbproject\configurations.xml` mit `prjMakefilesGenerator.bat`, dem
-  Werkzeug, das MPLAB X selbst mitbringt — verpackt in **`genmk.bat`**, und **`build.bat` ruft es von
+  Werkzeug, das MPLAB X selbst mitbringt — verpackt in **`batch\genmk.bat`**, und **`build.bat` ruft es von
   selbst auf**, wenn die Fragmente fehlen. Die IDE muss also nur **installiert** sein, nicht geöffnet.
   Die frühere Anweisung „Projekt einmal in der IDE öffnen und bauen" ist damit **erledigt**.
 - **Nie `MP_CC_DIR` auf der make-Kommandozeile mitgeben.** `build.bat` lässt das absichtlich weg:
@@ -92,6 +92,22 @@ setup.bat                 :: einmalig pro Rechner
   `docs\FALLSTRICKE.md` (`git check-ignore` schweigt bei getrackten Pfaden).
 - Nach dem Build läuft `build_summary.py` (Flash/RAM, Heap, Interrupt-Handler).
 - **Konsole:** EDBG-COM-Port, **115200 8N1**. Host-seitig: `python scripts\cli.py --port COM8 --read 1 "<cmd>"`.
+- **Every `.bat` file has run through a project-local `.venv` since 2026-08-28**, never the global
+  Python. `setup.bat` (step 1, via `batch\setup_venv.bat`) creates `.venv\` at the repo root if missing and
+  installs `scripts\requirements.txt` (`pyserial`, `pyocd==0.43.0`, `sv-ttk`) into it — idempotent on
+  a re-run, but still picks up version changes in `requirements.txt`. Every `.bat` (`build.bat`,
+  `flash.bat`, `install.bat`, `run_gui.bat`, `run_term.bat`, `follower\build.bat`, `follower\flash.bat`)
+  resolves `.venv\Scripts\python(w).exe` itself (falls back to the global `python` if `.venv` is
+  missing) — **no `activate`/`deactivate` needed**, not even per session. `.venv\` is gitignored
+  (machine-specific, some packages like `pyocd`'s `cmsis-pack-manager` are platform-compiled).
+  **Which `.bat` you actually run yourself:** `setup.bat` once per machine, then `build.bat`/
+  `flash.bat`/`run_gui.bat`/`run_term.bat` as needed, plus `install.bat --select` when switching which
+  probe/board `flash.bat` targets. `batch\setup_venv.bat`, `install.bat --install` and
+  `batch\genmk.bat` are internal building blocks called automatically by the above (hence living in
+  `batch\`, out of the root) — no need to run them directly, though it's harmless to. Exception:
+  **ad-hoc calls typed directly in a terminal** (`python
+  scripts\cli.py …`, `python scripts\test_lan8651.py …` etc.) still run through whatever `python`
+  PATH resolves to — no `.bat` wrapper for those yet, see `docs\FALLSTRICKE.md`.
 
 Beim Aufruf von `.bat`-Dateien aus Git Bash den **absoluten Pfad** verwenden und `< /dev/null`
 anhängen (`MSYS_NO_PATHCONV=1 cmd /c "C:\work\t1s_bridge\bridge\t1s_100baset_bridge\build.bat" < /dev/null`)

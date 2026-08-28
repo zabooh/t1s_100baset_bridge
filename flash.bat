@@ -23,6 +23,12 @@ rem the same board even with several plugged in. Setting it here overrides bench
 rem for this file; "flash.bat --probe <serial>" overrides it for a single run.
 set "PROBE="
 
+rem Runs flash_same54.py through .venv (created by setup.bat) so pyocd is
+rem always the pinned, known-good version - never whatever a global "python"
+rem happens to resolve to. Falls back to bare "python" if .venv is missing.
+set "PY=%~dp0.venv\Scripts\python.exe"
+if not exist "%PY%" set "PY=python"
+
 set "TOOL=%~dp0scripts\flash_same54.py"
 set "HEX=%~dp0firmware\T1S_100BaseT_Bridge.X\dist\default\production\T1S_100BaseT_Bridge.X.production.hex"
 
@@ -37,7 +43,7 @@ rem that reads it, so batch and Python cannot drift apart. Exit code 1 (nothing
 rem recorded) leaves PROBE empty, which is the old behaviour: pyOCD picks the probe
 rem itself, and that works as long as exactly one board is on USB.
 if not defined PROBE (
-    for /f "usebackq delims=" %%P in (`python "%TOOL%" --show-probe 2^>nul`) do set "PROBE=%%P"
+    for /f "usebackq delims=" %%P in (`"%PY%" "%TOOL%" --show-probe 2^>nul`) do set "PROBE=%%P"
 )
 
 rem --- first argument: image, unless it's an option -------------------
@@ -55,7 +61,7 @@ if not "%FIRST%"=="" (
 rem --- special case --list: no image needed -------------------------------
 echo %ARGS% | findstr /c:"--list" >nul
 if not errorlevel 1 (
-    python "%TOOL%" --list
+    "%PY%" "%TOOL%" --list
     exit /b %errorlevel%
 )
 
@@ -72,11 +78,11 @@ echo [flash] Image : %HEX%
 if not "%PROBE%"=="" echo [flash] Probe : %PROBE%
 echo.
 
-python "%TOOL%" "%HEX%" %PROBEARG% %ARGS%
+"%PY%" "%TOOL%" "%HEX%" %PROBEARG% %ARGS%
 if errorlevel 1 (
     echo.
     echo ERROR: flashing failed.
-    echo         Check prerequisites: python scripts\install_prereqs.py
+    echo         Check prerequisites: install.bat --install
     exit /b 1
 )
 

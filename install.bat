@@ -24,6 +24,13 @@ rem  the output).
 rem ===========================================================================
 setlocal
 
+rem Runs install_prereqs.py through .venv (created by setup.bat) so the pyocd
+rem check/install below targets the same interpreter flash.bat itself uses.
+rem Falls back to bare "python" if .venv is missing (e.g. this is the very
+rem first run, before batch\setup_venv.bat has created it).
+set "PY=%~dp0.venv\Scripts\python.exe"
+if not exist "%PY%" set "PY=python"
+
 set "TOOL=%~dp0scripts\install_prereqs.py"
 
 if not exist "%TOOL%" (
@@ -31,7 +38,7 @@ if not exist "%TOOL%" (
     exit /b 1
 )
 
-python "%TOOL%" %*
+"%PY%" "%TOOL%" %*
 set "RC=%errorlevel%"
 
 rem --select only records the probe choice; the prerequisite summary below would be

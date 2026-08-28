@@ -23,6 +23,11 @@ __pycache__/
 *.pyc
 *.pyo
 
+# Per-machine virtual environment, created by install_dependencies.bat
+# (called from setup.bat). Never commit - it holds a machine-specific
+# absolute path and compiled/platform-specific packages (pyocd, sv-ttk).
+.venv/
+
 # MCC backup artifacts (written when migrating .mc3 -> the v5.6 YAML model)
 *.mc3.bak0
 *.bak0

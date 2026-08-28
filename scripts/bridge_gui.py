@@ -7,7 +7,7 @@ Bridge-Parameter, LAN8651-Register, IEEE-Testmodi und ein Terminal.
 
 Standalone bis auf zwei pip-Pakete: sv-ttk (Pflicht, fürs Theme) und pyserial
 (optional, ohne COM-Port-Zugriff läuft das Tool trotzdem) - dep_check.py
-prüft beides beim Start und bietet bei Bedarf install_dependencies.bat an.
+prüft beides beim Start und bietet bei Bedarf setup_venv.bat an.
 Dazu bridge_config.json (liegt im json-Ordner im Repo-Root, zwei Ebenen über
 diesem Skript). Kein cli.py, kein test_lan8651.py --
 die öffnen den COM-Port selbst und kollidieren mit der Verbindung dieser GUI,

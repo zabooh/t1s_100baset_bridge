@@ -1,10 +1,21 @@
 @echo off
 :: ============================================================
-::  install_dependencies.bat
-::  Installs all Python packages listed in scripts\requirements.txt.
+::  setup_venv.bat
+::  Creates the project's .venv (if missing) and installs every package
+::  listed in scripts\requirements.txt into it - never into the machine's
+::  global Python. Every other .bat in this repo runs Python tools via
+::  .venv\Scripts\python(w).exe, so nothing here needs manual activation:
+::  once this script has run, build.bat/flash.bat/run_gui.bat/run_term.bat/
+::  setup.bat just work.
 ::
-::  Usage:
-::    Double-click this file (or run it from a command prompt)
+::  Safe to re-run: an existing .venv is reused, only the pip install
+::  step repeats (cheap, and picks up a bumped/pinned version such as the
+::  known-good pyocd from requirements.txt).
+::
+::  Usually called automatically - by setup.bat (once per machine, after
+::  cloning) or by bridge_gui.py/gui_term.py's "Install now" dialog if a
+::  hard dependency (sv-ttk) is missing. Safe to run directly too, e.g. to
+::  pick up a requirements.txt change without redoing the rest of setup.bat.
 ::
 ::  Compatible with Windows 10 / Windows 11
 :: ============================================================
@@ -13,7 +24,7 @@ setlocal enabledelayedexpansion
 
 echo.
 echo ============================================================
-echo   Python Dependency Installer
+echo   Python Virtual Environment Setup
 echo ============================================================
 echo.
 
@@ -34,24 +45,32 @@ for /f "tokens=*" %%v in ('python --version 2^>^&1') do set PYTHON_VERSION=%%v
 echo [OK]    Found: %PYTHON_VERSION%
 
 :: ------------------------------------------------------------
-:: 2. Check if pip is available
+:: 2. Create .venv if it doesn't exist yet
 :: ------------------------------------------------------------
-python -m pip --version >nul 2>&1
-if %errorlevel% neq 0 (
-    echo [ERROR] pip is not available.
-    echo.
-    echo Try running: python -m ensurepip --upgrade
-    echo.
-    goto :error_exit
-)
+rem %~dp0 is this script's OWN directory (batch\), so every repo-root path
+rem below goes through REPO_ROOT instead - this script must work no matter
+rem where it's called from (setup.bat, dep_check.py's "Install now" dialog).
+set "REPO_ROOT=%~dp0.."
+set "VENV_DIR=%REPO_ROOT%\.venv"
+set "VENV_PY=%VENV_DIR%\Scripts\python.exe"
 
-for /f "tokens=*" %%p in ('python -m pip --version 2^>^&1') do set PIP_VERSION=%%p
-echo [OK]    Found: %PIP_VERSION%
+if exist "%VENV_PY%" (
+    echo [OK]    Found existing virtual environment: %VENV_DIR%
+) else (
+    echo Creating virtual environment at %VENV_DIR% ...
+    python -m venv "%VENV_DIR%"
+    if %errorlevel% neq 0 (
+        echo [ERROR] Could not create the virtual environment.
+        goto :error_exit
+    )
+    echo [OK]    Created: %VENV_DIR%
+)
+echo.
 
 :: ------------------------------------------------------------
 :: 3. Check if requirements.txt exists
 :: ------------------------------------------------------------
-set REQUIREMENTS=%~dp0scripts\requirements.txt
+set REQUIREMENTS=%REPO_ROOT%\scripts\requirements.txt
 
 if not exist "%REQUIREMENTS%" (
     echo.
@@ -65,21 +84,21 @@ echo [OK]    Found: %REQUIREMENTS%
 echo.
 
 :: ------------------------------------------------------------
-:: 4. Upgrade pip to the latest version
+:: 4. Upgrade pip inside the venv
 :: ------------------------------------------------------------
-echo Upgrading pip ...
-python -m pip install --upgrade pip
+echo Upgrading pip (in .venv) ...
+"%VENV_PY%" -m pip install --upgrade pip
 if %errorlevel% neq 0 (
     echo [WARN]  Could not upgrade pip. Continuing with current version.
 )
 echo.
 
 :: ------------------------------------------------------------
-:: 5. Install packages from requirements.txt
+:: 5. Install packages from requirements.txt into the venv
 :: ------------------------------------------------------------
-echo Installing packages from requirements.txt ...
+echo Installing packages from requirements.txt (into .venv) ...
 echo.
-python -m pip install -r "%REQUIREMENTS%"
+"%VENV_PY%" -m pip install -r "%REQUIREMENTS%"
 
 if %errorlevel% neq 0 (
     echo.
@@ -91,7 +110,7 @@ if %errorlevel% neq 0 (
     echo   - A package requires a compiler that is not installed
     echo.
     echo Tip: Try running the following command manually for more details:
-    echo         python -m pip install -r "%REQUIREMENTS%" -v
+    echo         "%VENV_PY%" -m pip install -r "%REQUIREMENTS%" -v
     echo.
     goto :error_exit
 )
@@ -101,7 +120,7 @@ if %errorlevel% neq 0 (
 :: ------------------------------------------------------------
 echo.
 echo ============================================================
-echo   All packages installed successfully!
+echo   Virtual environment ready, all packages installed!
 echo ============================================================
 echo.
 goto :end

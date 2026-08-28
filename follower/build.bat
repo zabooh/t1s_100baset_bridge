@@ -12,20 +12,20 @@ setlocal EnableDelayedExpansion
 :: NO IDE SESSION NEEDED. The nbproject Makefile fragments do not exist in a
 :: fresh checkout - they are gitignored because they hold absolute paths of the
 :: machine that generated them. This script generates them when missing, from
-:: the tracked nbproject\configurations.xml, via genmk.bat -> MPLAB X own
-:: prjMakefilesGenerator.bat. MPLAB X must be installed, not opened.
+:: the tracked nbproject\configurations.xml, via ..\batch\genmk.bat -> MPLAB X
+:: own prjMakefilesGenerator.bat. MPLAB X must be installed, not opened.
 ::
-:: Tool setup (once per machine):
-::     install_dependencies.bat       (pyserial for the python tools)
-::     python ..\scripts\setup_compiler.py       (pick the installed XC32 version)
-::     install.bat --install          (pyOCD for flash.bat)
-::     python ..\scripts\setup_debug.py          (SAME54_DFP tool-pack fix for VS Code)
+:: Tool setup (once per machine, from the repo root): setup.bat
 :: Then:
 ::     build.bat [incremental|clean|rebuild|help]
 ::     flash.bat
 :: ===========================================================================
 
 set "SCRIPT_DIR=%~dp0"
+rem The venv lives at the repo root (created by setup.bat), one level above
+rem this follower\ directory; ..\scripts\ is shared with the bridge project.
+set "PY=%SCRIPT_DIR%..\.venv\Scripts\python.exe"
+if not exist "%PY%" set "PY=python"
 set "MPLAB_DIR=%SCRIPT_DIR%firmware\T1S_Follower.X"
 set "PROJ_NAME=T1S_Follower"
 set "CONF=default"
@@ -52,7 +52,7 @@ for %%F in (Makefile-impl.mk Makefile-default.mk Makefile-variables.mk Makefile-
 )
 if defined MK_MISSING (
     echo nbproject Makefile fragments missing - generating them ^(no IDE needed^)...
-    call "%SCRIPT_DIR%..\genmk.bat" "%MPLAB_DIR%"
+    call "%SCRIPT_DIR%..\batch\genmk.bat" "%MPLAB_DIR%"
     if errorlevel 1 (
         echo.
         echo ERROR: could not generate the nbproject Makefile fragments.
@@ -123,7 +123,7 @@ rem passiert: beide Follower meldeten 18:15:23, geflasht war der Stand von 20:38
 rem und ohne die Messung daneben (S2: 3 Flanken statt 1959) waere der Lauf dem
 rem falschen Stand zugeschrieben worden.  Ein Stempel, der luegen kann, ist
 rem schlimmer als keiner - also wird app.c vor jedem Build angefasst.
-python -c "import os,sys; os.utime(os.path.join(sys.argv[1], 'src', 'app.c'), None)" "%~dp0firmware"
+"%PY%" -c "import os,sys; os.utime(os.path.join(sys.argv[1], 'src', 'app.c'), None)" "%~dp0firmware"
 
 rem PARALLEL BAUEN - gemessen am 2026-08-19: seriell 139 s, -j14 38 s (Faktor 3,7),
 rem und das Abbild ist bitgleich (von 15 907 Hex-Zeilen unterschied sich genau eine,
@@ -160,7 +160,7 @@ if exist "%HEX_PATH%" (
 )
 
 rem Post-build memory / interrupt summary (flash/RAM, heap, IRQ handlers).
-if exist "%ELF_PATH%" python "%SCRIPT_DIR%..\scripts\build_summary.py" "%DIST_DIR%" "%ELF_PATH%" "%XC32_BIN_DIR%"
+if exist "%ELF_PATH%" "%PY%" "%SCRIPT_DIR%..\scripts\build_summary.py" "%DIST_DIR%" "%ELF_PATH%" "%XC32_BIN_DIR%"
 rem CLI-Dokumentation gegen den Quelltext pruefen (CLI_KOMMANDOS.md, Anhang A).
 rem NUR IM EINZELAUFRUF: wird dieses Skript vom uebergeordneten build.bat gerufen,
 rem prueft das dort einmal fuer beide Projekte - das Skript sieht ohnehin beide an,
@@ -171,7 +171,7 @@ rem UND DER EXITCODE: cli_doc_check.py gibt bei Funden 1 zurueck.  Als LETZTER B
 rem der Datei hat es damit einen erfolgreichen Build als Fehlschlag gemeldet, obwohl
 rem der Kommentar hier immer das Gegenteil versprach - eine veraltete Doku ist kein
 rem Baufehler.  Deshalb steht danach ein ausdrueckliches "exit /b 0".
-if not defined T1S_SKIP_DOCCHECK python "%SCRIPT_DIR%..\scripts\cli_doc_check.py" --quiet
+if not defined T1S_SKIP_DOCCHECK "%PY%" "%SCRIPT_DIR%..\scripts\cli_doc_check.py" --quiet
 
 endlocal
 exit /b 0

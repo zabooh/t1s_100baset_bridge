@@ -5,14 +5,14 @@ gui_term.py.
 On a fresh checkout without `pip install -r scripts/requirements.txt`, sv-ttk (a hard
 dependency of both tools - they always run themed, there is no plain-ttk
 fallback anymore) would otherwise fail with an unconditional import at module
-load - and term.bat launches via pythonw with no exit-code check, so that
+load - and run_term.bat launches via pythonw with no exit-code check, so that
 import crash would produce no window and no error at all (see
 docs/FALLSTRICKE.md, dated 2026-08-26, from when this first bit the separate
 "_modern" builds that have since been merged into these two files). This
 module runs BEFORE any of that: it checks with importlib.util.find_spec
 (never a real import, so it cannot itself crash), and if something required
-is missing, shows a small Tk dialog offering to run install_dependencies.bat
-right there, streaming its output.
+is missing, shows a small Tk dialog offering to run setup_venv.bat right
+there, streaming its output.
 
 A successful install always ends in "please restart" rather than trying to
 pick the new package up in the running process: a failed `import serial` at
@@ -35,8 +35,8 @@ import tkinter as tk
 from tkinter import scrolledtext, ttk
 from pathlib import Path
 
-# install_dependencies.bat is a repo-root file, not next to this script.
-INSTALL_SCRIPT = Path(__file__).parent.parent / "install_dependencies.bat"
+# setup_venv.bat lives in the repo-root batch\ folder, not next to this script.
+INSTALL_SCRIPT = Path(__file__).parent.parent / "batch" / "setup_venv.bat"
 
 
 def _missing(deps):
@@ -71,7 +71,7 @@ def _show_dialog(root, missing_hard, missing_optional, result):
         if missing_hard else
         "This tool needs the following package(s) for full functionality:\n\n  " + names
     )
-    msg = ttk.Label(dlg, text=intro + "\n\nInstall now by running install_dependencies.bat?",
+    msg = ttk.Label(dlg, text=intro + "\n\nInstall now by running setup_venv.bat?",
                      justify="left", padding=12)
     msg.pack(fill="x")
 

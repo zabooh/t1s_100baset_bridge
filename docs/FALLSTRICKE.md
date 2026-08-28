@@ -1015,3 +1015,83 @@ Regel: siehe `CLAUDE.md` Abschnitt 7 „Erkenntnisse festhalten". Neue Einträge
   `scripts\dep_check.py`s Docstring und `CLAUDE.md`s Dateitabelle um `scripts\` ergänzt; die drei
   Treffer in den eigenen historischen Einträgen weiter oben in dieser Datei bewusst unverändert
   gelassen (Regel wie immer: datierte Einträge beschreiben, was zum jeweiligen Zeitpunkt galt).
+- **2026-08-28 — Projekteigenes `.venv` eingeführt, alle `.bat`-Dateien darauf umgestellt, kein
+  `activate`/`deactivate` nötig.** Auslöser: `pyocd` ist mit Begründung auf `0.43.0` gepinnt
+  (0.44.1 bricht die SWD-Verbindung) — global installiert reicht ein `pip install --upgrade` in
+  einem *anderen* Python-Projekt auf demselben Rechner, um das unbemerkt kaputtzumachen.
+  `install_dependencies.bat` legt jetzt `.venv\` im Repo-Root an (`python -m venv`, idempotent —
+  ein vorhandenes `.venv` wird nur mit `pip install -r scripts\requirements.txt` nachgezogen) statt
+  global zu installieren. Jedes andere `.bat` (`build.bat`, `flash.bat`, `install.bat`,
+  `run_gui.bat`, `term.bat`, `follower\build.bat`, `follower\flash.bat`) löst
+  `.venv\Scripts\python(w).exe` selbst per Pfad auf (Fallback aufs globale `python`, falls `.venv`
+  fehlt) — der Nutzer aktiviert nie etwas von Hand, jeder Doppelklick/Aufruf läuft automatisch im
+  venv. Funktioniert reibungslos, weil `flash_same54.py`/`install_prereqs.py`/`flash_boards.py`
+  schon vorher konsequent `sys.executable` statt eines bare `"python"` für `subprocess`-Aufrufe an
+  `pip`/`pyocd` verwendeten — zwei Ausreißer (`sniffer_noip_investigation.py`,
+  `test_sniffer_repro.py`, beides Ad-hoc-Diagnoseskripte mit bare `["python", "-m", "pyocd", ...]`
+  für den Board-Reset) wurden dabei auf `sys.executable` korrigiert. `.gitignore` bekam `.venv/`
+  (maschinenspezifisch, u. a. plattform-kompilierte Pakete wie `cmsis-pack-manager`). Real
+  durchgetestet: `install_dependencies.bat` frisch (`.venv` angelegt, 28 Pakete installiert),
+  danach `flash.bat --list`, `install.bat`, `follower\flash.bat --list` (alle drei fanden pyocd im
+  venv und die drei EDBG-Sonden), `term.bat --selftest` und `build.bat help` liefen fehlerfrei.
+  **Offen/bewusst nicht angefasst:** Ad-hoc-Terminalaufrufe wie `python scripts\cli.py …` oder
+  `python scripts\test_lan8651.py …` (siehe `CLAUDE.md` Abschnitte 2–5, dutzendfach so
+  dokumentiert) laufen weiterhin über das im PATH gefundene `python`, nicht über `.venv` — dafür
+  gibt es noch keinen `.bat`-Wrapper (z. B. `cli.bat`); bislang ungefragt keinen gebaut, um nicht
+  in die laufende Aufräumaktion (Verzeichnisumbau, siehe Einträge direkt darüber) hineinzupfuschen.
+- **2026-08-28 — `install_dependencies.bat` renamed to `setup_venv.bat` (`git mv`), plus a
+  "what do I actually run?" quick-reference table added to `README.md` and `CLAUDE.md`.** User
+  feedback: with six setup-related root `.bat` files (`setup.bat`, `install_dependencies.bat`,
+  `install.bat`, `genmk.bat`, plus `build.bat`/`flash.bat` themselves auto-calling two of them),
+  the near-identical names `setup.bat` / `install.bat` / `install_dependencies.bat` made it unclear
+  which one a user should ever type. Root cause wasn't redundant logic - it's that only two scripts
+  are ever meant to be run by hand (`setup.bat` once per machine, `install.bat --select` when
+  switching probe/board); `setup_venv.bat` (this rename), `install.bat --install` and `genmk.bat`
+  are internal building blocks other scripts already call automatically. Fixed by (a) renaming the
+  least self-explanatory one so its name matches what it does (creates/populates `.venv`, no longer
+  "just pyserial" like the pre-`.venv` version this replaced), and (b) documenting the "you type
+  this / this runs automatically" split explicitly instead of just listing files. Every reference
+  updated: `build.bat`/`follower\build.bat` header comments (also trimmed from a stale 4-line
+  manual-steps list down to "run setup.bat" - they'd drifted out of sync with `setup.bat`'s actual
+  5 steps already), `install.bat`'s fallback comment, `setup.bat`'s own call plus a rewritten header
+  making the run-this-yourself/internal split explicit, `scripts\dep_check.py` (`INSTALL_SCRIPT`
+  path, docstring, dialog button text), and `scripts\bridge_gui.py`'s module docstring (kept in
+  German - existing comment, only the filename changed). `docs\FALLSTRICKE.md`'s own **older**
+  entries mentioning `install_dependencies.bat` (the `.venv` entry directly above this one, the
+  `scripts\`-move and `requirements.txt`-move entries further up) were deliberately **left
+  unchanged** - they describe what was true at the time, per this file's own rule. Verified via a
+  full repo grep for the old name after the rename: zero hits outside this file's historical
+  entries. From this point on, new content in this session (including this entry) is written in
+  English per explicit user instruction, overriding the file's normal German convention for new
+  additions - existing German entries were not retroactively translated.
+- **2026-08-28 — `genmk.bat` and `setup_venv.bat` moved into a new `batch\` folder (`git mv`), on
+  user request: "everything the user doesn't call directly themselves belongs in a `batch\`
+  directory."** Applying the same you-run-it/it-runs-automatically split documented in the previous
+  entry: `install.bat` stayed at the repo root despite also being called automatically (`--install`
+  from `setup.bat`) because it has a genuine direct-use case too (`install.bat --select`, switching
+  probe/board) - moving it would have broken that. **Real bug caught by this move, not just a path
+  rename:** `setup_venv.bat` located its own `.venv` and `requirements.txt` via `%~dp0` (batch's
+  `%~dp0` is the *executing script's* own directory) - `%~dp0.venv` and `%~dp0scripts\requirements.txt`
+  silently resolved to `batch\.venv` and `batch\scripts\requirements.txt` once the file moved, both
+  wrong. `genmk.bat` had no such problem - it's fully self-contained, taking its target as an
+  explicit argument and never touching a repo-relative path. Fixed by introducing
+  `REPO_ROOT=%~dp0..` in `setup_venv.bat` and rebuilding `VENV_DIR`/`REQUIREMENTS` from that.
+  General lesson: moving a `.bat` file is not just updating callers' paths to it - audit what it
+  resolves via its *own* `%~dp0` first, or a working script starts silently creating a duplicate,
+  shadow `.venv` inside its own new folder. Every caller's `call` path was updated too
+  (`build.bat`, `follower\build.bat`, `setup.bat`, `scripts\dep_check.py`'s `INSTALL_SCRIPT`,
+  README.md, CLAUDE.md); `install.bat`'s comment about `setup_venv.bat` was updated for accuracy
+  though it's prose, not a live path. Verified for real: deleted `.venv` entirely, ran
+  `batch\setup_venv.bat` fresh (created `.venv` at the repo root, confirmed via `ls .venv/Scripts/
+  python.exe` succeeding and `ls batch/.venv` failing - i.e. NOT inside `batch\`), then a full
+  `setup.bat` run end to end (all 5 steps green, including `batch\genmk.bat` regenerating the
+  nbproject Makefiles), then `build.bat help`, `flash.bat --list`, `follower\flash.bat --list` all
+  still green afterward.
+- **2026-08-28 — `term.bat` renamed to `run_term.bat` (`git mv`), on user request, for consistency
+  with `run_gui.bat`.** No path-resolution risk like the `batch\` move above - `term.bat` addressed
+  everything through its own `%~dp0` and a plain rename doesn't change that. Every reference updated
+  (its own header comments and usage examples, `batch\setup_venv.bat`'s docstring-style file list,
+  `scripts\dep_check.py`'s comment, `README.md`'s and `CLAUDE.md`'s quick-reference tables). This
+  file's own older entries mentioning `term.bat` (the `batch\` move entry above, and the one further
+  up about the `docs\`/`scripts\` reorg) were deliberately left unchanged, per this file's own rule.
+  Verified: `run_term.bat --selftest` still exits 0.

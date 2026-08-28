@@ -1,14 +1,19 @@
 @echo off
 setlocal
 :: ===========================================================================
-:: setup.bat - one-time, per-machine setup after cloning.
+:: setup.bat - the ONE script to run once, per machine, after cloning.
 ::
-:: Adapts the project to the local machine: Python deps, the installed XC32
-:: compiler version, pyOCD (for flashing), and the SAME54_DFP debug fix.
+:: Adapts the project to the local machine: Python venv + deps, the installed
+:: XC32 compiler version, pyOCD (for flashing), and the SAME54_DFP debug fix.
+:: It drives batch\setup_venv.bat / install.bat / batch\genmk.bat for you -
+:: those exist as separate files because other scripts also call them, but
+:: you should never need to run them directly yourself. After this:
 ::
-::   setup.bat            <-- this script
-::   build.bat             (no IDE session needed - see step 5)
+::   build.bat
 ::   flash.bat
+::
+:: The only other script you run directly, and only when it applies: switching
+:: which board flash.bat programs, via "install.bat --select" (see 3/5 below).
 ::
 :: Connect the board via its USB debugger port BEFORE running this so the
 :: probe check can detect it. Steps are independent: a failure in one is
@@ -28,13 +33,20 @@ if errorlevel 1 (
 )
 
 echo.
-echo [1/5] Python dependencies (pyserial) ...
-call "%SCRIPT_DIR%install_dependencies.bat"
-if errorlevel 1 ( echo [WARN] pyserial install failed - check your network/pip. & set "RC=1" )
+echo [1/5] Python virtual environment ^(.venv^) + dependencies ...
+call "%SCRIPT_DIR%batch\setup_venv.bat"
+if errorlevel 1 ( echo [WARN] .venv setup failed - check your network/pip. & set "RC=1" )
+
+rem Resolved AFTER step 1, which is what creates .venv on a fresh clone - every
+rem other .bat in this repo can assume .venv already exists and resolve PY near
+rem the top, but this script cannot. Falls back to the bare "python" from PATH
+rem if .venv is still missing (step 1 failed), so steps 2/4 still get attempted.
+set "PY=%SCRIPT_DIR%.venv\Scripts\python.exe"
+if not exist "%PY%" set "PY=python"
 
 echo.
 echo [2/5] Compiler selection (XC32) ...
-python "%SCRIPT_DIR%scripts\setup_compiler.py"
+"%PY%" "%SCRIPT_DIR%scripts\setup_compiler.py"
 if errorlevel 1 ( echo [WARN] setup_compiler.py failed - run it manually. & set "RC=1" )
 
 echo.
@@ -44,7 +56,7 @@ if errorlevel 1 ( echo [WARN] install.bat reported missing prerequisites - see a
 
 echo.
 echo [4/5] VS Code debug fix (SAME54_DFP tool pack) ...
-python "%SCRIPT_DIR%scripts\setup_debug.py"
+"%PY%" "%SCRIPT_DIR%scripts\setup_debug.py"
 if errorlevel 1 ( echo [WARN] setup_debug.py failed - only needed for VS Code debugging. & set "RC=1" )
 
 rem The nbproject Makefile fragments are gitignored - they carry absolute paths
@@ -53,7 +65,7 @@ rem them here means the first build.bat has nothing left to discover; build.bat
 rem does it too, so this step is a convenience, not a prerequisite.
 echo.
 echo [5/5] MPLAB X project Makefiles (no IDE session needed) ...
-call "%SCRIPT_DIR%genmk.bat" "%SCRIPT_DIR%firmware\T1S_100BaseT_Bridge.X"
+call "%SCRIPT_DIR%batch\genmk.bat" "%SCRIPT_DIR%firmware\T1S_100BaseT_Bridge.X"
 if errorlevel 1 ( echo [WARN] genmk.bat failed - build.bat will try again. & set "RC=1" )
 
 echo.

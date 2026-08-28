@@ -12,20 +12,21 @@ setlocal EnableDelayedExpansion
 :: A FRESH CLONE BUILDS WITH NO PREPARATION. The nbproject Makefile fragments
 :: are gitignored (they hold absolute paths of the machine that generated them),
 :: so a fresh checkout has none - this script notices and generates them via
-:: genmk.bat, which drives MPLAB X's own prjMakefilesGenerator. The IDE must
-:: therefore be INSTALLED, but it never has to be opened.
+:: batch\genmk.bat, which drives MPLAB X's own prjMakefilesGenerator. The IDE
+:: must therefore be INSTALLED, but it never has to be opened.
 ::
-:: Tool setup (once per machine):
-::     install_dependencies.bat       (pyserial for the python tools)
-::     python scripts\setup_compiler.py   (pick the installed XC32 version)
-::     install.bat --install          (pyOCD for flash.bat)
-::     python scripts\setup_debug.py      (SAME54_DFP tool-pack fix for VS Code)
+:: Tool setup (once per machine): setup.bat
 :: Then:
 ::     build.bat [incremental|clean|rebuild|help]
 ::     flash.bat
 :: ===========================================================================
 
 set "SCRIPT_DIR=%~dp0"
+rem Runs Python tools through .venv (created by setup.bat / batch\setup_venv.bat)
+rem so nothing here depends on activating it first; falls back to the bare
+rem "python" from PATH if .venv doesn't exist yet.
+set "PY=%SCRIPT_DIR%.venv\Scripts\python.exe"
+if not exist "%PY%" set "PY=python"
 set "MPLAB_DIR=%SCRIPT_DIR%firmware\T1S_100BaseT_Bridge.X"
 set "PROJ_NAME=T1S_100BaseT_Bridge"
 set "CONF=default"
@@ -48,7 +49,7 @@ rem calls the generator MPLAB X ships for exactly this purpose. The IDE only
 rem has to be INSTALLED, not opened.
 if not exist "%MPLAB_DIR%\nbproject\Makefile-impl.mk" (
     echo nbproject Makefile fragments are missing - generating them now.
-    call "%SCRIPT_DIR%genmk.bat" "%MPLAB_DIR%"
+    call "%SCRIPT_DIR%batch\genmk.bat" "%MPLAB_DIR%"
     if errorlevel 1 (
         echo.
         echo ERROR: could not generate the nbproject Makefiles ^(see above^).
@@ -155,5 +156,5 @@ if exist "%HEX_PATH%" (
 )
 
 rem Post-build memory / interrupt summary (flash/RAM, heap, IRQ handlers).
-if exist "%ELF_PATH%" python "%SCRIPT_DIR%scripts\build_summary.py" "%DIST_DIR%" "%ELF_PATH%" "%XC32_BIN_DIR%"
+if exist "%ELF_PATH%" "%PY%" "%SCRIPT_DIR%scripts\build_summary.py" "%DIST_DIR%" "%ELF_PATH%" "%XC32_BIN_DIR%"
 endlocal
