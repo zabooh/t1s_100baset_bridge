@@ -1329,6 +1329,56 @@ Regel: siehe `CLAUDE.md` Abschnitt 7 „Erkenntnisse festhalten". Neue Einträge
   produktiver plca_stat-Code fuer SQI geschrieben. Bei Bedarf hier wieder aufsetzen, statt neu
   zu ermitteln -- nicht ohne neuen Anlass (z. B. echten SPI-Mitschnitt) weiterbohren.
 
+  Korrektur, spaeter am selben Tag: **"abgehakt" war falsch -- SQI funktioniert, wir hatten nur
+  das falsche Vorgehen.** Beim Portieren von plca_stat in das follower\-Projekt stellte sich
+  heraus, dass follower/firmware/src/lan865x_diag.c bereits eine eigene, laengst funktionierende
+  SQI-Implementierung enthielt (LAN865X_DIAG_SqiStart/Stop/Active, Befehl `sqi`), die wir bei der
+  urspruenglichen Untersuchung nicht kannten. Zwei Unterschiede zu unserem gescheiterten
+  Ein-Schuss-Versuch:
+  1. **Kontinuierliches Polling (~1x/s), nicht ein einzelner Lesevorgang** -- SQIVLD ist
+     read-clear und rearmt sich selbst, die Statistik-Akkumulationsdauer haengt vom Verkehr ab.
+  2. **Automatische Fehler-Erholung**: bei gesetztem SQIERR zyklisch SQIEN aus- und wieder
+     einschalten (SQI_RECOVER_CLEAR -> SQI_RECOVER_SET), sonst blieb die Messung fuer immer
+     haengen, ohne dass das nach aussen sichtbar war.
+  Trotzdem lieferte `sqi all` auf dem Follower zunaechst weiterhin keine validen Samples, obwohl
+  Follower A <-> Follower B UDP-Verkehr lief -- bis klar wurde: **SQI akkumuliert nur aus
+  Verkehr, den der beobachtende Knoten nicht selbst erzeugt hat.** Eigener Sendeverkehr (A -> B,
+  beobachtet auf A) lieferte nie ein Sample; Fremdverkehr auf demselben Bus (Bridge -> B,
+  beobachtet auf A, das an diesem Austausch gar nicht beteiligt ist) lieferte sofort gueltige
+  Werte (`7 best`, SNR >= ~18dB). Spaeter bestaetigt: auch selbst EMPFANGENER (nicht selbst
+  gesendeter) Verkehr zaehlt genauso (Bridge -> Follower A, beobachtet auf A selbst).
+  `sqi`/`LAN865X_DIAG_SqiStart/Stop/Active` wurde daraufhin identisch in beide anderen Kopien des
+  Moduls uebernommen (firmware/src/lan865x_diag.c der Bridge bekam SQI, follower bekam
+  plca_stat) -- alle drei Knoten haben jetzt denselben vollen Funktionsumfang. Dabei einen
+  echten Bug gefunden und in beiden Kopien behoben: lan_abort() setzte s_plcastat_active bei
+  einem Timeout nie zurueck.
+
+  Anschluss-Test, selber Tag: Kann man mit einem der IEEE-Testmodi (testmode 1..4) gezielt eine
+  *abgestufte* Signalverschlechterung erzeugen, um SQI mit einem schlechteren als dem besten
+  Wert zu sehen? Drei Versuche, alle mit demselben Ergebnis in unterschiedlicher Deutlichkeit:
+  Testmodi sind ein Alles-oder-Nichts-Stoerer, kein feiner Regler.
+  1. Coordinator (Follower B) in testmode 1 -> gesamter Bus sofort `OUT OF RANGE`
+     (plca_stat auf der Bridge), kein SQI-Sample moeglich. Naheliegend: ohne Coordinator kein
+     BEACON, keine Synchronisation -- aber:
+  2. Ein NICHT-Coordinator (Follower A) in testmode 1 -> genauso fatal: die Bridge konnte
+     Follower B's MAC-Adresse nicht mal per ARP aufloesen. Das kontinuierliche, unarbitrierte
+     Testsignal blockiert den ganzen Bus fuer alle, unabhaengig von der Coordinator-Rolle --
+     vermutlich weil jeder andere Knoten per Carrier-Sense staendig "Bus belegt" sieht und nie
+     eine saubere Transmit-Opportunity-Grenze erkennen kann.
+  3. Testmodus nur kurz (3 s) MITTEN in einem bereits laufenden, 15+ s langen Bridge->Follower-B-
+     UDP-Strom aktiviert (statt von Anfang an): Der iperf-Client meldete durchgehend 0 % Verlust
+     (Sender-Eigenmeldung, nicht unbedingt aussagekraeftig fuer UDP ohne Rueckkanal). Der
+     SQI-Report auf dem Empfaenger (Follower B) zeigte aber nur **7 Samples statt der bei ~1/s
+     erwarteten ~14-15** -- und alle sieben vorhandenen Samples blieben `7 best` (min=max=7),
+     kein einziger schlechterer Wert. Deutung: SQI verhaelt sich unter dieser Art Stoerung eher
+     binaer als abgestuft -- entweder die Messung in diesem Poll-Zyklus gelingt sauber (dann
+     praktisch immer der beste Wert), oder sie schlaegt ganz fehl (kein Sample), aber ein
+     "mittelmaessiger" Wert kam nie vor.
+  Fazit: Die eingebauten Testmodi sind fuer Oszilloskop-Messungen am ruhenden Bus gedacht
+  (siehe Abschnitt 4 der CLAUDE.md), nicht fuer eine kontrollierte, graduelle Stoersimulation im
+  laufenden Betrieb. Fuer eine echte Zwischenstufe brauchte es vermutlich physikalische Mittel
+  (Fehlanpassung, externe Stoerquelle, Daempfungsglied), nicht Register-Pokes.
+
   Methodik-Merksatz aus dem ganzen 2026-08-29-PLCA-Durchlauf: Der eigentliche Hebel war die
   Kombination aus **drei physisch unabhaengigen Knoten mit je eigenem Konsolenzugang**
   (Bridge COM8, Follower A COM10, Follower B COM23), **Register-CLI** (lan_read/lan_rmw/
