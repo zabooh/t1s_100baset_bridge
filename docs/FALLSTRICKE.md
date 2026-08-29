@@ -1146,3 +1146,412 @@ Regel: siehe `CLAUDE.md` Abschnitt 7 „Erkenntnisse festhalten". Neue Einträge
   Byte-Unterschied im ganzen Image — auch scheinbar irrelevante Konstanten in
   unbeteiligtem Code können auf eine falsche Linker-/Projekteinstellung zeigen,
   die an ganz anderer Stelle wirkt.**
+- 2026-08-29 -- Neuer Befehl plca_stat (lan865x_diag.c) fand sofort einen echten
+  Doppel-Coordinator auf dem Testbus. Motivation: IP-Frame-Werkzeuge (mirror/sniffer/
+  noip_send) haengen an der RX-Frame-Hook, aber BEACON/COMMIT sind Reconciliation-
+  Sublayer-Steuersymbole unterhalb der MAC-Framebildung -- sie erreichen diese Hook nie,
+  egal welcher Filter entfernt wird. plca_stat liest stattdessen eine feste Sequenz aus
+  PLCA-Registern (PLCA_STS, STS1-Event-Bits, STS3.ERRTOID, PRSSTS.MAXID, dazu die ueber
+  CTRCTRL.TOCTRE/BCNCTRE einmalig freigeschalteten Zaehler TOCNT/BCNCNT) und druckt einen
+  dekodierten Report; da TOCNTH/L und BCNCNTH/L read-clear sind, zeigt jeder Aufruf die
+  Deltas seit dem letzten. Erster Testlauf am Bench (Bridge COM8 + Follower COM10/COM23):
+  Bridge zeigte OUT OF RANGE, staendig UNEXPB und unplausibel hohe TO-/BEACON-Zaehlerstaende
+  (>100000 in 3 s) -- zunaechst faelschlich als "offener/unterminierter Bus, PHY interpretiert
+  Rauschen als Symbole" gedeutet. Tatsaechliche Ursache: plca_node auf allen drei Boards
+  abgefragt zeigte Bridge und Follower auf COM23 beide mit persistenter plca_id 0
+  (Coordinator) -- zwei Coordinatoren am selben Bus, genau das Bild, das das Datenblatt fuer
+  UNEXPB beschreibt (PHY geht fuer zwei PLCA-Zyklen in Recovery, sendet waehrenddessen
+  nichts). Loesung: Bridge per setenv plca_id 1 + saveenv auf eine freie ID umgestellt
+  (Follower A = 7, Follower B/COM23 blieb Coordinator ID 0) -- danach plca_stat sauber: in
+  range, kein UNEXPB mehr. Sackgasse: aus rohen Zaehlerstaenden allein nicht auf
+  "Rauschen/offener Bus" schliessen -- erst die Cross-Check-Abfrage von plca_node auf jedem
+  Knoten zeigt eine ID-Kollision zuverlaessig.
+
+  Nachtrag 2026-08-29 (spaeter am selben Tag) -- PRSSTS.MAXID ist kein Bus-Zensus, sondern
+  ein Konfigurations-Echo. Der Wert stand in JEDEM Testlauf exakt auf 8 (== NODE_CNT dieses
+  Knotens) -- egal ob die Bridge allein am Bus haengte, ob der Doppel-Coordinator-Konflikt
+  aktiv war, oder ob der Bus sauber mit drei Knoten (IDs 0/1/3, hoechste tatsaechlich aktive
+  ID also 3) lief. Waere MAXID eine live beobachtete hoechste Node-ID, haette sich der Wert
+  zwischen diesen sehr unterschiedlichen Bus-Zustaenden aendern muessen -- tat es aber nicht.
+  Das ATSAME54-Datenblatt-Tool (mcp__mchp-docs__search_datasheet) fuehrt den LAN8651 nicht in
+  seinem Geraete-Katalog, ein Volltext-Zitat aus DS60001734F war damit nicht moeglich; die
+  Deutung "Konfigurations-Echo von PLCA_CTRL1.NODE_CNT, nicht Live-Erkennung" stuetzt sich
+  daher auf die Konsistenz der eigenen Messreihen, nicht auf den Datenblatttext. Korrigiert:
+  lan865x_diag.c/.h melden das Feld jetzt als "configured segment size (PRSSTS.MAXID, mirrors
+  NODE_CNT - not a bus census)" statt "highest active node ID seen". TOCNT/BCNCNT blieben
+  bei diesem Nachtrag unangetastet -- deren 1:1-Verhaeltnis in einem sauberen, leisen Report
+  (kein anderer Knoten sendet) ist mit "ein Beacon pro leerem Zyklus, ein TO pro leerem
+  Zyklus" plausibel erklaerbar und wurde nicht als offene Frage weiterverfolgt.
+
+  Zweiter Nachtrag 2026-08-29 (noch spaeter am selben Tag) -- auch "Konfigurations-Echo" war
+  falsch, direkt durch den naechsten Testschritt widerlegt. Beide Follower per setenv
+  plca_cnt 12 + saveenv auf NODE_CNT=12 umgestellt, die Bridge dabei bewusst NICHT
+  angefasst (blieb lokal NODE_CNT=8, von plca_node bestaetigt). plca_stat auf der Bridge
+  zeigte danach PRSSTS.MAXID=12 -- den Wert der ANDEREN Knoten, nicht den eigenen. Damit ist
+  klar widerlegt, dass das Feld die eigene NODE_CNT spiegelt; es folgt stattdessen der auf
+  dem Bus tatsaechlich aktiven Segmentgroesse, vermutlich vom Coordinator (COM23) per BEACON
+  verteilt. Der fruehere Befund (Wert blieb konstant bei 8 ueber sehr unterschiedliche
+  Bus-Zustaende) war kein Widerspruch dazu, sondern schlicht Zufall: bis zu diesem Schritt
+  hatten alle drei Boards dieselbe NODE_CNT=8, der Unterschied zwischen "eigene Konfiguration"
+  und "live vom Bus" war also nicht beobachtbar. Merksatz: bei einem Statusregister, dessen
+  Wert zufaellig mit einem Konfigurationsregister uebereinstimmt, erst einen bewussten
+  Mismatch zwischen beiden herbeifuehren, bevor man "spiegelt die eigene Konfiguration"
+  behauptet -- sonst bleibt Korrelation von Kausalitaet ununterscheidbar. Korrigiert:
+  lan865x_diag.c/.h melden das Feld jetzt als "active segment size (PRSSTS.MAXID, from the
+  bus - may differ from our own NODE_CNT)". Weiterhin ungeklaert und ohne Datenblatt-Volltext
+  nicht abschliessend zu klaeren: ob der Wert wirklich vom aktuellen Coordinator kommt oder
+  von einer anderen Quelle (z. B. dem Knoten mit der zuletzt geaenderten Konfiguration).
+- 2026-08-29 -- Sackgasse: die PLCA-Register des LAN8651 geben KEINE Liste tatsaechlich
+  vorhandener Node-IDs her, auch nicht mit dem neuen plca_stat. Frage war, ob sich aus den
+  PLCA-Registern ablesen laesst, wieviele Knoten am Bus haengen und welche IDs sie haben.
+  Durchgesehen: PRSSTS.MAXID ist nur die konfigurierte Segmentgroesse (aktuell vom Bus
+  uebernommen, siehe Eintrag oben), nicht wieviele der Slots real belegt sind. STS1.EMPCYC
+  ist ein einzelnes Sticky-Bit "mindestens ein leerer Zyklus kam vor", kein Zaehler und kein
+  Bitmuster pro Slot -- daraus laesst sich weder eine Anzahl noch welche IDs betroffen waren
+  ablesen. STS3.ERRTOID nennt nur die ID des LETZTEN fehlerhaften Slots, keine laufende Liste.
+  TOCNT/BCNCNT sind Summenzaehler ueber den ganzen Bus ohne Aufschluesselung nach ID. Die
+  "PLCA Multiple ID 0..3"-Register (11.5.12-15) sind kein Erkennungsmechanismus fuer fremde
+  Knoten, sondern erlauben diesem einen PHY, zusaetzliche eigene IDs zu beanspruchen (mehrere
+  logische Knoten auf einem Chip). Der Reconciliation-Sublayer sieht pro Zyklus offenbar nur
+  "meine eigene Transmit Opportunity kam/kam nicht" -- keine Slot-fuer-Slot-Belegungstabelle.
+  Nicht nochmal auf Registerebene nach einer Node-Enumeration suchen. Fuer eine echte
+  Knotenzahl/-liste bleiben nur Mittel oberhalb von PLCA: IP-Discovery (ARP-Scan/Ping-Sweep
+  auf eth0, setzt eine antwortende IP je Knoten voraus) oder manuell je Board ueber dessen
+  eigene Konsole (plca_node/showenv), wie beim Doppel-Coordinator-Fund oben -- Letzteres nur
+  moeglich, weil wir UART-Zugriff auf jedes Testboard haben, kein Bus-Mechanismus.
+
+  Zusammenfassung des ganzen 2026-08-29-PLCA-Tagesdurchlaufs (plca_stat, Kollisionserkennung
+  und die Node-Enumeration-Sackgasse oben), was ein einzelner Knoten ueber PLCA-Register also
+  tatsaechlich herausfinden kann: Im **Sniffer-Modus** (passiv, T1SPMACTL.TXD aus, kein
+  eigenes Senden) laesst sich PRSSTS.MAXID trotzdem lesen -- die Segmentgroesse kommt
+  offenbar per BEACON vom Coordinator herein, auch rein passiv mitgehoert. Im **aktiven**
+  Modus mit eigener ID wird ein Konflikt auf der EIGENEN ID sichtbar (UNEXPB bei Duplikat auf
+  der Coordinator-ID 0, RXINTO bei Duplikat auf einer reguellaren ID) -- aber das sagt nur
+  "meine ID ist belegt", nichts ueber andere IDs. Eine freie ID finden geht nur INDIREKT durch
+  Durchprobieren (auf eine Kandidaten-ID setzen, auf UNEXPB/RXINTO pruefen) -- und das ist
+  nicht nebenwirkungsfrei: eine besetzte ID zu belegen loest beim Coordinator-Fall laut
+  Errata zwei PLCA-Zyklen Recovery aus (kein Verkehr fuer alle), im regulaeren Fall
+  kollidierende Frames. Ein "leises" Scannen aller IDs gibt es auf dieser Registerebene nicht.
+- 2026-08-29 -- SQI-Register (Signal Quality Indication, MMS 0x0A-Bank: SQICTL 0x000400A0,
+  SQICFG0.TOID 0x000400AA, SQISTS0 0x000400A1) reagieren nur auf ECHTEN Sendeverkehr in dem
+  beobachteten Slot, nicht auf reine Knoten-Praesenz oder PLCA-Haushalt (BEACON/Leerzyklen).
+  Test: SQICFG0.TOID auf eine unbelegte ID (7) gesetzt, SQIEN+SQIRST gepulst -- SQISTS0 blieb
+  ueber mehrere Sekunden konstant 0x0000 (kein SQIERR, kein SQIVLD, kein SQIVAL -- schlicht
+  keine Messung, kein Fehler). Dieselbe Prozedur fuer ID 3 (zu dem Zeitpunkt real belegt: die
+  Bridge selbst UND Follower A, siehe Doppel-Node-Test oben) UND fuer ID 0 (Follower B/
+  Coordinator, real, einzeln, nicht die eigene ID) ergab ebenfalls 0x0000 -- solange der Bus
+  im Leerlauf war ("empty PLCA cycle" in jedem plca_stat-Aufruf parallel bestaetigt). Erst
+  nachdem gezielt echter Verkehr erzeugt wurde (iperf-Client auf dem beobachteten Knoten,
+  Follower B/ID 0 sendet 5 s TCP an Follower A), aenderte sich SQISTS0 auf 0x00009F00 --
+  deutlich von Null verschieden, klar mit dem echten Sendeverkehr korreliert.
+  Wichtiger Modell-Fund dabei: die im Registermodell (lan8651_model.json) dokumentierten Felder
+  SQIERR (Bit 7), SQIVLD (Bit 6), SQIVAL[2:0] (Bit 5:3), SQIERRC[2:0] (Bit 2:0) liegen alle im
+  UNTEREN Byte -- das war in diesem Ergebnis 0x00. Die eigentliche Aktivitaet steckte im
+  OBEREN, im Modell nicht dokumentierten Byte (0x9F = 1001 1111). Das Modell deckt dieses
+  Register also nicht vollstaendig ab; ohne Volltext-Zugriff auf DS60001734F (LAN8651 ist im
+  MCP-Datenblatt-Tool mcp__mchp-docs__search_datasheet nicht gelistet, gleiche Einschraenkung
+  wie beim PRSSTS.MAXID-Fund oben) liess sich das nicht verifizieren. Unbestaetigte Arbeits-
+  hypothese, NICHT als Tatsache verwendet: falls dieselben vier Felder einfach eine Byte-
+  Position hoeher liegen (Bit 15=SQIERR, 14=SQIVLD, 13:11=SQIVAL, 10:8=SQIERRC), ergaebe 0x9F
+  -> SQIERR=1, SQIVLD=0, SQIVAL=3, SQIERRC=7 (ein gemeldeter Fehler statt eines sauberen
+  Werts) -- reine Spekulation, nicht verifiziert. Vor einer produktiven Nutzung von SQI zur
+  Bus-Diagnose: (a) SQIVLD explizit mitpruefen, sonst wird ein Nicht-Ergebnis (Knoten still)
+  mit einem echten Messwert verwechselt, siehe Fund oben; (b) die Bit-Position der Felder in
+  SQISTS0 im Datenblatt-Volltext nachschlagen statt dem Modell-Extrakt zu vertrauen, da genau
+  hier eine Luecke nachgewiesen ist.
+
+  Nachtrag 2026-08-29 (noch spaeter am selben Tag) -- Datenblatt-PDF liegt auf diesem Rechner
+  lokal vor (`C:\work\ptp\check4\_pdf\LAN8650-1-Data-Sheet-60001734.pdf`, DS60001734F; das
+  Errata-PDF `LAN8650-1-Errata-80001075.pdf` liegt daneben), das MCP-Tool
+  mcp__mchp-docs__search_datasheet deckt den LAN8651 zwar nicht ab, das lokale PDF aber schon
+  -- direkt per Read-Tool mit `pages` einlesbar. Volltext-Abgleich Abschnitt 11.5.52-11.5.55
+  (Seiten 274-278) zeigt: **die Byte-Shift-Vermutung oben war falsch.** Das Registermodell
+  (lan8651_model.json) hatte die Bit-Positionen fuer SQISTS0 korrekt: SQIERR(7)/SQIVLD(6)/
+  SQIVAL[2:0](5:3)/SQIERRC[2:0](2:0). Bits 15:8 sind im Datenblatt explizit als reserviert
+  dokumentiert (Access RO, Reset 0 fuer alle acht, keine Namen).
+
+  Trotzdem zeigte sich real, wiederholbar Inhalt genau dort: zwei aufeinanderfolgende Reads
+  direkt nach echtem Sendeverkehr ergaben 0x9F00 dann 0x1F00 -- Bits 12:8 blieben bei beiden
+  Reads identisch 0x1F, was exakt dem Reset-Default von SQICFG2.SQIINTTHR[4:0] (0x000400AC,
+  ein voellig anderes Register) entspricht. Ein zweiter Reproduktionsversuch ruehrte
+  SQICFG0/TOID (0x000400AA) diesmal gar nicht an und zeigte trotzdem wieder dasselbe 0x1F-
+  Muster -- das schwaecht die naheliegende "Reste von einem kurz zuvor angefassten
+  Nachbarregister"-Erklaerung eher ab, als sie zu stuetzen.
+
+  Einordnung nach Ruecksprache mit dem Nutzer: An diesem Tag liefen sehr viele andere
+  Register-Zugriffe ueber dieselbe Kette (lan_read/lan_write/lan_rmw, DRV_LAN865X_*) ueber
+  drei verschiedene MMS-Baenke (0, 1, 3, 4) durchgehend konsistent und mehrfach gegen die
+  physische Realitaet verifiziert (testmode-Verify-Rundlauf, UNEXPB/RXINTO korrelierten exakt
+  mit absichtlich erzeugten ID-Kollisionen, TOCNT/BCNCNT skalierten plausibel). Ein
+  systemischer Fehler im Zugriffspfad ist damit unwahrscheinlich -- ein lokaler Effekt,
+  begrenzt auf dieses eine Register bzw. den SQI-Registercluster, bleibt dagegen offen.
+  Plausibelste Arbeitshypothese, NICHT verifiziert: SQISTS0 Bits 15:8 spiegeln undokumentiert
+  den aktuell konfigurierten SQICFG2-Schwellwert neben dem Status zurueck (Debug-Komfort ohne
+  Dokumentation) -- also eine Datenblatt-Luecke, kein Treiberfehler. Nicht mit Registerpoken
+  allein abschliessend zu klaeren; ein echter SPI-Bus-Mitschnitt waere der naechste Schritt,
+  falls das je operativ relevant wird. Fuer die praktische Nutzung von SQI reicht es, sich
+  auf die dokumentierten Bits 7:0 zu verlassen und Bits 15:8 zu ignorieren.
+
+  Nachtrag 2026-08-29 (dritter Durchgang, nach Nutzer-Vorschlag "nur Bitfelder betrachten,
+  die im Datenblatt mit Funktion beschrieben sind") -- Volltext-Abgleich der zentralen
+  plca_stat-Register (PLCA_STS 11.5.60 S.283, STS1 11.5.2 S.218-220, STS2 11.5.3 S.221,
+  STS3 11.5.4 S.222, PRSSTS 11.5.16 S.236) deckte zwei echte Fehler in den eigenen
+  Code-Kommentaren auf, nicht im Registermodell:
+  1. **STS1.TXCOL war falsch beschrieben.** Datenblatt woertlich: "Physical collision on the
+     network was detected. This does not include logical collisions due to normal operation
+     of PLCA." Der Code-Kommentar hatte behauptet, ein Doppel-Coordinator/Doppel-Knoten-
+     Konflikt wuerde TXCOL setzen -- das Gegenteil ist der Fall, und passt sogar zu den
+     eigenen Messdaten von vorhin: TXCOL feuerte in KEINEM der beiden ID-Konflikt-Tests,
+     nur RXINTO bzw. UNEXPB. TXCOL meldet ausschliesslich echte physikalische Kollisionen
+     ausserhalb der PLCA-Arbitrierung, keine ID-Adresskonflikte.
+  2. **STS1.UNCRS war zu generisch beschrieben** ("unerwartete Traegererkennung"). Laut
+     Datenblatt ACMA-Modus-spezifisch ("carrier sense during this PHY's transmit slot when
+     ACMA is asserted") -- auf diesem Projekt (kein ACMA) praktisch nie relevant.
+  Bestaetigt (keine Korrektur noetig): STS1.RXINTO ("could indicate multiple nodes being
+  assigned the same Local ID" -- exakt unser Fund), STS1.UNEXPB (exakt unser Fund),
+  PRSSTS.MAXID (siehe oben, jetzt mit Wortlaut belegt statt nur Verhaltensvermutung).
+  Neu entdeckt, vorher nicht bekannt: STS3.ERRTOID ist laut Datenblatt "only accurate if one
+  unmasked interrupt status bit is set in the Status 1 register. If multiple interrupt
+  status bits are set, then this field represents the transmit opportunity for only the
+  most recent" -- plca_stat zeigt aber routinemaessig mehrere STS1-Events gleichzeitig, in
+  genau diesen Faellen ist ERRTOID also nicht verlaesslich. Alle vier Punkte in
+  lan865x_diag.c/.h korrigiert bzw. mit Datenblatt-Zitat belegt. Merksatz: Ein Registermodell,
+  das nur Bitnamen und -positionen extrahiert (ohne die Fliesstext-Funktionsbeschreibung),
+  verleitet dazu, aus dem Namen allein eine plausibel klingende, aber falsche Bedeutung zu
+  erraten (TXCOL "klingt" nach jeder Art Kollision) -- vor einer Interpretation eines Bits
+  in einem neuen Diagnose-Feature den Fliesstext im echten Datenblatt lesen, nicht nur den
+  Bitnamen im Modell-Extrakt.
+
+  Abgehakt 2026-08-29, nicht weiter verfolgt: SQI (SQICTL/SQICFG0/SQICFG2/SQISTS0, siehe
+  Eintraege oben) bleibt ein offener, ungeklaerter Befund -- SQIVLD wurde in keinem Testlauf
+  gültig (auch nicht mit mehrsekuendigem echtem TCP-Verkehr vom beobachteten Knoten), die
+  dokumentierten Bits blieben immer 0x00, nur die ungeklaerten Bits 15:8 aenderten sich. Kein
+  produktiver plca_stat-Code fuer SQI geschrieben. Bei Bedarf hier wieder aufsetzen, statt neu
+  zu ermitteln -- nicht ohne neuen Anlass (z. B. echten SPI-Mitschnitt) weiterbohren.
+
+  Methodik-Merksatz aus dem ganzen 2026-08-29-PLCA-Durchlauf: Der eigentliche Hebel war die
+  Kombination aus **drei physisch unabhaengigen Knoten mit je eigenem Konsolenzugang**
+  (Bridge COM8, Follower A COM10, Follower B COM23), **Register-CLI** (lan_read/lan_rmw/
+  plca_stat) und **lokalem Datenblatt-Volltext** (siehe lan8651-datenblatt-lokal.md im
+  projektuebergreifenden Memory). Zwei falsche Theorien an diesem Tag (SQISTS0 Byte-Shift,
+  PRSSTS.MAXID als Echo der eigenen NODE_CNT) wurden nicht durch Nachdenken widerlegt,
+  sondern durch gezielt herbeigefuehrte, physisch reale Bus-Zustaende (Doppel-Coordinator,
+  Doppel-Knoten, NODE_CNT-Mismatch, Verkehr an/aus). Bei kuenftigen unklaren Registern:
+  zuerst eine Hypothese formulieren, die sich mit einem am Bench herstellbaren Zustand
+  unterscheidbar pruefen laesst -- nicht aus dem Bitnamen allein eine Bedeutung erraten.
+
+  Nachtrag 2026-08-29 (Verifikation der restlichen plca_stat-Register gegen den Volltext,
+  Seiten 198/227-231/280-282): CTRCTRL und STATS10.XCOL bestaetigt wie im Code angenommen.
+  Zwei neue, wichtige Funde:
+  1. **TOCNTH/TOCNTL und BCNCNTH/BCNCNTL muessen in dieser Reihenfolge gelesen werden** (High
+     vor Low). Datenblatt woertlich (TOCNTH): "the contents of the 32-bit... counter will be
+     latched into the high and low counter register pair... The 32-bit counter will be reset
+     when the contents are latched." Und (TOCNTL): "The contents of this register will be
+     latched upon reading of the [High] register." Liest man Low zuerst oder in falscher
+     Reihenfolge, bekommt man Haelften aus unterschiedlichen Latch-Ereignissen. Unser
+     s_plcastat_addr in lan865x_diag.c hatte zufaellig schon die richtige Reihenfolge (High
+     vor Low fuer beide Paare) -- ohne diese Regel gekannt zu haben. Jetzt als Kommentar in
+     lan865x_diag.h festgehalten, damit eine kuenftige Umsortierung das nicht stillschweigend
+     bricht.
+  2. **PLCA_CTRL1.NCNT wird nur auf dem Coordinator (ID=0) ausgewertet.** Datenblatt woertlich:
+     "This field must be configured correctly on the node with ID=0 (Controller). Nodes
+     configured with ID other than zero (Followers) ignore this field." Das erklaert sauber,
+     warum PRSSTS.MAXID immer den Coordinator-Wert zeigt -- es ist der einzige, der ueberhaupt
+     zaehlt. Praktische Konsequenz: unser `setenv plca_cnt 12` auf Follower A (COM10, ID 3)
+     weiter oben war auf echter Hardware wirkungslos, nur die Aenderung auf dem Coordinator
+     (COM23, ID 0) hat tatsaechlich etwas bewirkt. `setenv`/`env.c` warnt davon bisher nicht --
+     ggf. Kandidat fuer eine spaetere CLI-Hinweismeldung ("plca_cnt wird nur auf dem
+     Coordinator ausgewertet"), aber noch nicht umgesetzt.
+
+  Bonus-Fund, ebenfalls nicht umgesetzt: PLCA_CTRL0.EN empfiehlt explizit, bei aktivem PLCA
+  die physische Kollisionserkennung (CDCTL0.CDEN) zu deaktivieren ("recommended to disable
+  physical layer collision detection to achieve a higher level of noise tolerance"). CDEN
+  steht auf allen Boards noch auf Werksdefault (1 = aktiv).
+- 2026-08-29 -- PLCA Burst Mode (PLCA_BURST, 0x0004CA05, MAXBC[15:8]/BTMR[7:0]) live verifiziert,
+  aber erst der zweite Testaufbau war eindeutig. Hintergrund: aus der Audio-Bandbreitenrechnung
+  vom selben Tag stellte sich die Frage, ob Burst Mode (mehrere Frames pro eigener Transmit
+  Opportunity, statt nur einem) tatsaechlich etwas bringt.
+  **Erster Versuch, nicht eindeutig:** Follower A (COM10) mit MAXBC=4 konfiguriert, iperf
+  Follower A -> Follower B ohne weitere Buslast. TCP: ~5,76 vs. ~5,80 Mbit/s (kein Unterschied
+  -- TCP wartet nach jedem Paket auf ACK, es baut sich nie ein Rueckstau auf, den Burst Mode
+  abbauen koennte). UDP-Flood (10 Mbit/s Ziel) ohne/mit Burst: 9.338 vs. 9.502 Kbps, nur +1,76 %
+  -- zu klein, um sicher von Messrauschen zu unterscheiden (nur je ein Lauf), weil beide schon
+  nahe an der 10-Mbit/s-Leitungsgrenze lagen (nur 2 echte Sender auf 12 Slots, kaum Konkurrenz
+  um die eigene Transmit Opportunity).
+  **Sackgassen auf dem Weg zu einem dritten, echt konkurrierenden Sender:** `noip_send <n> <gap>
+  <size>` mit n>1 scheidet aus (schon dokumentierte Sackgasse oben, geteilter Puffer). Ein
+  dritter gleichzeitiger `iperf`-Fluss von der Bridge scheiterte zunaechst an
+  `TCPIP_IPERF_MAX_INSTANCES=1` (`configuration.h:313`) -- jeder Knoten kann nur eine iperf-
+  Rolle gleichzeitig halten, Follower A und B waren beide schon durch den eigentlichen Testlauf
+  belegt.
+  **Loesung:** UDP braucht keine Gegenstelle, die eine Verbindung aktiv annimmt (kein Handshake
+  wie TCP). Die Bridge kann also `iperf -c 192.168.0.202 -u -b 10000000 -t 30` Richtung
+  Follower B schicken, OHNE dass dort ein iperf-Server dafuer laeuft oder eine zweite Instanz
+  belegt wird -- die Pakete landen einfach unbeachtet an, solange ARP das Ziel-MAC aufloesen
+  kann. Damit nutzt jeder der drei Knoten nur seine eine eigene Instanz: Bridge = Client
+  (ignorierte Flut), Follower A = Client (gemessen), Follower B = Server (bedient A, verwirft
+  die Bridge-Pakete stillschweigend).
+  **Zweiter Testaufbau, eindeutig:** Bridge flutet Follower B im Hintergrund (`-t 30`, 4 s
+  Vorlauf vor dem eigentlichen Testlauf, um Ueberlappung sicherzustellen -- ein erster Versuch
+  mit nur 1 s Vorlauf und `-t 14` lief der Bridge-Flut zeitlich davon und ergab einen falsch
+  gemischten Messwert). Follower A -> Follower B UDP, 10 s, unter dieser Konkurrenz:
+  - Burst aus (MAXBC=0): **4.698 Kbps**, ueber die volle Messdauer absolut konstant.
+  - Burst an (MAXBC=4): **7.913 Kbps**, ebenso konstant.
+  - **+68 % Durchsatzgewinn.** Zweimal komplett wiederholt (Server/Flood neu gestartet, Burst
+    aus/an neu gesetzt) -- beide Male exakt dieselben Werte bis auf die Kbps-Stelle. Kein
+    Rauschen, ein robuster, deterministischer Effekt.
+  Merksatz: Burst Mode bringt nur etwas, wenn am eigenen Knoten tatsaechlich ein Rueckstau
+  entsteht (die eigene Transmit-Opportunity-Wiederkehr also langsamer ist, als neue Daten
+  ankommen) -- ohne echte Buskonkurrenz (oder TCP-Flusskontrolle, die von sich aus keinen
+  Rueckstau zulaesst) gibt es nichts zu "bursten", und die Messung bleibt im Rauschen. Fuer
+  einen eindeutigen Test aktiv Konkurrenz erzeugen, nicht nur Ziel-Bandbreite hochsetzen.
+
+  Anschluss-Messreihe, selber Tag: NCNT-Erhoehung allein (ohne Burst, ohne Bridge-Flut) senkt
+  den erreichbaren Durchsatz zwischen Follower A und Follower B messbar und reproduzierbar,
+  weil mehr leere Slots pro Zyklus die eigene Wiederkehr verlangsamen -- derselbe Mechanismus,
+  den Burst Mode kompensieren kann, hier aber isoliert ohne Burst betrachtet (UDP, 10 Mbit/s
+  Ziel, jeweils 10 s, NCNT auf dem Coordinator/Follower B ueber setenv plca_cnt gesetzt,
+  danach wieder auf 12 zurueckgesetzt):
+
+  | NCNT | Durchsatz | 1/Durchsatz |
+  |---|---|---|
+  | 12  | 9.338 Kbps | 1,0709e-4 |
+  | 100 | 7.572 Kbps | 1,3207e-4 |
+  | 150 | 6.864 Kbps | 1,4569e-4 |
+  | 200 | 6.277 Kbps | 1,5931e-4 |
+
+  Der Rueckgang ist NICHT linear in NCNT, sondern linear im KEHRWERT des Durchsatzes -- die
+  Steigung von 1/Durchsatz pro zusaetzlichem NCNT-Schritt ist ueber alle drei Intervalle fast
+  identisch (2,84e-7 fuer 12->100, 2,72e-7 fuer 100->150, 2,72e-7 fuer 150->200, die letzten
+  beiden praktisch deckungsgleich). Das passt exakt zum physikalischen Modell: die Zykluszeit
+  waechst linear mit NCNT (jeder leere Slot kostet einen festen TOTMR-artigen Betrag), aber
+  Durchsatz ist umgekehrt proportional zur Zykluszeit (Durchsatz ~ konstant / (a + b*NCNT)) --
+  eine reziproke, keine lineare Kurve. Merksatz: bei einer vermuteten "mehr X kostet linear
+  mehr Zeit"-Ursache eher die Kehrwerte der gemessenen Rate pruefen, nicht die Rate selbst auf
+  Linearitaet -- Rate und zugrundeliegende Zeit verhalten sich genau umgekehrt zueinander.
+
+  Durch Burst-Mode-Test + NCNT-Messreihe verhaltensmaessig verifizierte Register (zusaetzlich
+  zur reinen Text-Verifikation weiter oben): **PLCA_BURST.MAXBC** (reproduzierbarer +68%-
+  Durchsatzgewinn unter echtem Rueckstau, exakt in die vom Datenblatt beschriebene Richtung),
+  **PLCA_CTRL1.NCNT** (Coordinator-only-Wirkung mehrfach ueber vier verschiedene Werte
+  reproduziert, plus der reziproke statt lineare Zusammenhang zur Zykluszeit als neue,
+  quantitative Erkenntnis), und **PRSSTS.MAXID** (zeigte bei allen vier NCNT-Werten exakt den
+  gesetzten Wert, nicht nur im einzelnen Mismatch-Fall von vorhin). Nur als Messwerkzeug
+  mitgelaufen, dabei aber nicht neu geprueft: PLCA_STS.PST sowie die restlichen plca_stat-
+  Register (STS1, TOCNT/BCNCNT) -- die liefen im Hintergrund korrekt, ohne dass dieser Test
+  speziell auf sie abzielte.
+- 2026-08-29 -- Wall Clock (TSU, MMS 1: MAC_TSH 0x00010070, MAC_TSL 0x00010074, MAC_TN
+  0x00010075, MAC_TI 0x00010077) live verifiziert -- Datenblatt-Abschnitt "Wall Clock" (Seite
+  ~74/375 im PDF) beschreibt einen 94-Bit-Timer, der bei jedem Tick der 25-MHz-Referenzuhr um
+  den in MAC_TI konfigurierten Wert erhoeht wird (Standard: 0x28 = 40 ns/Tick, 25 MHz x 40 ns =
+  exakt 1 s -- ein sofort nachrechenbarer Cross-Check). MAC_TI stand beim ersten Nachsehen
+  bereits auf 0x28, obwohl diese Firmware kein PTP implementiert -- vermutlich vom Harmony-
+  Treiber beim Boot gesetzt, nicht von eigenem Code.
+  **Erster Messversuch, methodisch unbrauchbar:** MAC_TSH/TSL/TN auf 0 gesetzt (3 einzelne
+  CLI-Aufrufe in einem Bash-Call), 10 s gewartet (separater Bash-Call), zurueckgelesen (3
+  weitere einzelne Aufrufe in einem dritten Bash-Call) -- Ergebnis 48,7 s statt 10 s erwarteter
+  Zeit. Ursache: die unkontrollierte Luecke ZWISCHEN den drei separaten Bash-Tool-Aufrufen
+  (inklusive der Zeit, die das Modell selbst zwischen den Aufrufen braucht) ist genauso Teil
+  der gemessenen Spanne wie das eigentliche `sleep 10` -- eine Zeitmessung ueber mehrere
+  getrennte Tool-Aufrufe hinweg ist damit grundsaetzlich unzuverlaessig.
+  **Zweiter Versuch, besser:** Zwei Zeitstempel (vor/nach `sleep 10`) innerhalb EINES
+  einzigen Bash-Aufrufs genommen, nur die Differenz betrachtet (unabhaengig vom Nullpunkt).
+  Delta 14,36 s statt 10 s -- deutlich besser (die grosse Bash-Call-uebergreifende Luecke ist
+  weg), aber die vier einzelnen `lan_read`-Aufrufe (TSL+TN je zweimal) innerhalb dieses einen
+  Calls addieren immer noch ~4,4 s eigene Round-Trip-Zeit drauf.
+  **Dritter Versuch, sauber:** 10 Messpunkte ueber ~20 s Zielintervall (real durch CLI-Overhead
+  eher ~5,6 s pro Iteration), aber diesmal mit **Host-Zeitstempel** (`date +%s.%N` direkt vor
+  jedem Register-Lesevorgang, innerhalb desselben Bash-Skripts) als Referenz statt eines
+  angenommenen `sleep`-Werts -- macht die Messung unabhaengig von der tatsaechlichen
+  CLI-Latenz, weil Host-Zeit und Register-Wert am selben Punkt erfasst werden.
+  Ergebnis (Host-Delta vs. Wallclock-Delta, jeweils gegen Sample 1, ppm-Abweichung):
+  Sample 2: +186.035 ppm, Sample 5: +44.847 ppm, Sample 8: +25.278 ppm -- drei klare
+  Ausreisser. Alle anderen sechs Punkte (3,4,6,7,9,10): zwischen -351 und +1.358 ppm, klar
+  im Rahmen normaler Quarztoleranz.
+  **Erklaerung der Ausreisser, kein Fehler der Wall Clock selbst:** TSL und TN werden ueber
+  ZWEI GETRENNTE lan_read-Aufrufe gelesen, nicht atomar. Faellt zwischen den beiden ein
+  Sekundenuebertrag (TN laeuft ueber 1s in TSL's naechste Sekunde), entsteht ein
+  inkonsistentes (TSL, TN)-Paar -- das erzeugt genau diese Art grosser Einzelausreisser,
+  unabhaengig von der tatsaechlichen Taktgenauigkeit. Bei ~5,6 s Iterationsabstand (kein
+  glatter Teiler von 1 s) trifft das pseudo-zufaellig einzelne Samples, hier 3 von 9
+  Intervallen.
+  **Fazit:** Wall Clock laeuft nachweislich mit der im Datenblatt beschriebenen Rate, praezise
+  auf ±100-1.400 ppm zur Host-Uhr (normale Quarztoleranz, kein Register-/Konfigurationsfehler).
+  Merksatz fuer kuenftige Zeitmessungen ueber die serielle Konsole: (a) niemals ueber mehrere
+  getrennte Tool-/Bash-Aufrufe hinweg messen, die dazwischenliegende Luecke ist unkontrolliert
+  und kann die Messung um ein Vielfaches verfaelschen (48,7s-Artefakt oben); (b) Host-
+  Zeitstempel direkt am Messpunkt nehmen, nicht einen angenommenen Schlafwert als Referenz
+  verwenden; (c) bei mehrteiligen Registern (High+Low, Sekunden+Nanosekunden), die nicht
+  atomar ueber eine serielle Schnittstelle gelesen werden koennen, Ausreisser durch
+  Sekunden-/Bit-Uebertrag einplanen und per Wiederholung/Ausreisser-Filterung herausrechnen,
+  nicht einzelne Messpunkte fuer bare Muenze nehmen.
+- 2026-08-29 -- Voller LAN8651-Chip-Reset gefunden und verifiziert: **OA_RESET.SWRESET**
+  (0x00000003, Bit 0, MMS 0, self-clearing). Datenblatt woertlich (11.1.4, S. 124): "Writing a
+  '1' to this bit will fully reset the device including the integrated PHY." Ein einziger
+  lan_write reicht, kein vorheriges Abschalten von TX/RX noetig.
+  **Test:** Einmal-Skript (nicht im Projekt getrackt, liegt im Scratchpad dieser Session)
+  haelt die serielle Verbindung offen, loest den Reset aus, liest danach alle 183 Register aus
+  lan8651_model.json einzeln per lan_read und vergleicht gegen die im Modell dokumentierten
+  Bitfeld-Reset-Werte (nur Bits mit bekanntem Reset-Wert werden verglichen, unbekannte/Luecken-
+  Bits werden ignoriert).
+  **Ergebnis, zweimal wiederholt:** 147/183 bzw. 145/183 Register zeigen exakt den
+  dokumentierten Silizium-Default -- der Reset findet also nachweislich wirklich statt. Die
+  verbleibenden ~35 Register weichen aber ab, und zwar **reproduzierbar dieselben** in beiden
+  Laeufen (nur STATS11/STATS12 und ein paar Zaehlerstaende unterschieden sich minimal
+  zwischen den Durchgaengen).
+  **Ursache der Abweichungen: der Harmony-LAN865X-Treiber heilt einen externen PHY-Reset
+  selbststaendig, viel schneller als wir per Konsole nachlesen koennen.** Fund im Treiber-
+  Quelltext (`drv_lan865x_api.c`, Funktion `_OnClearStatus0`, ~Zeile 2342): OA_STATUS0-Bit 4
+  ("Loss of Framing Error") setzt bei Erkennung `reinit = true`, was `initState =
+  DRV_LAN865X_INITSTATE_RESET` ausloest und die komplette Treiber-Initialisierung erneut
+  anstoesst -- inklusive Neuschreiben von MAC-Adresse, PLCA-Konfiguration (aus dem
+  persistierten Environment), Wall-Clock-Inkrement, Kollisionserkennung deaktivieren, TX/RX-
+  Match-Konfiguration und Interrupt-Masken. Betroffene Register (reproduzierbar in beiden
+  Laeufen): OA_CONFIG0, OA_IMASK0, MAC_NCR, MAC_NCFGR, MAC_SAB1/SAB2/SAT2 (eigene MAC-Adresse),
+  MAC_TSL/TN/TI (Wall Clock laeuft wieder), STS1/STS3/PRSSTS/STATS6/STATS7 (plausible
+  Nebeneffekte des laufenden Resync -- neue Events, ein paar empfangene Frames), TXMCTL/
+  TXMMSKH/TXMMSKL/TXMLOC, RXMCTL/RXMMSKH/RXMMSKL/RXMLOC, SLPCTL0/SLPCTL1, CDCTL0 (CDEN wird
+  vom Treiber explizit AUSgeschaltet -- genau die Datenblatt-Empfehlung "disable collision
+  detection when PLCA is active" von weiter oben, hier real umgesetzt gefunden), PLCA_CTRL0/
+  PLCA_CTRL1/PLCA_STS (PLCA laeuft nach dem Reset innerhalb von Sekundenbruchteilen wieder),
+  MISC, ECCCTRL, ECCLKSL, ECCLKNS, ECRDTSn, SEVIM.
+  **Warum sich "alle echten Reset-Werte" architektonisch nicht auslesen lassen:** Das TC6/OPEN-
+  Alliance-SPI-Protokoll traegt Statusinformationen (inklusive Bit 4 "Loss of Framing Error")
+  im Footer JEDER SPI-Transaktion, nicht ueber einen separaten Poll-Zyklus. Der erste
+  `lan_read`-Befehl nach dem Reset IST bereits eine SPI-Transaktion und liefert damit selbst
+  den Trigger fuer den Reinit, bevor sein Ergebnis überhaupt zurückkommt -- es gibt kein
+  Zeitfenster, das man mit schnellerem Auslesen "gewinnen" koennte. Um wirklich an die reinen
+  Silizium-Reset-Werte dieser ~35 Register zu kommen, muesste man die Footer-Auswertung im
+  TC6-Treiber selbst patchen (Kernprotokoll-Logik einer Vendor-Bibliothek) -- fuer einen
+  einmaligen Test nicht sinnvoll, daher nicht gemacht.
+  **Nicht abschliessend geklaert, moeglicherweise falsche Reset-Werte im eigenen Modell:**
+  TXMMSKH/TXMMSKL/RXMMSKH/RXMMSKL zeigen nach dem (Treiber-reinitialisierten) Reset durchgaengig
+  alle Bits gesetzt (0xFF/0xFFFF), TXMLOC/RXMLOC durchgaengig 0 -- beides das genaue Gegenteil
+  der im Modell dokumentierten Default-Werte. Das koennte Treiber-Konfiguration sein (z. B.
+  "alle Typ-ID-Bits als don't-care maskieren" als sinnvolle Startkonfiguration), oder es koennte
+  bedeuten, dass lan8651_model.json hier falsche Reset-Werte dokumentiert. Nicht gegen den
+  Datenblatt-Volltext geprueft; falls diese Register spaeter fuer Diagnose relevant werden,
+  vor einer Interpretation den Volltext (Abschnitt zu TXMMSKH/L, RXMMSKH/L, TXMLOC/RXMLOC)
+  nachlesen statt dem Modell-Extrakt zu vertrauen.
+  **Positive Erkenntnis aus dem Ganzen:** Die urspruengliche Warnung, ein externer PHY-Reset
+  wuerde den Treiber dauerhaft verwaisen lassen und eth0 bis zu einem MCU-Reset kaputt machen,
+  war zu pessimistisch -- dieser Treiber erkennt und heilt einen unerwarteten LAN8651-Reset im
+  laufenden Betrieb selbststaendig und zuverlaessig, ohne dass ein `reset` der Bridge noetig
+  waere.
+  **Merksatz zur Modellpflege, direkt aus einem Nutzer-Einwand entstanden:** Von den 145
+  "MATCH"-Registern hatten nur 37 einen nicht-trivialen (nicht durchgehend Null) Reset-Wert --
+  die restlichen 108 sind reine Alles-Null-Register, bei denen eine Uebereinstimmung kaum
+  Aussagekraft hat (jedes ungenutzte Register liest nach praktisch jedem Reset 0, unabhaengig
+  davon, ob die im Modell dokumentierten Bitgrenzen ueberhaupt stimmen). Nur die 37 Register mit
+  echtem, spezifischem Reset-Muster wurden im Modell als "hardware-confirmed" markiert; die 108
+  trivialen blieben unveraendert. Erster Versuch, alle 145 pauschal als bestaetigt zu markieren,
+  waere irrefuehrend gewesen -- vor einem Verifikations-Upgrade im Modell pruefen, ob der
+  Vergleichswert ueberhaupt aussagekraeftig ist (nicht-trivial), nicht nur ob er uebereinstimmt.
+  Zusaetzlich technischer Fallstrick beim Modell-Editieren selbst: ein erster Versuch, die
+  verified-Felder per vollem `json.load`/`json.dump`-Roundtrip zu aktualisieren, hat die
+  GESAMTE Datei umformatiert (906 statt der erwarteten ~57 geaenderten Zeilen), weil json.dump
+  das urspruengliche Datei-Layout nicht exakt reproduziert -- Aenderung verworfen (`git
+  checkout`) und stattdessen wie beim ersten Modell-Update per gezielter Text-/Regex-Ersetzung
+  auf der Rohdatei gemacht (siehe fruehere Eintraege). Bei handgepflegten JSON-Dateien mit
+  festem Layout: nie ueber vollen Parse+Dump aktualisieren, wenn nur einzelne Felder geaendert
+  werden sollen.

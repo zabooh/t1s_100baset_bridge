@@ -85,6 +85,22 @@ static uint64_t s_revert_tick  = 0u;
 static uint8_t s_plca_node_id  = DRV_LAN865X_PLCA_NODE_ID_IDX0;
 static uint8_t s_plca_node_cnt = DRV_LAN865X_PLCA_NODE_COUNT_IDX0;
 
+/* plca_stat: reads a fixed sequence of PLCA-related registers through the same
+ * single-slot state machine, one lan_read per LAN865X_DIAG_Tasks() iteration.
+ * s_plcastat_start_pending covers the one-time counter-enable RMW that precedes
+ * the very first sequence; s_plcastat_active covers the sequence itself. */
+#define PLCASTAT_STEPS 10u
+static const uint32_t s_plcastat_addr[PLCASTAT_STEPS] = {
+    LAN865X_PLCA_STS, LAN865X_STS1,   LAN865X_STS3,    LAN865X_PRSSTS,
+    LAN865X_TOCNTH,   LAN865X_TOCNTL, LAN865X_BCNCNTH, LAN865X_BCNCNTL,
+    LAN865X_STATS10,  LAN865X_T1SPCSDIAG2
+};
+static uint32_t s_plcastat_val[PLCASTAT_STEPS];
+static uint8_t  s_plcastat_idx           = 0u;
+static bool     s_plcastat_active        = false;
+static bool     s_plcastat_start_pending = false;
+static bool     s_plca_ctrs_enabled      = false;
+
 /* SYS_TIME ticks per millisecond, resolved on first use. */
 static uint64_t s_ticks_per_ms = 0u;
 
@@ -118,6 +134,84 @@ static void lan_abort(void) {
     s_op_initiated   = false;
     s_verify_armed   = false;
     s_verify_pending = false;
+}
+
+/* Decode the values collected by a completed plca_stat sequence (see
+ * s_plcastat_addr for the order) and print the report. */
+static void lan_plcastat_report(void) {
+    uint32_t plca_sts = s_plcastat_val[0];
+    uint32_t sts1     = s_plcastat_val[1];
+    uint32_t sts3     = s_plcastat_val[2];
+    uint32_t prssts   = s_plcastat_val[3];
+    uint32_t tocnt    = ((s_plcastat_val[4] & 0xFFFFu) << 16) | (s_plcastat_val[5] & 0xFFFFu);
+    uint32_t bcncnt   = ((s_plcastat_val[6] & 0xFFFFu) << 16) | (s_plcastat_val[7] & 0xFFFFu);
+    uint32_t xcol     = s_plcastat_val[8] & 0xFFu;
+    uint32_t cortxcnt = s_plcastat_val[9] & 0xFFFFu;
+
+    SYS_CONSOLE_PRINT("[PLCA] link: %s (PLCA_STS.PST=%u)\n\r",
+                      (plca_sts & 0x8000u) ? "in range" : "OUT OF RANGE",
+                      (unsigned int)((plca_sts >> 15) & 0x1u));
+    /* Datasheet-confirmed (11.5.16, see LAN865X_PRSSTS in the header): the coordinator's
+     * configured TO count between BEACONs, not this node's own PLCA_CTRL1.NODE_CNT. */
+    SYS_CONSOLE_PRINT("[PLCA] coordinator cycle length: %u (PRSSTS.MAXID, may differ from our own NODE_CNT)\n\r",
+                      (unsigned int)((prssts >> 8) & 0xFFu));
+    SYS_CONSOLE_PRINT("[PLCA] since last check: %lu transmit opportunities, %lu BEACONs\n\r",
+                      (unsigned long)tocnt, (unsigned long)bcncnt);
+
+    /* Per datasheet (11.5.4) this is only accurate when exactly one unmasked STS1 bit is
+     * set - our reports routinely show several at once, so treat this as a rough pointer,
+     * not a reliable value, whenever more than one [PLCA] event line follows. */
+    if ((sts3 & 0xFFu) != 0u) {
+        SYS_CONSOLE_PRINT("[PLCA] last transmit-opportunity event at ID %u (STS3.ERRTOID, unreliable if multiple events below)\n\r",
+                          (unsigned int)(sts3 & 0xFFu));
+    }
+
+    /* Datasheet (11.5.2): "Physical collision on the network was detected. This does not
+     * include logical collisions due to normal operation of PLCA." A duplicate PLCA ID does
+     * NOT set this - that shows up as RXINTO/UNEXPB below instead, confirmed on this bench. */
+    if (sts1 & LAN865X_STS1_TXCOL) {
+        SYS_CONSOLE_PRINT("[PLCA] event: PHYSICAL TRANSMIT COLLISION (STS1.TXCOL) - not a PLCA addressing conflict, a real electrical-layer fault\n\r");
+    }
+    if (xcol != 0u) {
+        SYS_CONSOLE_PRINT("[PLCA] excessive collisions since last check: %u (STATS10.XCOL - MAC-level, datasheet warns this can be confused by PLCA's own logical collisions)\n\r",
+                          (unsigned int)xcol);
+    }
+    /* Datasheet section 7.3: the counter actually recommended for this purpose, immune to
+     * PLCA's internal logical collisions unlike a plain MAC counter (XCOL above). "In a
+     * properly configured and operating PLCA mixing segment, no transmit collisions should
+     * be detected and the transmit collision counter should remain zero." */
+    if (cortxcnt != 0u) {
+        SYS_CONSOLE_PRINT("[PLCA] corrupted transmissions since last check: %u (T1SPCSDIAG2.CORTXCNT - the datasheet-recommended physical collision counter)\n\r",
+                          (unsigned int)cortxcnt);
+    }
+    if (sts1 & LAN865X_STS1_UNEXPB) {
+        SYS_CONSOLE_PRINT("[PLCA] event: unexpected BEACON received - check for a second coordinator\n\r");
+    }
+    if (sts1 & LAN865X_STS1_BCNBFTO) {
+        SYS_CONSOLE_PRINT("[PLCA] event: BEACON received before our own transmit opportunity\n\r");
+    }
+    if (sts1 & LAN865X_STS1_RXINTO) {
+        SYS_CONSOLE_PRINT("[PLCA] event: frame received during our own transmit opportunity\n\r");
+    }
+    if (sts1 & LAN865X_STS1_EMPCYC) {
+        SYS_CONSOLE_PRINT("[PLCA] event: empty PLCA cycle - no node transmitted\n\r");
+    }
+    /* Datasheet: ACMA-mode specific. We don't use ACMA on this project; unlikely to fire. */
+    if (sts1 & LAN865X_STS1_UNCRS) {
+        SYS_CONSOLE_PRINT("[PLCA] event: unexpected carrier sense during ACMA time slot (STS1.UNCRS)\n\r");
+    }
+    /* Datasheet: "detection of PLCA BEACON symbols when PLCA is not enabled... the local
+     * node is operating with PLCA disabled on a segment with PLCA enabled nodes." Fires on
+     * THIS node when PLCA is off locally but others on the segment run PLCA. */
+    if (sts1 & LAN865X_STS1_PLCASYM) {
+        SYS_CONSOLE_PRINT("[PLCA] event: PLCA symbols detected while PLCA is disabled locally (STS1.PLCASYM)\n\r");
+    }
+    if (sts1 & LAN865X_STS1_PSTC) {
+        SYS_CONSOLE_PRINT("[PLCA] event: PLCA status changed since last check\n\r");
+    }
+    if ((sts1 & LAN865X_STS1_PLCA_MASK) == 0u) {
+        SYS_CONSOLE_PRINT("[PLCA] no PLCA event flags since last check\n\r");
+    }
 }
 
 // *****************************************************************************
@@ -254,6 +348,36 @@ void LAN865X_DIAG_ApplyPlca(uint8_t node_id, uint8_t node_cnt) {
                       (unsigned)node_id, (unsigned)node_cnt, s_value);
 }
 
+bool LAN865X_DIAG_PlcaStat(void) {
+    if (s_state != LAN_IDLE) {
+        return false;
+    }
+
+    if (!s_plca_ctrs_enabled) {
+        /* One-time: TOCNT/BCNCNT stay at zero until CTRCTRL enables them. No
+         * verify readback - the counts reported afterwards speak for themselves. */
+        s_plca_ctrs_enabled      = true;
+        s_plcastat_start_pending = true;
+        s_addr           = LAN865X_CTRCTRL;
+        s_mask           = LAN865X_CTRCTRL_TOCTRE | LAN865X_CTRCTRL_BCNCTRE;
+        s_value          = s_mask;
+        s_verify_armed   = false;
+        s_verify_pending = false;
+        s_op_complete    = false;
+        s_op_initiated   = false;
+        s_state          = LAN_WAIT_RMW;
+        SYS_CONSOLE_PRINT("[PLCA] enabling transmit-opportunity/BEACON counters (one-time)\n\r");
+    } else {
+        s_plcastat_active = true;
+        s_plcastat_idx    = 0u;
+        s_addr            = s_plcastat_addr[0];
+        s_op_complete     = false;
+        s_op_initiated    = false;
+        s_state           = LAN_WAIT_READ;
+    }
+    return true;
+}
+
 // *****************************************************************************
 // Section: State machine service
 // *****************************************************************************
@@ -283,6 +407,28 @@ void LAN865X_DIAG_Tasks(void) {
                         SYS_CONSOLE_PRINT("LAN865X Read timeout for addr=0x%08X\n\r", (unsigned int)s_addr);
                         lan_abort();
                     }
+                }
+            } else if (s_plcastat_active) {
+                if (s_op_success) {
+                    s_plcastat_val[s_plcastat_idx] = s_read_value;
+                    s_plcastat_idx++;
+                    if (s_plcastat_idx < PLCASTAT_STEPS) {
+                        s_addr         = s_plcastat_addr[s_plcastat_idx];
+                        s_op_complete  = false;
+                        s_op_initiated = false;
+                        /* state stays LAN_WAIT_READ - next Tasks() call issues this read */
+                    } else {
+                        s_plcastat_active = false;
+                        s_op_initiated    = false;
+                        s_state           = LAN_IDLE;
+                        lan_plcastat_report();
+                    }
+                } else {
+                    SYS_CONSOLE_PRINT("[PLCA] stat read failed at addr=0x%08X - aborting\n\r",
+                                      (unsigned int)s_addr);
+                    s_plcastat_active = false;
+                    s_op_initiated    = false;
+                    s_state           = LAN_IDLE;
                 }
             } else {
                 if (s_op_success) {
@@ -396,6 +542,14 @@ void LAN865X_DIAG_Tasks(void) {
                     s_verify_pending = true;
                     s_op_complete    = false;
                     s_state          = LAN_WAIT_READ;
+                } else if (s_plcastat_start_pending) {
+                    /* Counter-enable RMW done - kick off the plca_stat read sequence. */
+                    s_plcastat_start_pending = false;
+                    s_plcastat_active        = true;
+                    s_plcastat_idx           = 0u;
+                    s_addr                   = s_plcastat_addr[0];
+                    s_op_complete            = false;
+                    s_state                  = LAN_WAIT_READ;
                 } else {
                     s_state = LAN_IDLE;
                 }
@@ -528,6 +682,19 @@ static void cmd_testmode(SYS_CMD_DEVICE_NODE* pCmdIO, int argc, char** argv) {
     (void)LAN865X_DIAG_TestMode(mode, secs);
 }
 
+/* plca_stat - PLCA bus health below the IP-frame level: link range, configured
+ * segment size, transmit-opportunity/BEACON counts since the last call, and any
+ * sticky PLCA event flags. BEACON/COMMIT control symbols never reach 'mirror'/
+ * 'sniffer' - those tap the RX frame path, and PLCA signaling sits below it - so
+ * this is the register-level substitute for a bus analyzer or oscilloscope. */
+static void cmd_plca_stat(SYS_CMD_DEVICE_NODE *pCmdIO, int argc, char **argv) {
+    if (LAN865X_DIAG_Busy()) {
+        SYS_CONSOLE_PRINT("%s", BUSY_MSG);
+        return;
+    }
+    (void)LAN865X_DIAG_PlcaStat();
+}
+
 static void cmd_plca_node(SYS_CMD_DEVICE_NODE *pCmdIO, int argc, char **argv) {
     if (argc < 2) {
         /* No parameter: show the node id and node count last applied */
@@ -547,6 +714,7 @@ static void cmd_lan_help(SYS_CMD_DEVICE_NODE* pCmdIO, int argc, char** argv) {
     SYS_CONSOLE_PRINT("  lan_rmw <addr> <mask> <val>  - Read-modify-write + verify: new=(old&~mask)|val\n\r");
     SYS_CONSOLE_PRINT("  testmode [0..4] [seconds]    - IEEE TX test mode, verified by readback (no arg = show)\n\r");
     SYS_CONSOLE_PRINT("  plca_node [id]               - Get/set PLCA node ID (no arg = show current)\n\r");
+    SYS_CONSOLE_PRINT("  plca_stat                    - PLCA bus health below IP-frame level (link/nodes/TO+BEACON counts/events)\n\r");
     SYS_CONSOLE_PRINT("\n\rAddress = (MMS << 16) | offset. MMS 3 = PHY PMA/PMD, MMS 4 = vendor specific.\n\r");
     SYS_CONSOLE_PRINT("Example: lan_read 0x0004CA02   (PLCA_CTRL1: NODE_CNT<<8 | NODE_ID)\n\r");
     SYS_CONSOLE_PRINT("Example: testmode 1 30         (test mode 1, auto-revert after 30 s)\n\r");
@@ -559,6 +727,7 @@ static const SYS_CMD_DESCRIPTOR lan_cmd_tbl[] = {
     {"lan_rmw",   (SYS_CMD_FNC) cmd_lan_rmw,    ": read-modify-write + verify (lan_rmw <addr> <mask> <value>)"},
     {"testmode",  (SYS_CMD_FNC) cmd_testmode,   ": IEEE transmitter test mode (testmode [0..4] [seconds], no arg = show)"},
     {"plca_node", (SYS_CMD_FNC) cmd_plca_node,  ": get/set PLCA node ID (plca_node [id], no arg: show current)"},
+    {"plca_stat", (SYS_CMD_FNC) cmd_plca_stat,  ": PLCA bus health below IP-frame level (link/nodes/TO+BEACON counts/events)"},
 };
 
 void LAN865X_DIAG_Initialize(void) {

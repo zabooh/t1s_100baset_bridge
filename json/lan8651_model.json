@@ -43,9 +43,9 @@
             "doc": "DS60001734F",
             "section": "11.1.1",
             "page": 120,
-            "date": "2026-08-25",
-            "by": "extraction + comparison, not read sentence by sentence",
-            "scope": "address, mnemonic, register title, bit ranges and bit field names"
+            "date": "2026-08-29",
+            "by": "extraction + comparison, not read sentence by sentence Reset value additionally hardware-confirmed: read back after triggering OA_RESET.SWRESET (full chip reset), matched the documented non-zero reset value bit-for-bit, reproduced across two independent reset cycles.",
+            "scope": "address, mnemonic, register title, bit ranges and bit field names, and the reset value (hardware-confirmed)"
           },
           "bits": {
             "7:4": {
@@ -75,9 +75,9 @@
             "doc": "DS60001734F",
             "section": "11.1.2",
             "page": 121,
-            "date": "2026-08-25",
-            "by": "extraction + comparison, not read sentence by sentence",
-            "scope": "address, mnemonic, register title, bit ranges and bit field names"
+            "date": "2026-08-29",
+            "by": "extraction + comparison, not read sentence by sentence Reset value additionally hardware-confirmed: read back after triggering OA_RESET.SWRESET (full chip reset), matched the documented non-zero reset value bit-for-bit, reproduced across two independent reset cycles.",
+            "scope": "address, mnemonic, register title, bit ranges and bit field names, and the reset value (hardware-confirmed)"
           },
           "bits": {
             "31:10": {
@@ -122,9 +122,9 @@
             "doc": "DS60001734F",
             "section": "11.1.3",
             "page": 122,
-            "date": "2026-08-25",
-            "by": "extraction + comparison, not read sentence by sentence",
-            "scope": "address, mnemonic, register title, bit ranges and bit field names"
+            "date": "2026-08-29",
+            "by": "extraction + comparison, not read sentence by sentence Reset value additionally hardware-confirmed: read back after triggering OA_RESET.SWRESET (full chip reset), matched the documented non-zero reset value bit-for-bit, reproduced across two independent reset cycles.",
+            "scope": "address, mnemonic, register title, bit ranges and bit field names, and the reset value (hardware-confirmed)"
           },
           "bits": {
             "10": {
@@ -496,9 +496,9 @@
             "doc": "DS60001734F",
             "section": "11.1.8",
             "page": 134,
-            "date": "2026-08-25",
-            "by": "extraction + comparison, not read sentence by sentence",
-            "scope": "address, mnemonic, register title, bit ranges and bit field names"
+            "date": "2026-08-29",
+            "by": "extraction + comparison, not read sentence by sentence Reset value additionally hardware-confirmed: read back after triggering OA_RESET.SWRESET (full chip reset), matched the documented non-zero reset value bit-for-bit, reproduced across two independent reset cycles.",
+            "scope": "address, mnemonic, register title, bit ranges and bit field names, and the reset value (hardware-confirmed)"
           },
           "bits": {
             "15:8": {
@@ -623,9 +623,9 @@
             "doc": "DS60001734F",
             "section": "11.1.10",
             "page": 139,
-            "date": "2026-08-25",
-            "by": "extraction + comparison, not read sentence by sentence",
-            "scope": "address, mnemonic, register title, bit ranges and bit field names"
+            "date": "2026-08-29",
+            "by": "extraction + comparison, not read sentence by sentence Reset value additionally hardware-confirmed: read back after triggering OA_RESET.SWRESET (full chip reset), matched the documented non-zero reset value bit-for-bit, reproduced across two independent reset cycles.",
+            "scope": "address, mnemonic, register title, bit ranges and bit field names, and the reset value (hardware-confirmed)"
           },
           "bits": {
             "28": {
@@ -935,9 +935,9 @@
             "doc": "DS60001734F",
             "section": "11.1.18",
             "page": 150,
-            "date": "2026-08-25",
-            "by": "extraction + comparison, not read sentence by sentence",
-            "scope": "address, mnemonic, register title, bit ranges and bit field names"
+            "date": "2026-08-29",
+            "by": "extraction + comparison, not read sentence by sentence Reset value additionally hardware-confirmed: read back after triggering OA_RESET.SWRESET (full chip reset), matched the documented non-zero reset value bit-for-bit, reproduced across two independent reset cycles.",
+            "scope": "address, mnemonic, register title, bit ranges and bit field names, and the reset value (hardware-confirmed)"
           },
           "bits": {
             "15": {
@@ -1041,9 +1041,9 @@
             "doc": "DS60001734F",
             "section": "11.1.19",
             "page": 153,
-            "date": "2026-08-25",
-            "by": "extraction + comparison, not read sentence by sentence",
-            "scope": "address, mnemonic, register title, bit ranges and bit field names"
+            "date": "2026-08-29",
+            "by": "extraction + comparison, not read sentence by sentence Reset value additionally hardware-confirmed: read back after triggering OA_RESET.SWRESET (full chip reset), matched the documented non-zero reset value bit-for-bit, reproduced across two independent reset cycles.",
+            "scope": "address, mnemonic, register title, bit ranges and bit field names, and the reset value (hardware-confirmed)"
           },
           "bits": {
             "15:8": {
@@ -1079,9 +1079,9 @@
             "doc": "DS60001734F",
             "section": "11.1.20",
             "page": 154,
-            "date": "2026-08-25",
-            "by": "extraction + comparison, not read sentence by sentence",
-            "scope": "address, mnemonic, register title, bit ranges and bit field names"
+            "date": "2026-08-29",
+            "by": "extraction + comparison, not read sentence by sentence Reset value additionally hardware-confirmed: read back after triggering OA_RESET.SWRESET (full chip reset), matched the documented non-zero reset value bit-for-bit, reproduced across two independent reset cycles.",
+            "scope": "address, mnemonic, register title, bit ranges and bit field names, and the reset value (hardware-confirmed)"
           },
           "bits": {
             "15:10": {
@@ -2277,9 +2277,9 @@
             "doc": "DS60001734F",
             "section": "11.2.36",
             "page": 198,
-            "date": "2026-08-25",
-            "by": "extraction + comparison, not read sentence by sentence",
-            "scope": "address, mnemonic, register title, bit ranges and bit field names"
+            "date": "2026-08-29",
+            "by": "full text read and compared against DS60001734F (local PDF copy)",
+            "scope": "address, mnemonic, register title, bit ranges, bit field names, and the prose function description"
           },
           "bits": {
             "7:0": {
@@ -2356,9 +2356,9 @@
             "doc": "DS60001734F",
             "section": "11.3.1",
             "page": 202,
-            "date": "2026-08-25",
-            "by": "extraction + comparison, not read sentence by sentence",
-            "scope": "address, mnemonic, register title, bit ranges and bit field names"
+            "date": "2026-08-29",
+            "by": "extraction + comparison, not read sentence by sentence Reset value additionally hardware-confirmed: read back after triggering OA_RESET.SWRESET (full chip reset), matched the documented non-zero reset value bit-for-bit, reproduced across two independent reset cycles.",
+            "scope": "address, mnemonic, register title, bit ranges and bit field names, and the reset value (hardware-confirmed)"
           },
           "bits": {
             "15": {
@@ -2416,9 +2416,9 @@
             "doc": "DS60001734F",
             "section": "11.3.3",
             "page": 204,
-            "date": "2026-08-25",
-            "by": "extraction + comparison, not read sentence by sentence",
-            "scope": "address, mnemonic, register title, bit ranges and bit field names"
+            "date": "2026-08-29",
+            "by": "full text read and compared against DS60001734F (local PDF copy)",
+            "scope": "address, mnemonic, register title, bit ranges, bit field names, and the prose function description"
           },
           "bits": {
             "15:0": {
@@ -2440,9 +2440,9 @@
             "doc": "DS60001734F",
             "section": "11.3.4",
             "page": 205,
-            "date": "2026-08-25",
-            "by": "extraction + comparison, not read sentence by sentence",
-            "scope": "address, mnemonic, register title, bit ranges and bit field names"
+            "date": "2026-08-29",
+            "by": "full text read and compared against DS60001734F (local PDF copy)",
+            "scope": "address, mnemonic, register title, bit ranges, bit field names, and the prose function description"
           },
           "bits": {
             "15:0": {
@@ -2469,9 +2469,9 @@
             "doc": "DS60001734F",
             "section": "11.4.1",
             "page": 207,
-            "date": "2026-08-25",
-            "by": "extraction + comparison, not read sentence by sentence",
-            "scope": "address, mnemonic, register title, bit ranges and bit field names"
+            "date": "2026-08-29",
+            "by": "extraction + comparison, not read sentence by sentence Reset value additionally hardware-confirmed: read back after triggering OA_RESET.SWRESET (full chip reset), matched the documented non-zero reset value bit-for-bit, reproduced across two independent reset cycles.",
+            "scope": "address, mnemonic, register title, bit ranges and bit field names, and the reset value (hardware-confirmed)"
           },
           "bits": {
             "3": {
@@ -2499,9 +2499,9 @@
             "doc": "DS60001734F",
             "section": "11.4.2",
             "page": 208,
-            "date": "2026-08-25",
-            "by": "extraction + comparison, not read sentence by sentence",
-            "scope": "address, mnemonic, register title, bit ranges and bit field names"
+            "date": "2026-08-29",
+            "by": "extraction + comparison, not read sentence by sentence Reset value additionally hardware-confirmed: read back after triggering OA_RESET.SWRESET (full chip reset), matched the documented non-zero reset value bit-for-bit, reproduced across two independent reset cycles.",
+            "scope": "address, mnemonic, register title, bit ranges and bit field names, and the reset value (hardware-confirmed)"
           },
           "bits": {
             "3:0": {
@@ -2572,9 +2572,9 @@
             "doc": "DS60001734F",
             "section": "11.4.4",
             "page": 211,
-            "date": "2026-08-25",
-            "by": "extraction + comparison, not read sentence by sentence",
-            "scope": "address, mnemonic, register title, bit ranges and bit field names"
+            "date": "2026-08-29",
+            "by": "extraction + comparison, not read sentence by sentence Reset value additionally hardware-confirmed: read back after triggering OA_RESET.SWRESET (full chip reset), matched the documented non-zero reset value bit-for-bit, reproduced across two independent reset cycles.",
+            "scope": "address, mnemonic, register title, bit ranges and bit field names, and the reset value (hardware-confirmed)"
           },
           "bits": {
             "13": {
@@ -2679,9 +2679,9 @@
             "doc": "DS60001734F",
             "section": "11.5.2",
             "page": 218,
-            "date": "2026-08-25",
-            "by": "extraction + comparison, not read sentence by sentence",
-            "scope": "address, mnemonic, register title, bit ranges and bit field names"
+            "date": "2026-08-29",
+            "by": "full text read and compared against DS60001734F (local PDF copy)",
+            "scope": "address, mnemonic, register title, bit ranges, bit field names, and the prose function description"
           },
           "bits": {
             "12": {
@@ -2784,9 +2784,9 @@
             "doc": "DS60001734F",
             "section": "11.5.3",
             "page": 221,
-            "date": "2026-08-25",
-            "by": "extraction + comparison, not read sentence by sentence",
-            "scope": "address, mnemonic, register title, bit ranges and bit field names"
+            "date": "2026-08-29",
+            "by": "full text read and compared against DS60001734F (local PDF copy)",
+            "scope": "address, mnemonic, register title, bit ranges, bit field names, and the prose function description"
           },
           "bits": {
             "10": {
@@ -2832,9 +2832,9 @@
             "doc": "DS60001734F",
             "section": "11.5.4",
             "page": 222,
-            "date": "2026-08-25",
-            "by": "extraction + comparison, not read sentence by sentence",
-            "scope": "address, mnemonic, register title, bit ranges and bit field names"
+            "date": "2026-08-29",
+            "by": "full text read and compared against DS60001734F (local PDF copy)",
+            "scope": "address, mnemonic, register title, bit ranges, bit field names, and the prose function description"
           },
           "bits": {
             "7:0": {
@@ -2856,9 +2856,9 @@
             "doc": "DS60001734F",
             "section": "11.5.5",
             "page": 223,
-            "date": "2026-08-25",
-            "by": "extraction + comparison, not read sentence by sentence",
-            "scope": "address, mnemonic, register title, bit ranges and bit field names"
+            "date": "2026-08-29",
+            "by": "extraction + comparison, not read sentence by sentence Reset value additionally hardware-confirmed: read back after triggering OA_RESET.SWRESET (full chip reset), matched the documented non-zero reset value bit-for-bit, reproduced across two independent reset cycles.",
+            "scope": "address, mnemonic, register title, bit ranges and bit field names, and the reset value (hardware-confirmed)"
           },
           "bits": {
             "12": {
@@ -2952,9 +2952,9 @@
             "doc": "DS60001734F",
             "section": "11.5.6",
             "page": 226,
-            "date": "2026-08-25",
-            "by": "extraction + comparison, not read sentence by sentence",
-            "scope": "address, mnemonic, register title, bit ranges and bit field names"
+            "date": "2026-08-29",
+            "by": "extraction + comparison, not read sentence by sentence Reset value additionally hardware-confirmed: read back after triggering OA_RESET.SWRESET (full chip reset), matched the documented non-zero reset value bit-for-bit, reproduced across two independent reset cycles.",
+            "scope": "address, mnemonic, register title, bit ranges and bit field names, and the reset value (hardware-confirmed)"
           },
           "bits": {
             "10": {
@@ -3000,9 +3000,9 @@
             "doc": "DS60001734F",
             "section": "11.5.7",
             "page": 227,
-            "date": "2026-08-25",
-            "by": "extraction + comparison, not read sentence by sentence",
-            "scope": "address, mnemonic, register title, bit ranges and bit field names"
+            "date": "2026-08-29",
+            "by": "full text read and compared against DS60001734F (local PDF copy)",
+            "scope": "address, mnemonic, register title, bit ranges, bit field names, and the prose function description"
           },
           "bits": {
             "1": {
@@ -3030,9 +3030,9 @@
             "doc": "DS60001734F",
             "section": "11.5.8",
             "page": 228,
-            "date": "2026-08-25",
-            "by": "extraction + comparison, not read sentence by sentence",
-            "scope": "address, mnemonic, register title, bit ranges and bit field names"
+            "date": "2026-08-29",
+            "by": "full text read and compared against DS60001734F (local PDF copy)",
+            "scope": "address, mnemonic, register title, bit ranges, bit field names, and the prose function description"
           },
           "bits": {
             "15:0": {
@@ -3054,9 +3054,9 @@
             "doc": "DS60001734F",
             "section": "11.5.9",
             "page": 229,
-            "date": "2026-08-25",
-            "by": "extraction + comparison, not read sentence by sentence",
-            "scope": "address, mnemonic, register title, bit ranges and bit field names"
+            "date": "2026-08-29",
+            "by": "full text read and compared against DS60001734F (local PDF copy)",
+            "scope": "address, mnemonic, register title, bit ranges, bit field names, and the prose function description"
           },
           "bits": {
             "15:0": {
@@ -3078,9 +3078,9 @@
             "doc": "DS60001734F",
             "section": "11.5.10",
             "page": 230,
-            "date": "2026-08-25",
-            "by": "extraction + comparison, not read sentence by sentence",
-            "scope": "address, mnemonic, register title, bit ranges and bit field names"
+            "date": "2026-08-29",
+            "by": "full text read and compared against DS60001734F (local PDF copy)",
+            "scope": "address, mnemonic, register title, bit ranges, bit field names, and the prose function description"
           },
           "bits": {
             "15:0": {
@@ -3102,9 +3102,9 @@
             "doc": "DS60001734F",
             "section": "11.5.11",
             "page": 231,
-            "date": "2026-08-25",
-            "by": "extraction + comparison, not read sentence by sentence",
-            "scope": "address, mnemonic, register title, bit ranges and bit field names"
+            "date": "2026-08-29",
+            "by": "full text read and compared against DS60001734F (local PDF copy)",
+            "scope": "address, mnemonic, register title, bit ranges, bit field names, and the prose function description"
           },
           "bits": {
             "15:0": {
@@ -3246,9 +3246,9 @@
             "doc": "DS60001734F",
             "section": "11.5.16",
             "page": 236,
-            "date": "2026-08-25",
-            "by": "extraction + comparison, not read sentence by sentence",
-            "scope": "address, mnemonic, register title, bit ranges and bit field names"
+            "date": "2026-08-29",
+            "by": "full text read and compared against DS60001734F (local PDF copy)",
+            "scope": "address, mnemonic, register title, bit ranges, bit field names, and the prose function description"
           },
           "bits": {
             "15:8": {
@@ -3270,9 +3270,9 @@
             "doc": "DS60001734F",
             "section": "11.5.17",
             "page": 237,
-            "date": "2026-08-25",
-            "by": "extraction + comparison, not read sentence by sentence",
-            "scope": "address, mnemonic, register title, bit ranges and bit field names"
+            "date": "2026-08-29",
+            "by": "extraction + comparison, not read sentence by sentence Reset value additionally hardware-confirmed: read back after triggering OA_RESET.SWRESET (full chip reset), matched the documented non-zero reset value bit-for-bit, reproduced across two independent reset cycles.",
+            "scope": "address, mnemonic, register title, bit ranges and bit field names, and the reset value (hardware-confirmed)"
           },
           "bits": {
             "13": {
@@ -3306,9 +3306,9 @@
             "doc": "DS60001734F",
             "section": "11.5.18",
             "page": 238,
-            "date": "2026-08-25",
-            "by": "extraction + comparison, not read sentence by sentence",
-            "scope": "address, mnemonic, register title, bit ranges and bit field names"
+            "date": "2026-08-29",
+            "by": "extraction + comparison, not read sentence by sentence Reset value additionally hardware-confirmed: read back after triggering OA_RESET.SWRESET (full chip reset), matched the documented non-zero reset value bit-for-bit, reproduced across two independent reset cycles.",
+            "scope": "address, mnemonic, register title, bit ranges and bit field names, and the reset value (hardware-confirmed)"
           },
           "bits": {
             "15:0": {
@@ -3331,9 +3331,9 @@
             "doc": "DS60001734F",
             "section": "11.5.19",
             "page": 239,
-            "date": "2026-08-25",
-            "by": "extraction + comparison, not read sentence by sentence",
-            "scope": "address, mnemonic, register title, bit ranges and bit field names"
+            "date": "2026-08-29",
+            "by": "extraction + comparison, not read sentence by sentence Reset value additionally hardware-confirmed: read back after triggering OA_RESET.SWRESET (full chip reset), matched the documented non-zero reset value bit-for-bit, reproduced across two independent reset cycles.",
+            "scope": "address, mnemonic, register title, bit ranges and bit field names, and the reset value (hardware-confirmed)"
           },
           "bits": {
             "15:0": {
@@ -3391,9 +3391,9 @@
             "doc": "DS60001734F",
             "section": "11.5.21",
             "page": 241,
-            "date": "2026-08-25",
-            "by": "extraction + comparison, not read sentence by sentence",
-            "scope": "address, mnemonic, register title, bit ranges and bit field names"
+            "date": "2026-08-29",
+            "by": "extraction + comparison, not read sentence by sentence Reset value additionally hardware-confirmed: read back after triggering OA_RESET.SWRESET (full chip reset), matched the documented non-zero reset value bit-for-bit, reproduced across two independent reset cycles.",
+            "scope": "address, mnemonic, register title, bit ranges and bit field names, and the reset value (hardware-confirmed)"
           },
           "bits": {
             "7:0": {
@@ -3415,9 +3415,9 @@
             "doc": "DS60001734F",
             "section": "11.5.22",
             "page": 242,
-            "date": "2026-08-25",
-            "by": "extraction + comparison, not read sentence by sentence",
-            "scope": "address, mnemonic, register title, bit ranges and bit field names"
+            "date": "2026-08-29",
+            "by": "extraction + comparison, not read sentence by sentence Reset value additionally hardware-confirmed: read back after triggering OA_RESET.SWRESET (full chip reset), matched the documented non-zero reset value bit-for-bit, reproduced across two independent reset cycles.",
+            "scope": "address, mnemonic, register title, bit ranges and bit field names, and the reset value (hardware-confirmed)"
           },
           "bits": {
             "15:0": {
@@ -3571,9 +3571,9 @@
             "doc": "DS60001734F",
             "section": "11.5.28",
             "page": 248,
-            "date": "2026-08-25",
-            "by": "extraction + comparison, not read sentence by sentence",
-            "scope": "address, mnemonic, register title, bit ranges and bit field names"
+            "date": "2026-08-29",
+            "by": "extraction + comparison, not read sentence by sentence Reset value additionally hardware-confirmed: read back after triggering OA_RESET.SWRESET (full chip reset), matched the documented non-zero reset value bit-for-bit, reproduced across two independent reset cycles.",
+            "scope": "address, mnemonic, register title, bit ranges and bit field names, and the reset value (hardware-confirmed)"
           },
           "bits": {
             "7:0": {
@@ -3595,9 +3595,9 @@
             "doc": "DS60001734F",
             "section": "11.5.29",
             "page": 249,
-            "date": "2026-08-25",
-            "by": "extraction + comparison, not read sentence by sentence",
-            "scope": "address, mnemonic, register title, bit ranges and bit field names"
+            "date": "2026-08-29",
+            "by": "extraction + comparison, not read sentence by sentence Reset value additionally hardware-confirmed: read back after triggering OA_RESET.SWRESET (full chip reset), matched the documented non-zero reset value bit-for-bit, reproduced across two independent reset cycles.",
+            "scope": "address, mnemonic, register title, bit ranges and bit field names, and the reset value (hardware-confirmed)"
           },
           "bits": {
             "15:0": {
@@ -3746,9 +3746,9 @@
             "doc": "DS60001734F",
             "section": "11.5.35",
             "page": 255,
-            "date": "2026-08-25",
-            "by": "extraction + comparison, not read sentence by sentence",
-            "scope": "address, mnemonic, register title, bit ranges and bit field names"
+            "date": "2026-08-29",
+            "by": "extraction + comparison, not read sentence by sentence Reset value additionally hardware-confirmed: read back after triggering OA_RESET.SWRESET (full chip reset), matched the documented non-zero reset value bit-for-bit, reproduced across two independent reset cycles.",
+            "scope": "address, mnemonic, register title, bit ranges and bit field names, and the reset value (hardware-confirmed)"
           },
           "bits": {
             "15:0": {
@@ -3794,9 +3794,9 @@
             "doc": "DS60001734F",
             "section": "11.5.37",
             "page": 257,
-            "date": "2026-08-25",
-            "by": "extraction + comparison, not read sentence by sentence",
-            "scope": "address, mnemonic, register title, bit ranges and bit field names"
+            "date": "2026-08-29",
+            "by": "extraction + comparison, not read sentence by sentence Reset value additionally hardware-confirmed: read back after triggering OA_RESET.SWRESET (full chip reset), matched the documented non-zero reset value bit-for-bit, reproduced across two independent reset cycles.",
+            "scope": "address, mnemonic, register title, bit ranges and bit field names, and the reset value (hardware-confirmed)"
           },
           "bits": {
             "15:0": {
@@ -3818,9 +3818,9 @@
             "doc": "DS60001734F",
             "section": "11.5.38",
             "page": 258,
-            "date": "2026-08-25",
-            "by": "extraction + comparison, not read sentence by sentence",
-            "scope": "address, mnemonic, register title, bit ranges and bit field names"
+            "date": "2026-08-29",
+            "by": "extraction + comparison, not read sentence by sentence Reset value additionally hardware-confirmed: read back after triggering OA_RESET.SWRESET (full chip reset), matched the documented non-zero reset value bit-for-bit, reproduced across two independent reset cycles.",
+            "scope": "address, mnemonic, register title, bit ranges and bit field names, and the reset value (hardware-confirmed)"
           },
           "bits": {
             "15:8": {
@@ -3848,9 +3848,9 @@
             "doc": "DS60001734F",
             "section": "11.5.39",
             "page": 259,
-            "date": "2026-08-25",
-            "by": "extraction + comparison, not read sentence by sentence",
-            "scope": "address, mnemonic, register title, bit ranges and bit field names"
+            "date": "2026-08-29",
+            "by": "extraction + comparison, not read sentence by sentence Reset value additionally hardware-confirmed: read back after triggering OA_RESET.SWRESET (full chip reset), matched the documented non-zero reset value bit-for-bit, reproduced across two independent reset cycles.",
+            "scope": "address, mnemonic, register title, bit ranges and bit field names, and the reset value (hardware-confirmed)"
           },
           "bits": {
             "3:0": {
@@ -3872,9 +3872,9 @@
             "doc": "DS60001734F",
             "section": "11.5.40",
             "page": 260,
-            "date": "2026-08-25",
-            "by": "extraction + comparison, not read sentence by sentence",
-            "scope": "address, mnemonic, register title, bit ranges and bit field names"
+            "date": "2026-08-29",
+            "by": "extraction + comparison, not read sentence by sentence Reset value additionally hardware-confirmed: read back after triggering OA_RESET.SWRESET (full chip reset), matched the documented non-zero reset value bit-for-bit, reproduced across two independent reset cycles.",
+            "scope": "address, mnemonic, register title, bit ranges and bit field names, and the reset value (hardware-confirmed)"
           },
           "bits": {
             "15:0": {
@@ -3992,9 +3992,9 @@
             "doc": "DS60001734F",
             "section": "11.5.45",
             "page": 265,
-            "date": "2026-08-25",
-            "by": "extraction + comparison, not read sentence by sentence",
-            "scope": "address, mnemonic, register title, bit ranges and bit field names"
+            "date": "2026-08-29",
+            "by": "extraction + comparison, not read sentence by sentence Reset value additionally hardware-confirmed: read back after triggering OA_RESET.SWRESET (full chip reset), matched the documented non-zero reset value bit-for-bit, reproduced across two independent reset cycles.",
+            "scope": "address, mnemonic, register title, bit ranges and bit field names, and the reset value (hardware-confirmed)"
           },
           "bits": {
             "8:1": {
@@ -4232,9 +4232,9 @@
             "doc": "DS60001734F",
             "section": "11.5.52",
             "page": 274,
-            "date": "2026-08-25",
-            "by": "extraction + comparison, not read sentence by sentence",
-            "scope": "address, mnemonic, register title, bit ranges and bit field names"
+            "date": "2026-08-29",
+            "by": "full text read and compared against DS60001734F (local PDF copy)",
+            "scope": "address, mnemonic, register title, bit ranges, bit field names, and the prose function description"
           },
           "bits": {
             "15": {
@@ -4262,9 +4262,9 @@
             "doc": "DS60001734F",
             "section": "11.5.53",
             "page": 275,
-            "date": "2026-08-25",
-            "by": "extraction + comparison, not read sentence by sentence",
-            "scope": "address, mnemonic, register title, bit ranges and bit field names"
+            "date": "2026-08-29",
+            "by": "full text read and compared against DS60001734F (local PDF copy)",
+            "scope": "address, mnemonic, register title, bit ranges, bit field names, and the prose function description"
           },
           "bits": {
             "7": {
@@ -4304,9 +4304,9 @@
             "doc": "DS60001734F",
             "section": "11.5.54",
             "page": 277,
-            "date": "2026-08-25",
-            "by": "extraction + comparison, not read sentence by sentence",
-            "scope": "address, mnemonic, register title, bit ranges and bit field names"
+            "date": "2026-08-29",
+            "by": "full text read and compared against DS60001734F (local PDF copy)",
+            "scope": "address, mnemonic, register title, bit ranges, bit field names, and the prose function description"
           },
           "bits": {
             "11:4": {
@@ -4328,9 +4328,9 @@
             "doc": "DS60001734F",
             "section": "11.5.55",
             "page": 278,
-            "date": "2026-08-25",
-            "by": "extraction + comparison, not read sentence by sentence",
-            "scope": "address, mnemonic, register title, bit ranges and bit field names"
+            "date": "2026-08-29",
+            "by": "full text read and compared against DS60001734F (local PDF copy) Reset value additionally hardware-confirmed: read back after triggering OA_RESET.SWRESET (full chip reset), matched the documented non-zero reset value bit-for-bit, reproduced across two independent reset cycles.",
+            "scope": "address, mnemonic, register title, bit ranges, bit field names, and the prose function description, and the reset value (hardware-confirmed)"
           },
           "bits": {
             "12:8": {
@@ -4353,9 +4353,9 @@
             "doc": "DS60001734F",
             "section": "11.5.56",
             "page": 279,
-            "date": "2026-08-25",
-            "by": "extraction + comparison, not read sentence by sentence",
-            "scope": "address, mnemonic, register title, bit ranges and bit field names"
+            "date": "2026-08-29",
+            "by": "extraction + comparison, not read sentence by sentence Reset value additionally hardware-confirmed: read back after triggering OA_RESET.SWRESET (full chip reset), matched the documented non-zero reset value bit-for-bit, reproduced across two independent reset cycles.",
+            "scope": "address, mnemonic, register title, bit ranges and bit field names, and the reset value (hardware-confirmed)"
           },
           "bits": {
             "15:8": {
@@ -4378,9 +4378,9 @@
             "doc": "DS60001734F",
             "section": "11.5.57",
             "page": 280,
-            "date": "2026-08-25",
-            "by": "extraction + comparison, not read sentence by sentence",
-            "scope": "address, mnemonic, register title, bit ranges and bit field names"
+            "date": "2026-08-29",
+            "by": "extraction + comparison, not read sentence by sentence Reset value additionally hardware-confirmed: read back after triggering OA_RESET.SWRESET (full chip reset), matched the documented non-zero reset value bit-for-bit, reproduced across two independent reset cycles.",
+            "scope": "address, mnemonic, register title, bit ranges and bit field names, and the reset value (hardware-confirmed)"
           },
           "bits": {
             "15:8": {
@@ -4410,9 +4410,9 @@
             "doc": "DS60001734F",
             "section": "11.5.58",
             "page": 281,
-            "date": "2026-08-25",
-            "by": "extraction + comparison, not read sentence by sentence",
-            "scope": "address, mnemonic, register title, bit ranges and bit field names"
+            "date": "2026-08-29",
+            "by": "full text read and compared against DS60001734F (local PDF copy)",
+            "scope": "address, mnemonic, register title, bit ranges, bit field names, and the prose function description"
           },
           "bits": {
             "15": {
@@ -4455,9 +4455,9 @@
             "doc": "DS60001734F",
             "section": "11.5.59",
             "page": 282,
-            "date": "2026-08-25",
-            "by": "extraction + comparison, not read sentence by sentence",
-            "scope": "address, mnemonic, register title, bit ranges and bit field names"
+            "date": "2026-08-29",
+            "by": "full text read and compared against DS60001734F (local PDF copy)",
+            "scope": "address, mnemonic, register title, bit ranges, bit field names, and the prose function description"
           },
           "bits": {
             "15:8": {
@@ -4486,9 +4486,9 @@
             "doc": "DS60001734F",
             "section": "11.5.60",
             "page": 283,
-            "date": "2026-08-25",
-            "by": "extraction + comparison, not read sentence by sentence",
-            "scope": "address, mnemonic, register title, bit ranges and bit field names"
+            "date": "2026-08-29",
+            "by": "full text read and compared against DS60001734F (local PDF copy)",
+            "scope": "address, mnemonic, register title, bit ranges, bit field names, and the prose function description"
           },
           "bits": {
             "15": {
@@ -4510,9 +4510,9 @@
             "doc": "DS60001734F",
             "section": "11.5.61",
             "page": 284,
-            "date": "2026-08-25",
-            "by": "extraction + comparison, not read sentence by sentence",
-            "scope": "address, mnemonic, register title, bit ranges and bit field names"
+            "date": "2026-08-29",
+            "by": "extraction + comparison, not read sentence by sentence Reset value additionally hardware-confirmed: read back after triggering OA_RESET.SWRESET (full chip reset), matched the documented non-zero reset value bit-for-bit, reproduced across two independent reset cycles.",
+            "scope": "address, mnemonic, register title, bit ranges and bit field names, and the reset value (hardware-confirmed)"
           },
           "bits": {
             "7:0": {
@@ -4544,9 +4544,9 @@
             "doc": "DS60001734F",
             "section": "11.5.62",
             "page": 285,
-            "date": "2026-08-25",
-            "by": "extraction + comparison, not read sentence by sentence",
-            "scope": "address, mnemonic, register title, bit ranges and bit field names"
+            "date": "2026-08-29",
+            "by": "extraction + comparison, not read sentence by sentence Reset value additionally hardware-confirmed: read back after triggering OA_RESET.SWRESET (full chip reset), matched the documented non-zero reset value bit-for-bit, reproduced across two independent reset cycles.",
+            "scope": "address, mnemonic, register title, bit ranges and bit field names, and the reset value (hardware-confirmed)"
           },
           "bits": {
             "15:8": {
@@ -4579,9 +4579,9 @@
             "doc": "DS60001734F",
             "section": "11.6.1",
             "page": 291,
-            "date": "2026-08-25",
-            "by": "extraction + comparison, not read sentence by sentence",
-            "scope": "address, mnemonic, register title, bit ranges and bit field names"
+            "date": "2026-08-29",
+            "by": "extraction + comparison, not read sentence by sentence Reset value additionally hardware-confirmed: read back after triggering OA_RESET.SWRESET (full chip reset), matched the documented non-zero reset value bit-for-bit, reproduced across two independent reset cycles.",
+            "scope": "address, mnemonic, register title, bit ranges and bit field names, and the reset value (hardware-confirmed)"
           },
           "bits": {
             "31:30": {
@@ -4617,9 +4617,9 @@
             "doc": "DS60001734F",
             "section": "11.6.2",
             "page": 293,
-            "date": "2026-08-25",
-            "by": "extraction + comparison, not read sentence by sentence",
-            "scope": "address, mnemonic, register title, bit ranges and bit field names"
+            "date": "2026-08-29",
+            "by": "extraction + comparison, not read sentence by sentence Reset value additionally hardware-confirmed: read back after triggering OA_RESET.SWRESET (full chip reset), matched the documented non-zero reset value bit-for-bit, reproduced across two independent reset cycles.",
+            "scope": "address, mnemonic, register title, bit ranges and bit field names, and the reset value (hardware-confirmed)"
           },
           "bits": {
             "22:20": {
@@ -4642,9 +4642,9 @@
             "doc": "DS60001734F",
             "section": "11.6.3",
             "page": 295,
-            "date": "2026-08-25",
-            "by": "extraction + comparison, not read sentence by sentence",
-            "scope": "address, mnemonic, register title, bit ranges and bit field names"
+            "date": "2026-08-29",
+            "by": "extraction + comparison, not read sentence by sentence Reset value additionally hardware-confirmed: read back after triggering OA_RESET.SWRESET (full chip reset), matched the documented non-zero reset value bit-for-bit, reproduced across two independent reset cycles.",
+            "scope": "address, mnemonic, register title, bit ranges and bit field names, and the reset value (hardware-confirmed)"
           },
           "bits": {
             "31:30": {
@@ -4726,9 +4726,9 @@
             "doc": "DS60001734F",
             "section": "11.6.4",
             "page": 298,
-            "date": "2026-08-25",
-            "by": "extraction + comparison, not read sentence by sentence",
-            "scope": "address, mnemonic, register title, bit ranges and bit field names"
+            "date": "2026-08-29",
+            "by": "extraction + comparison, not read sentence by sentence Reset value additionally hardware-confirmed: read back after triggering OA_RESET.SWRESET (full chip reset), matched the documented non-zero reset value bit-for-bit, reproduced across two independent reset cycles.",
+            "scope": "address, mnemonic, register title, bit ranges and bit field names, and the reset value (hardware-confirmed)"
           },
           "bits": {
             "4": {
@@ -4901,9 +4901,9 @@
             "doc": "DS60001734F",
             "section": "11.6.8",
             "page": 303,
-            "date": "2026-08-25",
-            "by": "extraction + comparison, not read sentence by sentence",
-            "scope": "address, mnemonic, register title, bit ranges and bit field names"
+            "date": "2026-08-29",
+            "by": "extraction + comparison, not read sentence by sentence Reset value additionally hardware-confirmed: read back after triggering OA_RESET.SWRESET (full chip reset), matched the documented non-zero reset value bit-for-bit, reproduced across two independent reset cycles.",
+            "scope": "address, mnemonic, register title, bit ranges and bit field names, and the reset value (hardware-confirmed)"
           },
           "bits": {
             "31": {
