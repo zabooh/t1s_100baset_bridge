@@ -30,7 +30,7 @@
       3. Call LAN865X_DIAG_Tasks() from the main loop / an idle state.
 
     That is the whole integration. The console then offers lan_read, lan_write,
-    lan_rmw, testmode, plca_node and sqi.
+    lan_rmw, testmode, plca_node, plca_stat and sqi.
 
     All register operations are asynchronous and there is exactly ONE slot: a
     request is rejected (not queued) while another is in flight, and results are
@@ -59,7 +59,84 @@ extern "C" {
 #define LAN865X_T1STSTCTL_MASK  0x0000E000u   /* only those three bits read back         */
 #define LAN865X_T1SPMACTL       0x000308F9u   /* PMA control (RST/TXD/LPE/MDE/LBE)       */
 #define LAN865X_T1SPMASTS       0x000308FAu   /* PMA status, read-only                   */
-#define LAN865X_PLCA_CTRL1      0x0004CA02u   /* NODE_CNT in 15:8, NODE_ID in 7:0        */
+/* NODE_CNT in 15:8, NODE_ID in 7:0. Datasheet 11.5.59: "This field [NCNT] must be
+ * configured correctly on the node with ID=0 (Controller). Nodes configured with ID
+ * other than zero (Followers) ignore this field." Matches this file's own
+ * LAN865X_DIAG_ApplyPlca() comment about node_cnt being ineffective on a follower. */
+#define LAN865X_PLCA_CTRL1      0x0004CA02u
+#define LAN865X_PLCA_STS        0x0004CA03u   /* PLCA status, PST in bit 15              */
+
+/* Below the OA standard bank (MMS 0), used only by plca_stat for bus-health telemetry
+   that sits below the IP-frame level: BEACON/COMMIT control symbols never reach the RX
+   frame path that 'mirror'/'sniffer' tap, so this is the register-level substitute. */
+#define LAN865X_STS1            0x00040018u   /* status 1; PLCA-relevant bits are RC     */
+/* ERRTOID: "This field is only accurate if one unmasked interrupt status bit is set in
+ * the Status 1 register. If multiple interrupt status bits are set, then this field
+ * represents the transmit opportunity for only the most recent" (datasheet, verbatim) -
+ * plca_stat's own STS1 decode routinely reports several bits at once (e.g. EMPCYC +
+ * PLCASYM + PSTC together), so treat this field as unreliable whenever more than one
+ * [PLCA] event line is printed in the same report. */
+#define LAN865X_STS3            0x0004001Au   /* PLCA error transmit-opportunity ID, RO  */
+#define LAN865X_CTRCTRL         0x00040020u   /* TOCTRE/BCNCTRE counter enable, R/W      */
+/* TOCNTH/L and BCNCNTH/L (datasheet 11.5.8-11.5.11): reading the HIGH half latches the
+ * current 32-bit counter into both halves and resets the internal 32-bit counter; the LOW
+ * half's own text says its contents "will be latched upon reading of" the HIGH register.
+ * The HIGH register MUST be read before the LOW register of the same pair, or the two
+ * halves come from different latch events - s_plcastat_addr below relies on this order
+ * (TOCNTH before TOCNTL, BCNCNTH before BCNCNTL); do not reorder those four entries. */
+#define LAN865X_TOCNTH          0x00040024u   /* transmit-opportunity count[31:16], RC   */
+#define LAN865X_TOCNTL          0x00040025u   /* transmit-opportunity count[15:0], RC    */
+#define LAN865X_BCNCNTH         0x00040026u   /* BEACON count[31:16], RC                 */
+#define LAN865X_BCNCNTL         0x00040027u   /* BEACON count[15:0], RC                  */
+/* PRSSTS.MAXID, datasheet 11.5.16 (confirmed against the local PDF, not just inferred from
+ * behavior): "This field contains the maximum PLCA transmit opportunity ID count in the
+ * previous PLCA bus cycle. By monitoring this field, the PLCA follower station
+ * applications may detect the number of transmit opportunities the PLCA coordinator
+ * allows between BEACONs." I.e. the coordinator's configured cycle length, NOT this
+ * node's own PLCA_CTRL1.NODE_CNT. */
+#define LAN865X_PRSSTS          0x00040036u   /* PLCA reconciliation sublayer status, RO */
+#define LAN865X_STATS10         0x00010212u   /* MAC statistics bank (MMS 1): XCOL[7:0]
+                                                  "Excessive Collisions" count, RC, own TX
+                                                  attempts only - saturates at 0xFF.
+                                                  Datasheet section 7.3 warns this MAC-level
+                                                  counter can be confused by PLCA's own
+                                                  internal logical collisions - see
+                                                  LAN865X_T1SPCSDIAG2 for the counter the
+                                                  datasheet actually recommends instead. */
+/* T1SPCSDIAG2.CORTXCNT[15:0] (MMS 2, PCS bank), datasheet 11.3.4 + section 7.3: "Field
+ * containing the number of times a locally initiated transmission resulted in a corrupted
+ * signal at the MDI. Corruption during transmission would typically be due to collisions
+ * on the physical layer." RC, saturates at 0xFFFF. Datasheet explicitly recommends this
+ * over a plain MAC collision counter (STATS10.XCOL) specifically because PLCA's own
+ * internal logical collisions (used to align the MAC with the PHY's transmit opportunity)
+ * would otherwise be miscounted as real ones: "In a properly configured and operating
+ * PLCA mixing segment, no transmit collisions should be detected and the transmit
+ * collision counter should remain zero." */
+#define LAN865X_T1SPCSDIAG2     0x000208F6u
+
+#define LAN865X_CTRCTRL_TOCTRE  0x00000002u
+#define LAN865X_CTRCTRL_BCNCTRE 0x00000001u
+
+/* STS1 bits plca_stat reports; all read-clear (datasheet 11.5.2). */
+#define LAN865X_STS1_PSTC       0x00000800u   /* PLCA status changed                     */
+/* TXCOL: "Physical collision on the network was detected. This does NOT include logical
+ * collisions due to normal operation of PLCA" (datasheet, verbatim) - a duplicate PLCA ID
+ * does NOT set this bit, it sets RXINTO/UNEXPB instead. Only a genuine PHY-level
+ * electrical collision sets TXCOL - e.g. outside PLCA arbitration entirely, or a
+ * startup/beacon-detection-window race. */
+#define LAN865X_STS1_TXCOL      0x00000400u
+#define LAN865X_STS1_EMPCYC     0x00000080u   /* empty PLCA cycle - nobody transmitted   */
+#define LAN865X_STS1_RXINTO     0x00000040u   /* frame received during our own TO        */
+#define LAN865X_STS1_UNEXPB     0x00000020u   /* unexpected BEACON - second coordinator? */
+#define LAN865X_STS1_BCNBFTO    0x00000010u   /* BEACON received before our own TO       */
+/* UNCRS: ACMA-mode specific ("carrier sense during this PHY's transmit slot when ACMA is
+ * asserted", datasheet) - NOT a generic collision/carrier-sense indicator. */
+#define LAN865X_STS1_UNCRS      0x00000008u
+#define LAN865X_STS1_PLCASYM    0x00000004u   /* PLCA symbols detected                   */
+#define LAN865X_STS1_PLCA_MASK  (LAN865X_STS1_PSTC   | LAN865X_STS1_TXCOL | \
+                                  LAN865X_STS1_EMPCYC | LAN865X_STS1_RXINTO | \
+                                  LAN865X_STS1_UNEXPB | LAN865X_STS1_BCNBFTO | \
+                                  LAN865X_STS1_UNCRS  | LAN865X_STS1_PLCASYM)
 
 /* Signal Quality Indicator (datasheet DS60001734F section 7.5 / 11.5.52-55). */
 #define LAN865X_SQICTL          0x000400A0u   /* SQIRST bit15 (self-clear), SQIEN bit14  */
@@ -163,6 +240,29 @@ void LAN865X_DIAG_ApplyPlca(uint8_t node_id, uint8_t node_cnt);
    if you need to know what the PHY actually holds. */
 uint8_t LAN865X_DIAG_PlcaNodeId(void);
 uint8_t LAN865X_DIAG_PlcaNodeCnt(void);
+
+/* A snapshot of PLCA bus health below the IP-frame level. BEACON/COMMIT control
+   symbols are physical reconciliation-sublayer signaling and never reach the RX
+   frame path that 'mirror'/'sniffer' tap, so this reads the PHY's own PLCA status,
+   event and counter registers instead - no oscilloscope needed.
+
+   The first call enables the free-running Transmit-Opportunity/BEACON counters
+   (CTRCTRL, one-time, harmless) and reports zero counts; every call after that
+   reports counts accumulated since the previous call (the counter registers are
+   read-clear), plus the PLCA in-range status, the coordinator's configured cycle
+   length (PRSSTS.MAXID - confirmed by the datasheet to be the coordinator's TO
+   count between BEACONs, NOT this node's own NODE_CNT), any sticky PLCA event
+   flags (second coordinator, empty cycle, a duplicate local ID, ...), and the
+   collision status: STS1.TXCOL, the MAC's own STATS10.XCOL excessive-collision
+   count, and the PCS's T1SPCSDIAG2.CORTXCNT - all three are genuine physical
+   collisions, which per the datasheet are distinct from and do NOT include the
+   logical collisions PLCA itself resolves via RXINTO/UNEXPB. CORTXCNT is the one
+   the datasheet actually recommends (section 7.3) over a plain MAC counter, since
+   the latter can be confused by PLCA's own internal logical collisions; XCOL is
+   kept alongside it rather than replaced, for comparison.
+
+   Returns false if a register operation is already in progress. */
+bool LAN865X_DIAG_PlcaStat(void);
 
 // *****************************************************************************
 // Section: SQI (Signal Quality Indicator)

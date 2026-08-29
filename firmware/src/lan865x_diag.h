@@ -1,5 +1,5 @@
 /*******************************************************************************
-  LAN865x register access, IEEE transmitter test modes and PLCA control
+  LAN865x register access, IEEE transmitter test modes, PLCA control and SQI
 
   File Name:
     lan865x_diag.h
@@ -7,8 +7,9 @@
   Summary:
     Self-contained diagnostics layer on top of the Harmony LAN865x MAC-PHY
     driver: generic register read/write/read-modify-write, the IEEE 802.3-2022
-    section 147.5.2 transmitter test modes, and PLCA node configuration - all
-    reachable both programmatically and from the serial console.
+    section 147.5.2 transmitter test modes, PLCA node configuration, and
+    continuous Signal Quality Indicator monitoring - all reachable both
+    programmatically and from the serial console.
 
   Description:
     This module is deliberately free of application dependencies so it can be
@@ -29,7 +30,7 @@
       3. Call LAN865X_DIAG_Tasks() from the main loop / an idle state.
 
     That is the whole integration. The console then offers lan_read, lan_write,
-    lan_rmw, testmode and plca_node.
+    lan_rmw, testmode, plca_node, plca_stat and sqi.
 
     All register operations are asynchronous and there is exactly ONE slot: a
     request is rejected (not queued) while another is in flight, and results are
@@ -142,6 +143,12 @@ extern "C" {
                                   LAN865X_STS1_UNEXPB | LAN865X_STS1_BCNBFTO | \
                                   LAN865X_STS1_UNCRS  | LAN865X_STS1_PLCASYM)
 
+/* Signal Quality Indicator (datasheet DS60001734F section 7.5 / 11.5.52-55). */
+#define LAN865X_SQICTL          0x000400A0u   /* SQIRST bit15 (self-clear), SQIEN bit14  */
+#define LAN865X_SQISTS0         0x000400A1u   /* SQIERR/SQIVLD(RC)/SQIVAL/SQIERRC, RO    */
+#define LAN865X_SQICFG0         0x000400AAu   /* TOID in bits 11:4                       */
+#define LAN865X_SQICFG2         0x000400ACu   /* SQIINTTHR in bits 12:8                  */
+
 #define LAN865X_TESTMODE_MAX    4u            /* highest valid transmitter test mode     */
 
 /* T1SPMACTL bit masks, for use with LAN865X_DIAG_Rmw(). */
@@ -150,6 +157,29 @@ extern "C" {
 #define LAN865X_PMACTL_LPE      0x00000800u   /* low power enable                        */
 #define LAN865X_PMACTL_MDE      0x00000400u   /* multidrop enable                        */
 #define LAN865X_PMACTL_LBE      0x00000001u   /* PMA loopback enable                     */
+
+/* SQICTL bit mask, for use with LAN865X_DIAG_Rmw(). */
+#define LAN865X_SQICTL_SQIEN    0x00004000u
+
+/* SQICFG0/SQICFG2 fields, for use with LAN865X_DIAG_Rmw() (the datasheet requires
+ * read-modify-write here to avoid disturbing reserved bits). */
+#define LAN865X_SQICFG0_TOID_MASK        0x00000FF0u
+#define LAN865X_SQICFG0_TOID_SHIFT       4u
+#define LAN865X_SQICFG2_SQIINTTHR_MASK   0x00001F00u
+#define LAN865X_SQICFG2_SQIINTTHR_POLL   0x00001F00u   /* 0x1F = interrupt disabled, polling mode */
+
+/* SQISTS0 fields. */
+#define LAN865X_SQISTS0_SQIERR      0x00000080u
+#define LAN865X_SQISTS0_SQIVLD      0x00000040u   /* read-clear; re-arms automatically  */
+#define LAN865X_SQISTS0_SQIVAL_MASK 0x00000038u
+#define LAN865X_SQISTS0_SQIVAL_SHIFT 3u
+#define LAN865X_SQISTS0_SQIERRC_MASK 0x00000007u
+
+#define LAN865X_SQI_TOID_ALL    0xFFu         /* weighted average over all PLCA nodes;
+                                                  empirically only accumulates from
+                                                  traffic this node did NOT itself
+                                                  originate - see docs/FALLSTRICKE.md
+                                                  2026-08-29                              */
 
 // *****************************************************************************
 // Section: Life cycle
@@ -243,6 +273,37 @@ uint8_t LAN865X_DIAG_PlcaNodeCnt(void);
 
    Returns false if a register operation is already in progress. */
 bool LAN865X_DIAG_PlcaStat(void);
+
+// *****************************************************************************
+// Section: SQI (Signal Quality Indicator)
+//
+// SQI is not a one-shot register: the PHY accumulates it from live received
+// traffic over a duration that depends on how much traffic is flowing (the
+// datasheet recommends polling roughly once per second), and the result is
+// exposed through a read-clear valid bit that re-arms itself automatically -
+// reading SQISTS0 both consumes the current value and starts the next
+// accumulation. Modeled here as a background poll that shares the module's
+// single register slot with lan_read/write/rmw/testmode/plca_node/plca_stat.
+//
+// Empirically (docs/FALLSTRICKE.md 2026-08-29): it only accumulates from
+// traffic this node did NOT itself originate - a node sending its own traffic
+// out never sees a valid sample from that traffic, but readily samples a
+// third node's traffic it merely overhears on the shared bus.
+// *****************************************************************************
+
+/* Start (or restart) continuous SQI monitoring of one PLCA transmit
+   opportunity (0..254), or LAN865X_SQI_TOID_ALL for a traffic-weighted
+   average over all nodes. Resets the accumulated min/max/sample/error
+   counters. Configures TOID and polling mode, then enables SQIEN - each step
+   is read-modify-write plus verify, per the datasheet's own recommendation. */
+void LAN865X_DIAG_SqiStart(uint8_t toid);
+
+/* Stop monitoring (clears SQIEN). Safe to call even if not active. */
+void LAN865X_DIAG_SqiStop(void);
+
+/* true once LAN865X_DIAG_SqiStart() has been called and not yet stopped -
+   includes the setup phase, before the first valid sample. */
+bool LAN865X_DIAG_SqiActive(void);
 
 #ifdef __cplusplus
 }

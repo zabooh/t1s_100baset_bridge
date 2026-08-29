@@ -1,5 +1,5 @@
 /*******************************************************************************
-  LAN865x register access, IEEE transmitter test modes and PLCA control
+  LAN865x register access, IEEE transmitter test modes, PLCA control and SQI
 
   File Name:
     lan865x_diag.c
@@ -31,6 +31,7 @@
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdlib.h>                                          /* strtoul() */
+#include <string.h>                                           /* strcmp()  */
 
 #include "definitions.h"
 #include "configuration.h"                                   /* DRV_LAN865X_PLCA_* defaults */
@@ -104,6 +105,44 @@ static bool     s_plca_ctrs_enabled      = false;
 /* SYS_TIME ticks per millisecond, resolved on first use. */
 static uint64_t s_ticks_per_ms = 0u;
 
+/* SQI: a small setup sequence (TOID, poll mode, enable - each RMW+verify per the
+ * datasheet) followed by a steady state that re-reads SQISTS0 roughly once a
+ * second, folding every valid sample into a running min/max/count. Shares the
+ * single register slot above: sqi_tasks() only acts while s_state == LAN_IDLE,
+ * so lan_read/write/rmw/testmode/plca_node/plca_stat always get first claim on a
+ * given pass and SQI simply waits for the next one. */
+typedef enum {
+    SQI_OFF,
+    SQI_SET_TOID,       /* RMW SQICFG0 pending    */
+    SQI_SET_POLLMODE,   /* RMW SQICFG2 pending    */
+    SQI_ARM,            /* RMW SQICTL SQIEN=1 pending */
+    SQI_RUNNING,         /* armed; polling SQISTS0 ~1x/s */
+    SQI_RECOVER_CLEAR,   /* SQIERR seen: RMW SQICTL SQIEN=0 */
+    SQI_RECOVER_SET      /* re-arm: RMW SQICTL SQIEN=1 */
+} sqi_state_t;
+
+#define SQI_POLL_MS  1000u   /* the datasheet's own recommended polling interval */
+
+static sqi_state_t s_sqi_state      = SQI_OFF;
+static uint8_t     s_sqi_toid       = LAN865X_SQI_TOID_ALL;
+static uint64_t    s_sqi_next_poll  = 0u;
+static bool        s_sqi_poll_inflt = false;   /* the in-flight read is our own poll, not a user lan_read */
+
+static uint32_t s_sqi_samples   = 0u;
+static uint32_t s_sqi_errors    = 0u;
+static uint8_t  s_sqi_last_val  = 0u;
+static uint8_t  s_sqi_min_val   = 0u;
+static uint8_t  s_sqi_max_val   = 0u;
+static uint8_t  s_sqi_last_errc = 0u;
+static bool     s_sqi_have_val  = false;
+
+/* Optional periodic auto-print of the report, armed by 'sqi report <seconds>'.
+ * Independent of the register slot - it only reads already-accumulated state,
+ * so it fires on its own schedule and never competes with lan_read/write/rmw. */
+static bool     s_sqi_report_armed = false;
+static uint64_t s_sqi_report_period_ticks = 0u;
+static uint64_t s_sqi_report_next  = 0u;
+
 // *****************************************************************************
 // Section: Helpers
 // *****************************************************************************
@@ -123,6 +162,34 @@ bool LAN865X_DIAG_Busy(void) {
     return (s_state != LAN_IDLE);
 }
 
+/* SQIVAL (0..7) decoded to the SNR/BER range from datasheet DS60001734F 11.5.53. */
+static const char *sqi_val_name(uint8_t v) {
+    switch (v) {
+        case 0u: return "0 worst  (SNR <= ~5dB,  BER >= ~3.8E-2)";
+        case 1u: return "1        (SNR ~5-10dB,  BER ~3.8E-2..7.8E-4)";
+        case 2u: return "2        (SNR ~10-12dB, BER ~7.8E-4..3.4E-5)";
+        case 3u: return "3        (SNR ~12-14dB, BER ~3.4E-5..2.7E-7)";
+        case 4u: return "4        (SNR ~14-16dB, BER ~2.7E-7..1.4E-10)";
+        case 5u: return "5        (SNR ~16-17dB, BER ~1.4E-10..7.2E-13)";
+        case 6u: return "6        (SNR ~17-18dB, BER ~7.2E-13..9.9E-16)";
+        case 7u: return "7 best   (SNR >= ~18dB, BER <= ~9.9E-16)";
+        default: return "?";
+    }
+}
+
+/* SQIERRC (0..5), per the same section - only defined while SQIERR is set. */
+static const char *sqi_errc_name(uint8_t c) {
+    switch (c) {
+        case 0u: return "none";
+        case 1u: return "low threshold above max limitation";
+        case 2u: return "high threshold above max limitation";
+        case 3u: return "low threshold below min limitation";
+        case 4u: return "high threshold below min limitation";
+        case 5u: return "low threshold above high threshold";
+        default: return "undefined";
+    }
+}
+
 uint8_t LAN865X_DIAG_PlcaNodeId(void)  { return s_plca_node_id;  }
 uint8_t LAN865X_DIAG_PlcaNodeCnt(void) { return s_plca_node_cnt; }
 
@@ -130,10 +197,69 @@ uint8_t LAN865X_DIAG_PlcaNodeCnt(void) { return s_plca_node_cnt; }
  * leftover flag would otherwise attach a bogus verdict to whatever register is
  * read next. */
 static void lan_abort(void) {
-    s_state          = LAN_IDLE;
-    s_op_initiated   = false;
-    s_verify_armed   = false;
-    s_verify_pending = false;
+    s_state           = LAN_IDLE;
+    s_op_initiated    = false;
+    s_verify_armed    = false;
+    s_verify_pending  = false;
+    s_plcastat_active = false;   /* a timed-out step must not be mistaken for the next one */
+    s_sqi_poll_inflt  = false;   /* a timed-out SQI poll must not be mistaken for the next op */
+}
+
+/* Fold one SQISTS0 read into the running SQI statistics. Called only for the
+ * background poll (s_sqi_poll_inflt), silently - a printed line every second
+ * would flood the console. Accumulated state is shown on demand by the 'sqi'
+ * command instead. On SQIERR the datasheet requires clearing and re-setting
+ * SQIEN before accumulation can resume. */
+static void sqi_record_sample(uint32_t sts0) {
+    bool    sqierr = (sts0 & LAN865X_SQISTS0_SQIERR) != 0u;
+    bool    sqivld = (sts0 & LAN865X_SQISTS0_SQIVLD) != 0u;
+    uint8_t val    = (uint8_t)((sts0 & LAN865X_SQISTS0_SQIVAL_MASK) >> LAN865X_SQISTS0_SQIVAL_SHIFT);
+    uint8_t errc   = (uint8_t)(sts0 & LAN865X_SQISTS0_SQIERRC_MASK);
+
+    if (sqierr) {
+        s_sqi_errors++;
+        s_sqi_last_errc = errc;
+        SYS_CONSOLE_PRINT("[SQI] error: %s - recovering (SQIEN off/on)\n\r", sqi_errc_name(errc));
+        s_sqi_state = SQI_RECOVER_CLEAR;
+        return;
+    }
+    if (!sqivld) {
+        return;   /* accumulation still running, nothing new yet */
+    }
+    s_sqi_last_val = val;
+    if (!s_sqi_have_val || (val < s_sqi_min_val)) { s_sqi_min_val = val; }
+    if (!s_sqi_have_val || (val > s_sqi_max_val)) { s_sqi_max_val = val; }
+    s_sqi_have_val = true;
+    s_sqi_samples++;
+}
+
+/* Print the accumulated SQI report - the same text for an interactive 'sqi'
+ * query and for the periodic auto-report armed by 'sqi report <seconds>'. */
+static void sqi_print_report(void) {
+    if (!LAN865X_DIAG_SqiActive()) {
+        SYS_CONSOLE_PRINT("[SQI] not monitoring - 'sqi <node 0..254>' or 'sqi all' to start\n\r");
+        return;
+    }
+    if (s_sqi_toid == LAN865X_SQI_TOID_ALL) {
+        SYS_CONSOLE_PRINT("[SQI] node: all (weighted)   state: %s\n\r",
+                          (s_sqi_state == SQI_RUNNING) ? "running" : "starting");
+    } else {
+        SYS_CONSOLE_PRINT("[SQI] node: %u   state: %s\n\r",
+                          (unsigned int)s_sqi_toid,
+                          (s_sqi_state == SQI_RUNNING) ? "running" : "starting");
+    }
+    if (!s_sqi_have_val) {
+        SYS_CONSOLE_PRINT("[SQI] no valid sample yet - accumulation duration depends on traffic\n\r");
+    } else {
+        SYS_CONSOLE_PRINT("[SQI] last: %s\n\r", sqi_val_name(s_sqi_last_val));
+        SYS_CONSOLE_PRINT("[SQI] min: %u   max: %u   samples: %u\n\r",
+                          (unsigned int)s_sqi_min_val, (unsigned int)s_sqi_max_val,
+                          (unsigned int)s_sqi_samples);
+    }
+    if (s_sqi_errors > 0u) {
+        SYS_CONSOLE_PRINT("[SQI] errors: %u (last: %s)\n\r",
+                          (unsigned int)s_sqi_errors, sqi_errc_name(s_sqi_last_errc));
+    }
 }
 
 /* Decode the values collected by a completed plca_stat sequence (see
@@ -378,6 +504,110 @@ bool LAN865X_DIAG_PlcaStat(void) {
     return true;
 }
 
+/* Start (or restart) continuous SQI monitoring. Resets the accumulated
+ * statistics and hands the setup sequence to sqi_tasks(), which picks it up
+ * as soon as the single register slot is free - it does not have to be free
+ * right now. */
+void LAN865X_DIAG_SqiStart(uint8_t toid) {
+    s_sqi_toid       = toid;
+    s_sqi_samples    = 0u;
+    s_sqi_errors     = 0u;
+    s_sqi_have_val   = false;
+    s_sqi_last_val   = 0u;
+    s_sqi_min_val    = 0u;
+    s_sqi_max_val    = 0u;
+    s_sqi_last_errc  = 0u;
+    s_sqi_poll_inflt = false;
+    s_sqi_state      = SQI_SET_TOID;
+}
+
+void LAN865X_DIAG_SqiStop(void) {
+    if (s_sqi_state == SQI_OFF) {
+        SYS_CONSOLE_PRINT("[SQI] already stopped\n\r");
+        return;
+    }
+    s_sqi_state       = SQI_OFF;
+    s_sqi_poll_inflt  = false;
+    s_sqi_report_armed = false;
+    if (LAN865X_DIAG_Rmw(LAN865X_SQICTL, LAN865X_SQICTL_SQIEN, 0u)) {
+        SYS_CONSOLE_PRINT("[SQI] monitoring stopped\n\r");
+    } else {
+        SYS_CONSOLE_PRINT("[SQI] polling stopped, but LAN busy - SQIEN NOT cleared "
+                          "(retry 'sqi off' if that matters)\n\r");
+    }
+}
+
+bool LAN865X_DIAG_SqiActive(void) {
+    return (s_sqi_state != SQI_OFF);
+}
+
+/* Drives the SQI setup sequence and the steady-state poll. Only acts while
+ * the shared register slot is idle: on any given pass, a user command
+ * (lan_read/write/rmw/testmode/plca_node/plca_stat) that got there first simply
+ * wins, and this is tried again on the next call - there is no starvation
+ * because SQI's own operations are equally quick and this runs every
+ * main-loop pass. */
+static void sqi_tasks(void) {
+    if (s_state != LAN_IDLE) {
+        return;
+    }
+
+    switch (s_sqi_state) {
+        case SQI_OFF:
+            break;
+
+        case SQI_SET_TOID:
+            (void)LAN865X_DIAG_Rmw(LAN865X_SQICFG0, LAN865X_SQICFG0_TOID_MASK,
+                                    ((uint32_t)s_sqi_toid << LAN865X_SQICFG0_TOID_SHIFT)
+                                        & LAN865X_SQICFG0_TOID_MASK);
+            s_sqi_state = SQI_SET_POLLMODE;
+            break;
+
+        case SQI_SET_POLLMODE:
+            (void)LAN865X_DIAG_Rmw(LAN865X_SQICFG2, LAN865X_SQICFG2_SQIINTTHR_MASK,
+                                    LAN865X_SQICFG2_SQIINTTHR_POLL);
+            s_sqi_state = SQI_ARM;
+            break;
+
+        case SQI_ARM:
+            (void)LAN865X_DIAG_Rmw(LAN865X_SQICTL, LAN865X_SQICTL_SQIEN, LAN865X_SQICTL_SQIEN);
+            s_sqi_state     = SQI_RUNNING;
+            s_sqi_next_poll = SYS_TIME_Counter64Get();   /* poll right away */
+            if (s_sqi_toid == LAN865X_SQI_TOID_ALL) {
+                SYS_CONSOLE_PRINT("[SQI] monitoring all nodes (weighted) - 'sqi' shows the report\n\r");
+            } else {
+                SYS_CONSOLE_PRINT("[SQI] monitoring node %u - 'sqi' shows the report\n\r",
+                                  (unsigned int)s_sqi_toid);
+            }
+            break;
+
+        case SQI_RUNNING: {
+            uint64_t now = SYS_TIME_Counter64Get();
+            if ((int64_t)(now - s_sqi_next_poll) >= 0) {
+                s_sqi_next_poll  = now + (uint64_t)SQI_POLL_MS * s_ticks_per_ms;
+                s_sqi_poll_inflt = true;
+                if (!LAN865X_DIAG_Read(LAN865X_SQISTS0)) {
+                    s_sqi_poll_inflt = false;   /* can't happen given the guard above, stay honest */
+                }
+            }
+            break;
+        }
+
+        case SQI_RECOVER_CLEAR:
+            (void)LAN865X_DIAG_Rmw(LAN865X_SQICTL, LAN865X_SQICTL_SQIEN, 0u);
+            s_sqi_state = SQI_RECOVER_SET;
+            break;
+
+        case SQI_RECOVER_SET:
+            (void)LAN865X_DIAG_Rmw(LAN865X_SQICTL, LAN865X_SQICTL_SQIEN, LAN865X_SQICTL_SQIEN);
+            s_sqi_state = SQI_RUNNING;
+            break;
+
+        default:
+            break;
+    }
+}
+
 // *****************************************************************************
 // Section: State machine service
 // *****************************************************************************
@@ -408,6 +638,15 @@ void LAN865X_DIAG_Tasks(void) {
                         lan_abort();
                     }
                 }
+            } else if (s_sqi_poll_inflt) {
+                /* Our own background SQI poll, not a user command - stay silent,
+                 * the 'sqi' command reports the accumulated state on demand. */
+                s_sqi_poll_inflt = false;
+                if (s_op_success) {
+                    sqi_record_sample(s_read_value);
+                }
+                s_state = LAN_IDLE;
+                s_op_initiated = false;
             } else if (s_plcastat_active) {
                 if (s_op_success) {
                     s_plcastat_val[s_plcastat_idx] = s_read_value;
@@ -576,6 +815,19 @@ void LAN865X_DIAG_Tasks(void) {
         s_op_initiated   = false;
         s_state          = LAN_WAIT_WRITE;
     }
+
+    sqi_tasks();
+
+    /* Periodic auto-report, armed by 'sqi report <seconds>'. Only reads
+     * already-accumulated state, so it runs on its own schedule regardless
+     * of the register slot. */
+    if (s_sqi_report_armed) {
+        uint64_t now = SYS_TIME_Counter64Get();
+        if ((int64_t)(now - s_sqi_report_next) >= 0) {
+            s_sqi_report_next = now + s_sqi_report_period_ticks;
+            sqi_print_report();
+        }
+    }
 }
 
 // *****************************************************************************
@@ -707,6 +959,75 @@ static void cmd_plca_node(SYS_CMD_DEVICE_NODE *pCmdIO, int argc, char **argv) {
     LAN865X_DIAG_ApplyPlca((uint8_t)strtoul(argv[1], NULL, 0), s_plca_node_cnt);
 }
 
+/* sqi [<node>|all|off|report <seconds>|report off] - continuous PLCA transmit-
+ * opportunity signal quality monitoring (datasheet DS60001734F 7.5). SQI is
+ * not a single register value: the PHY accumulates it from live traffic over
+ * a duration that depends on how much traffic is flowing, so this starts a
+ * background poll (~1x/s) that keeps the accumulation running and folds every
+ * valid sample into a running min/max/count; a bare 'sqi' shows that
+ * accumulated report without disturbing it - it does not itself trigger a new
+ * register access. 'sqi report <seconds>' prints that same report on its own
+ * schedule instead of only on demand (starts monitoring on all nodes first if
+ * nothing is running yet); 'sqi report off' stops the auto-print without
+ * necessarily stopping the monitoring itself - 'sqi off' stops both. */
+static void cmd_sqi(SYS_CMD_DEVICE_NODE* pCmdIO, int argc, char** argv) {
+    if (argc < 2) {
+        sqi_print_report();
+        return;
+    }
+
+    if (strcmp(argv[1], "off") == 0) {
+        LAN865X_DIAG_SqiStop();
+        return;
+    }
+
+    if (strcmp(argv[1], "report") == 0) {
+        if (argc < 3) {
+            SYS_CONSOLE_PRINT("Usage: sqi report <seconds 1..3600>|off\n\r");
+            return;
+        }
+        if (strcmp(argv[2], "off") == 0) {
+            if (s_sqi_report_armed) {
+                s_sqi_report_armed = false;
+                SYS_CONSOLE_PRINT("[SQI] auto-report stopped\n\r");
+            } else {
+                SYS_CONSOLE_PRINT("[SQI] auto-report already stopped\n\r");
+            }
+            return;
+        }
+        uint32_t secs = (uint32_t)strtoul(argv[2], NULL, 0);
+        if ((secs < 1u) || (secs > 3600u)) {
+            SYS_CONSOLE_PRINT("sqi report: seconds must be 1..3600\n\r");
+            return;
+        }
+        if (!LAN865X_DIAG_SqiActive()) {
+            /* Convenience: 'sqi report 5' alone should not just print
+             * "not monitoring" every 5 s - start monitoring on all nodes. */
+            LAN865X_DIAG_SqiStart(LAN865X_SQI_TOID_ALL);
+        }
+        s_sqi_report_period_ticks = (uint64_t)secs * (uint64_t)SYS_TIME_FrequencyGet();
+        s_sqi_report_next         = SYS_TIME_Counter64Get();   /* first report right away */
+        s_sqi_report_armed        = true;
+        SYS_CONSOLE_PRINT("[SQI] auto-report every %u s armed\n\r", (unsigned int)secs);
+        return;
+    }
+
+    uint32_t toid;
+    if (strcmp(argv[1], "all") == 0) {
+        toid = LAN865X_SQI_TOID_ALL;
+    } else {
+        toid = strtoul(argv[1], NULL, 0);
+        if (toid > 0xFEu) {
+            SYS_CONSOLE_PRINT("Usage: sqi [<node 0..254>|all|off]\n\r");
+            SYS_CONSOLE_PRINT("  no argument = show the accumulated report\n\r");
+            return;
+        }
+    }
+
+    LAN865X_DIAG_SqiStart((uint8_t)toid);
+    SYS_CONSOLE_PRINT("[SQI] starting - poll ~1x/s, give it a few seconds to accumulate\n\r");
+}
+
 static void cmd_lan_help(SYS_CMD_DEVICE_NODE* pCmdIO, int argc, char** argv) {
     SYS_CONSOLE_PRINT("LAN865x diagnostics commands:\n\r");
     SYS_CONSOLE_PRINT("  lan_read  <addr>             - Read  LAN865X register (hex address)\n\r");
@@ -715,9 +1036,13 @@ static void cmd_lan_help(SYS_CMD_DEVICE_NODE* pCmdIO, int argc, char** argv) {
     SYS_CONSOLE_PRINT("  testmode [0..4] [seconds]    - IEEE TX test mode, verified by readback (no arg = show)\n\r");
     SYS_CONSOLE_PRINT("  plca_node [id]               - Get/set PLCA node ID (no arg = show current)\n\r");
     SYS_CONSOLE_PRINT("  plca_stat                    - PLCA bus health below IP-frame level (link/nodes/TO+BEACON counts/events)\n\r");
+    SYS_CONSOLE_PRINT("  sqi [node|all|off]           - Signal Quality Indicator, continuous (no arg = show report)\n\r");
+    SYS_CONSOLE_PRINT("  sqi report <sec>|off         - auto-print the sqi report every <sec> s, or stop doing so\n\r");
     SYS_CONSOLE_PRINT("\n\rAddress = (MMS << 16) | offset. MMS 3 = PHY PMA/PMD, MMS 4 = vendor specific.\n\r");
     SYS_CONSOLE_PRINT("Example: lan_read 0x0004CA02   (PLCA_CTRL1: NODE_CNT<<8 | NODE_ID)\n\r");
     SYS_CONSOLE_PRINT("Example: testmode 1 30         (test mode 1, auto-revert after 30 s)\n\r");
+    SYS_CONSOLE_PRINT("Example: sqi all               (monitor all PLCA nodes, weighted average)\n\r");
+    SYS_CONSOLE_PRINT("Example: sqi report 5          (print the report every 5 s, starts monitoring if needed)\n\r");
 }
 
 static const SYS_CMD_DESCRIPTOR lan_cmd_tbl[] = {
@@ -728,6 +1053,7 @@ static const SYS_CMD_DESCRIPTOR lan_cmd_tbl[] = {
     {"testmode",  (SYS_CMD_FNC) cmd_testmode,   ": IEEE transmitter test mode (testmode [0..4] [seconds], no arg = show)"},
     {"plca_node", (SYS_CMD_FNC) cmd_plca_node,  ": get/set PLCA node ID (plca_node [id], no arg: show current)"},
     {"plca_stat", (SYS_CMD_FNC) cmd_plca_stat,  ": PLCA bus health below IP-frame level (link/nodes/TO+BEACON counts/events)"},
+    {"sqi",       (SYS_CMD_FNC) cmd_sqi,        ": continuous Signal Quality Indicator (sqi [node|all|off], sqi report <sec>|off, no arg: show report)"},
 };
 
 void LAN865X_DIAG_Initialize(void) {
